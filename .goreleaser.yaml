@@ -102,9 +102,3 @@ release:
   ids:
     - archive-with-sigs
 
-# <!-- <NG> -->
-github_urls:
-  api: https://github.com/api/v3/
-  upload: https://github.com/api/uploads/
-  download: https://github.com
-# <!-- </NG> -->

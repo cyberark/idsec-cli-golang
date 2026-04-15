@@ -96,9 +96,3 @@ require (
 	gopkg.in/errgo.v1 v1.0.1 // indirect
 	gopkg.in/retry.v1 v1.0.3 // indirect
 )
-
-// <!-- <NG> -->
-// If you wish to work locally with idsec-sdk-golang, uncomment the following line and
-// replace the path with the local path to your idsec-sdk-golang repository
-// replace github.com/cyberark/idsec-sdk-golang => /path/to/idsec-sdk-golang
-// <!-- </NG> -->

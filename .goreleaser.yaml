@@ -20,7 +20,7 @@ builds:
       -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.version={{.Env.BUILD_VERSION}}'
       -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.buildNumber={{.Env.BUILD_NUMBER}}'
       -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.repoPath=cyberark/idsec-cli-golang'
-      -X github.com/cyberark/idsec-sdk-golang/pkg/services.releasedFeaturesOnly={{.Env.RELEASED_FEATURES_ONLY}}'
+      -X 'github.com/cyberark/idsec-cli-golang/pkg/registry.releasedFeaturesOnly={{.Env.RELEASED_FEATURES_ONLY}}'
     binary: idsec-{{ .Os }}
   - id: mac
     goos:
@@ -38,7 +38,7 @@ builds:
       -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.version={{.Env.BUILD_VERSION}}'
       -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.buildNumber={{.Env.BUILD_NUMBER}}'
       -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.repoPath=cyberark/idsec-cli-golang'
-      -X github.com/cyberark/idsec-sdk-golang/pkg/services.releasedFeaturesOnly={{.Env.RELEASED_FEATURES_ONLY}}'
+      -X 'github.com/cyberark/idsec-cli-golang/pkg/registry.releasedFeaturesOnly={{.Env.RELEASED_FEATURES_ONLY}}'
     binary: idsec-{{ .Os }}
   - id: win
     goos:
@@ -56,7 +56,7 @@ builds:
       -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.version={{.Env.BUILD_VERSION}}'
       -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.buildNumber={{.Env.BUILD_NUMBER}}'
       -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.repoPath=cyberark/idsec-cli-golang'
-      -X github.com/cyberark/idsec-sdk-golang/pkg/services.releasedFeaturesOnly={{.Env.RELEASED_FEATURES_ONLY}}'
+      -X 'github.com/cyberark/idsec-cli-golang/pkg/registry.releasedFeaturesOnly={{.Env.RELEASED_FEATURES_ONLY}}'
     binary: idsec-windows
 
 binary_signs:

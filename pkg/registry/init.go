@@ -47,8 +47,8 @@ import (
 	siaworkspacesdbactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/workspacesdb/actions"
 	siaworkspacestargetsetsactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/workspacestargetsets/actions"
 
-	scacloudconsoleactions "github.com/cyberark/idsec-cli-golang/pkg/services/sca/cloudconsole/actions"
-	scaentragroupsactions "github.com/cyberark/idsec-cli-golang/pkg/services/sca/entragroups/actions"
+	scacloudaccessactions "github.com/cyberark/idsec-cli-golang/pkg/services/sca/cloudaccess/actions"
+	scagroupaccessactions "github.com/cyberark/idsec-cli-golang/pkg/services/sca/groupaccess/actions"
 	scak8sactions "github.com/cyberark/idsec-cli-golang/pkg/services/sca/k8s/actions"
 
 	smsessionactivitiesactions "github.com/cyberark/idsec-cli-golang/pkg/services/sm/sessionactivities/actions"
@@ -173,8 +173,8 @@ func init() {
 		},
 		ActionAliases: []string{"accesssca", "asca"},
 		Subactions: []*actions.IdsecServiceCLIActionDefinition{
-			scacloudconsoleactions.CLIAction,
-			scaentragroupsactions.CLIAction,
+			scacloudaccessactions.CLIAction,
+			scagroupaccessactions.CLIAction,
 			scak8sactions.CLIAction,
 		},
 	})

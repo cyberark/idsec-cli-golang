@@ -13,9 +13,16 @@ The following telemetry data is collected by the Idsec CLI and is sent on every 
 - Environment information (e.g., Cloud Console, Region)
 - Metadata about the executed command (e.g., command name, parameters)
 - OS information (e.g., OS type, version)
-- CLI version
 - Tool being used (CLI)
 
+CLI Specific telemetry 
+  
+| Code | Name | Description | Example |
+| :--- | :--- | :--- | :--- |
+| **cls** | CLI Service | The top-level service being accessed (e.g., pcloud). | `pcloud` |
+| **clo** | Operation | The leaf command or action being performed. | `create` |
+| **clv** | CLI Version | The specific version of the CLI tool. | `1.5.2` |
+| **clr** | Resource Path | The path between service and operation, joined by hyphens. | `safes`, `accounts-members` |
 ## Disabling Telemetry
 
 Telemetry collection can be disabled by setting the `IDSEC_DISABLE_TELEMETRY_COLLECTION` environment variable to `true`. This can be done in the terminal before running Idsec commands:

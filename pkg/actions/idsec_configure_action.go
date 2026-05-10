@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
-	"github.com/cyberark/idsec-sdk-golang/pkg/models/actions"
 
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
@@ -201,7 +200,7 @@ func (a *IdsecConfigureAction) DefineAction(cmd *cobra.Command) {
 			}
 			filteredFlags := make([]*sflags.Flag, 0)
 			for _, flag := range flags {
-				if a.hasAuthenticatorKey(authenticator.AuthenticatorName(), flag.Name, actions.ConfigurationAuthenticatorIgnoredDefinitionKeys) {
+				if a.hasAuthenticatorKey(authenticator.AuthenticatorName(), flag.Name, configurationAuthenticatorIgnoredDefinitionKeys) {
 					continue
 				}
 				defaultValue := a.defaultFlagValue(authSettings, flag, authenticator.AuthenticatorName())
@@ -446,7 +445,7 @@ func (a *IdsecConfigureAction) runInteractiveConfigureAction(cmd *cobra.Command,
 					return nil, err
 				}
 			}
-			if authMethodDefaults, ok := actions.ConfigurationDefaultInteractiveValues[authenticator.AuthenticatorName()]; ok {
+			if authMethodDefaults, ok := configurationDefaultInteractiveValues[authenticator.AuthenticatorName()]; ok {
 				for key, val := range authMethodDefaults {
 					value := reflect.ValueOf(methodSettings).Elem().FieldByNameFunc(func(fieldName string) bool {
 						field, _ := reflect.TypeOf(methodSettings).Elem().FieldByName(fieldName)
@@ -477,7 +476,7 @@ func (a *IdsecConfigureAction) runInteractiveConfigureAction(cmd *cobra.Command,
 				return nil, err
 			}
 			for _, flag := range methodSettingsFlags {
-				if a.hasAuthenticatorKey(authenticator.AuthenticatorName(), flag.Name, actions.ConfigurationAuthenticatorIgnoredInteractiveKeys) {
+				if a.hasAuthenticatorKey(authenticator.AuthenticatorName(), flag.Name, configurationAuthenticatorIgnoredInteractiveKeys) {
 					continue
 				}
 				if flag.Value.Type() == "bool" {
@@ -511,7 +510,7 @@ func (a *IdsecConfigureAction) runInteractiveConfigureAction(cmd *cobra.Command,
 					if val == "" && defaultValue != "" {
 						val = defaultValue
 					}
-					emptyValAllowed := a.hasAuthenticatorKey(authenticator.AuthenticatorName(), flag.Name, actions.ConfigurationAllowedEmptyValues)
+					emptyValAllowed := a.hasAuthenticatorKey(authenticator.AuthenticatorName(), flag.Name, configurationAllowedEmptyValues)
 					val, err = args.GetArg(
 						cmd,
 						flag.Name,

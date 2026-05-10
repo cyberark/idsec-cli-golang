@@ -27,6 +27,7 @@ import (
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 
 	"github.com/cyberark/idsec-cli-golang/pkg/actions"
+	cliconfig "github.com/cyberark/idsec-cli-golang/pkg/config"
 	_ "github.com/cyberark/idsec-cli-golang/pkg/registry"
 	k8sactions "github.com/cyberark/idsec-cli-golang/pkg/services/sca/k8s/actions"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
@@ -58,6 +59,9 @@ import (
 func main() {
 	defer actions.RecoverFromPanic()
 
+	configPath := cliconfig.ResolveConfigFilePath(cliconfig.ExtractConfigFlag())
+	cliconfig.LoadConfigFile(configPath)
+
 	config.SetIdsecToolInUse(config.IdsecToolCLI)
 	profilesLoader := profiles.DefaultProfilesLoader()
 
@@ -83,6 +87,7 @@ func createRootCommand() *cobra.Command {
 		Short: "Idsec CLI",
 		Args:  cobra.ArbitraryArgs,
 	}
+	rootCmd.PersistentFlags().String("config", "", "Path to configuration file (default ~/.idsec/config.yaml)")
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 	// Silence usage so we can show our custom help with services in error handler
 	rootCmd.SilenceUsage = true

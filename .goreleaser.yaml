@@ -82,6 +82,7 @@ archives:
         strip_parent: true
 
 changelog:
+  disable: true
   sort: asc
   filters:
     exclude:

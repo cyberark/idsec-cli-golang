@@ -81,6 +81,9 @@ archives:
       - src: 'dist/*_{{.Target}}/*.sig'
         strip_parent: true
 
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS.txt"
+
 changelog:
   disable: true
   sort: asc

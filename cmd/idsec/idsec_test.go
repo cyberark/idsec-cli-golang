@@ -31,12 +31,10 @@ func TestCreateRootCommand(t *testing.T) {
 			},
 		},
 		{
-			name: "success_sets_version_template",
+			name: "success_root_command_has_no_version_field",
 			validateFunc: func(t *testing.T, cmd *cobra.Command) {
-				// Version template should be set
-				// We can't directly access the template, but we can verify the command has version info
-				if cmd.Version == "" {
-					t.Error("Expected Version to be set")
+				if cmd.Version != "" {
+					t.Errorf("Expected Version to be empty, got '%s'", cmd.Version)
 				}
 			},
 		},
@@ -45,18 +43,6 @@ func TestCreateRootCommand(t *testing.T) {
 			validateFunc: func(t *testing.T, cmd *cobra.Command) {
 				if !cmd.SilenceUsage {
 					t.Error("Expected SilenceUsage to be true")
-				}
-			},
-		},
-		{
-			name: "success_version_contains_expected_fields",
-			validateFunc: func(t *testing.T, cmd *cobra.Command) {
-				version := cmd.Version
-				expectedFields := []string{"Version:", "Build Number:", "Build Date:", "Git Commit:", "Git Branch:"}
-				for _, field := range expectedFields {
-					if !strings.Contains(version, field) {
-						t.Errorf("Expected version to contain '%s', got: %s", field, version)
-					}
 				}
 			},
 		},
@@ -88,7 +74,7 @@ func TestRegisterActions(t *testing.T) {
 			name: "success_registers_all_actions",
 			validateFunc: func(t *testing.T, cmd *cobra.Command) {
 				// Check that expected commands are registered
-				expectedCommands := []string{"profiles", "cache", "configure", "login", "exec", "upgrade"}
+				expectedCommands := []string{"profiles", "cache", "configure", "login", "exec", "upgrade", "version"}
 				registeredCommands := make(map[string]bool)
 				for _, subCmd := range cmd.Commands() {
 					registeredCommands[subCmd.Name()] = true

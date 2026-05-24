@@ -42,6 +42,7 @@ nav:
       - Profiles: commands/profiles.md
       - Cache: commands/cache.md
       - Upgrade: commands/upgrade.md
+      - Version: commands/version.md
   - Config:
       - Environment: config/environment.md
       - Telemetry: config/telemetry.md

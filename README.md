@@ -58,6 +58,7 @@ The CLI has the following basic commands:
 - <b>profiles</b> - Manage multiple profiles on the machine
 - <b>cache</b> - Manage the cache of the authentication methods
 - <b>upgrade</b> - Upgrade the CLI to the latest version
+- <b>version</b> - Print the Idsec CLI version
 
 
 configure
@@ -779,6 +780,36 @@ Flags:
       --trusted-cert string         Certificate to use for HTTPS calls
       --verbose                     Whether to verbose log
       --version string              Version to upgrade to (default: latest)
+```
+
+
+version
+-------
+
+Use the `version` command to print the Idsec CLI version and build metadata embedded into the binary at build time.
+
+Run:
+```shell
+idsec version
+```
+
+The default output prints a multi-line block of build metadata, for example:
+```text
+Idsec v0.3.1
+Build Number: 3
+Build Date: 2026-05-20T13:31:52Z
+Git Commit: 8e682dc6b01ac408b1e66f0162809bd877a496cc
+Git Branch: main
+```
+
+For machine-readable output (raw semantic version, without the `Idsec ` or leading `v` prefix), suitable for shell scripting:
+```shell
+idsec version --silent
+```
+
+This prints just the bare version on a single line, e.g.:
+```text
+0.3.1
 ```
 
 

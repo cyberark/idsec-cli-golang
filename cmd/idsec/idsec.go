@@ -11,7 +11,7 @@
 //
 // Example usage:
 //
-//	idsec --version
+//	idsec version
 //	idsec profiles list
 //	idsec login
 //	idsec configure
@@ -35,14 +35,13 @@ import (
 
 // main is the entry point for the Idsec CLI application.
 //
-// This function initializes the Cobra root command with version information,
-// sets up the application version in the common package, creates a profiles
-// loader, and registers all available actions (profiles, cache, configure,
+// This function initializes the Cobra root command,
+// creates a profiles
+// loader, and registers all available actions (version, profiles, cache, configure,
 // login, and service execution) with the root command.
 //
 // The function handles command execution and exits with code 1 if an error
-// occurs during command execution. The version template is customized to
-// display build information in a specific format.
+// occurs during command execution.
 //
 // Build variables (GitCommit, BuildDate, Version, BuildNumber) are expected
 // to be set at compile time using ldflags but will default to "N/A" if not
@@ -54,6 +53,7 @@ import (
 //   - configure: Configure the CLI
 //   - login: Authenticate with services
 //   - exec: Execute service actions
+//   - version: Print the Idsec CLI version
 //
 // The function will call os.Exit(1) if command execution fails.
 func main() {
@@ -72,23 +72,14 @@ func main() {
 	handleCommandExecution(rootCmd)
 }
 
-// createRootCommand creates and configures the root Cobra command with version information.
+// createRootCommand creates and configures the root Cobra command.
 func createRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use: "idsec",
-		Version: fmt.Sprintf(
-			"Version: %s\nBuild Number: %s\nBuild Date: %s\nGit Commit: %s\nGit Branch: %s",
-			config.IdsecVersion(),
-			config.IdsecBuildNumber(),
-			config.IdsecBuildDate(),
-			config.IdsecGitCommit(),
-			config.IdsecGitBranch(),
-		),
+		Use:   "idsec",
 		Short: "Idsec CLI",
 		Args:  cobra.ArbitraryArgs,
 	}
 	rootCmd.PersistentFlags().String("config", "", "Path to configuration file (default ~/.idsec/config.yaml)")
-	rootCmd.SetVersionTemplate("{{.Version}}\n")
 	// Silence usage so we can show our custom help with services in error handler
 	rootCmd.SilenceUsage = true
 	// Silence errors so Cobra doesn't print them before our error handler can reroute
@@ -107,6 +98,7 @@ func registerActions(rootCmd *cobra.Command, profilesLoader *profiles.ProfileLoa
 		actions.NewIdsecUpgradeAction(),
 		k8sactions.NewIdsecKubectlLoginAction(profilesLoader),
 		k8sactions.NewIdsecGenerateKubeconfigAction(profilesLoader),
+		actions.NewIdsecVersionAction(),
 	}
 
 	for _, action := range idsecActions {

@@ -2,11 +2,32 @@ package actions
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/blang/semver"
 	"github.com/spf13/cobra"
+	"github.com/cyberark/idsec-cli-golang/pkg/common"
+	commonargs "github.com/cyberark/idsec-cli-golang/pkg/common/args"
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 )
+
+// getUpgradeHint returns the latest available version when the running
+// binary is out of date, and nil otherwise (up-to-date, suppressed via
+// IDSEC_SUPPRESS_UPGRADE_CHECK, or any IsLatestVersion error including
+// the bounded timeout).
+//
+// Declared as a var so tests can swap in a deterministic stub.
+var getUpgradeHint = func() *semver.Version {
+	if os.Getenv(suppressUpgradeCheckEnvVar) != "" {
+		return nil
+	}
+	isLatest, latest, err := common.IsLatestVersion()
+	if err != nil || isLatest {
+		return nil
+	}
+	return latest
+}
 
 // IdsecVersionAction is a struct that implements the IdsecAction interface for printing the CLI version.
 //
@@ -79,10 +100,17 @@ func (a *IdsecVersionAction) DefineAction(cmd *cobra.Command) {
 //	Git Commit: <git-commit>
 //	Git Branch: <git-branch>
 //
-// (e.g. first line "Idsec v0.3.1"). When --silent is set, only the bare
-// version string is printed with the leading "v" prefix stripped (e.g.
-// "0.3.1"), suitable for shell scripting and tooling that parses semantic
-// versions directly.
+// (e.g. first line "Idsec v0.3.1"). When the binary is older than the latest
+// published GitHub release, a yellow upgrade hint is appended below the
+// metadata block, matching the wording used by the other CLI commands. The
+// check is run on every invocation (no 12h disk cache, unlike the incidental
+// nag in `idsec login`/etc.) and bounded by IsLatestVersion's internal
+// timeout, so `idsec version` always reflects the current state and never
+// hangs. The hint is suppressed on any check failure or when
+// IDSEC_SUPPRESS_UPGRADE_CHECK is set, so offline or restricted environments
+// see no extra noise. When --silent is set, only the bare version string is
+// printed with the leading "v" prefix stripped (e.g. "0.3.1") and the
+// upgrade hint is skipped, keeping output stable for shell scripting.
 //
 // Parameters:
 //   - cmd: The cobra command containing the parsed flags
@@ -101,4 +129,10 @@ func (a *IdsecVersionAction) runVersionAction(cmd *cobra.Command, args []string)
 		config.IdsecGitCommit(),
 		config.IdsecGitBranch(),
 	)
+	if latest := getUpgradeHint(); latest != nil {
+		commonargs.PrintWarning(fmt.Sprintf(
+			"\nA newer version of idsec is available. Run `idsec upgrade` to upgrade to version %s.",
+			latest.String(),
+		))
+	}
 }

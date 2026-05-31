@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -46,18 +47,36 @@ func (a *IdsecGenerateKubeconfigAction) runGenerateKubeconfigAction(cmd *cobra.C
 
 	svc := a.initK8sService(cmd)
 
-	req := &k8smodels.IdsecSCAK8sGenerateKubeconfigRequest{
-		CSP:                csp,
-		All:                allValue,
-		KubeconfigLocation: kubeconfigLocation,
-	}
-	printVerbose(cmd, "calling SDK GenerateKubeconfig — req.CSP=%q, req.All=%q", req.CSP, req.All)
+	var result k8smodels.IdsecSCAK8sGenerateKubeconfigResponse
 
-	result, err := svc.GenerateKubeconfig(req)
-	if err != nil {
-		genKubeconfigExitErr(fmt.Sprintf("generate-kubeconfig API call failed: %v", err))
+	if allValue == "true" && csp == "" {
+		// Fetch kubeconfigs for all supported CSPs in parallel
+		printVerbose(cmd, "fetching kubeconfig for all supported CSPs in parallel: %v", k8sservice.SupportedCSPs)
+
+		ctx := context.Background()
+		parallelResp := svc.GenerateKubeconfigParallel(ctx, k8sservice.SupportedCSPs, kubeconfigLocation)
+
+		printVerbose(cmd, "parallel generation complete: %d succeeded, %d failed",
+			parallelResp.SuccessCount(), parallelResp.FailureCount())
+
+		result = parallelResp.ToMap()
+	} else {
+		// Single CSP or explicit --all passed to SDK
+		req := &k8smodels.IdsecSCAK8sGenerateKubeconfigRequest{
+			CSP:                csp,
+			All:                allValue,
+			KubeconfigLocation: kubeconfigLocation,
+		}
+		printVerbose(cmd, "calling SDK GenerateKubeconfig — req.CSP=%q, req.All=%q", req.CSP, req.All)
+
+		var err error
+		result, err = svc.GenerateKubeconfig(req)
+		if err != nil {
+			genKubeconfigExitErr(fmt.Sprintf("generate-kubeconfig API call failed: %v", err))
+		}
+		result = normalizeGenerateKubeconfigResult(csp, result)
 	}
-	result = normalizeGenerateKubeconfigResult(csp, result)
+
 	if len(result) == 0 {
 		genKubeconfigExitErr("generate-kubeconfig API returned no valid CSP entries")
 	}

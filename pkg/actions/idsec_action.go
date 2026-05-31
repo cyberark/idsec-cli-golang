@@ -183,9 +183,9 @@ func (a *IdsecBaseAction) CommonActionsExecution(cmd *cobra.Command, execArgs []
 		if err == nil && !isLatest {
 			a.updateVersionCheckTimestamp()
 			if latestVersion != nil {
-				args.PrintWarning(fmt.Sprintf("Newer version of Idsec SDK is available [%s], consider upgrading to the latest version\nYou may do so using `idsec upgrade` command", latestVersion.String()))
+				args.PrintWarning(fmt.Sprintf("A newer version of idsec is available. Run `idsec upgrade` to upgrade to version %s.", latestVersion.String()))
 			} else {
-				args.PrintWarning("Newer version of Idsec SDK is available, consider upgrading to the latest version\nYou may do so using `idsec upgrade` command")
+				args.PrintWarning("A newer version of idsec is available. Run `idsec upgrade` to upgrade.")
 			}
 		}
 	}

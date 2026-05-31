@@ -875,6 +875,18 @@ func TestIdsecServiceExecAction_defineServiceExecAction(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "success_marks_deprecated_tree_node_from_sdk_metadata",
+			actionDef: &actions.IdsecServiceCLIActionDefinition{
+				IdsecServiceBaseActionDefinition: actions.IdsecServiceBaseActionDefinition{ActionName: "legacy"},
+				Deprecation:                      &actions.Deprecation{Replacement: "modern"},
+			},
+			validateFunc: func(t *testing.T, cmd *cobra.Command, err error) {
+				if !strings.Contains(cmd.Short, "[DEPRECATED]") {
+					t.Errorf("expected [DEPRECATED] marker in Short, got %q", cmd.Short)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -897,6 +909,114 @@ func TestIdsecServiceExecAction_defineServiceExecAction(t *testing.T) {
 				tt.validateFunc(t, resultCmd, err)
 			}
 		})
+	}
+}
+
+func TestApplyActionDefDeprecation(t *testing.T) {
+	withDep := &actions.IdsecServiceCLIActionDefinition{
+		IdsecServiceBaseActionDefinition: actions.IdsecServiceBaseActionDefinition{ActionName: "svc"},
+		Deprecation:                      &actions.Deprecation{Replacement: "newer"},
+	}
+	zeroDep := &actions.IdsecServiceCLIActionDefinition{
+		IdsecServiceBaseActionDefinition: actions.IdsecServiceBaseActionDefinition{ActionName: "svc"},
+		Deprecation:                      &actions.Deprecation{},
+	}
+	noDep := &actions.IdsecServiceCLIActionDefinition{
+		IdsecServiceBaseActionDefinition: actions.IdsecServiceBaseActionDefinition{ActionName: "svc"},
+	}
+
+	tests := []struct {
+		name      string
+		actionDef *actions.IdsecServiceCLIActionDefinition
+		wantMark  bool
+	}{
+		{"nil_action_def_is_noop", nil, false},
+		{"nil_deprecation_is_noop", noDep, false},
+		{"zero_deprecation_still_marks_command", zeroDep, true},
+		{"non_zero_deprecation_marks_command", withDep, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd := &cobra.Command{Use: "svc", Short: "active"}
+			applyActionDefDeprecation(cmd, tt.actionDef)
+
+			if got := strings.Contains(cmd.Short, "[DEPRECATED]"); got != tt.wantMark {
+				t.Errorf("Short=%q: want marker=%v, got %v", cmd.Short, tt.wantMark, got)
+			}
+		})
+	}
+}
+
+func TestDefineServiceExecAction_UnwrapsSchemaAndMarksLeafDeprecated(t *testing.T) {
+	t.Parallel()
+
+	actionDef := &actions.IdsecServiceCLIActionDefinition{
+		IdsecServiceBaseActionDefinition: actions.IdsecServiceBaseActionDefinition{
+			ActionName: "secrets-db",
+			Schemas: map[string]interface{}{
+				"create":  testutils.CreateTestSchema(),
+				"list-by": actions.Deprecated(testutils.CreateTestSchema(), actions.Deprecation{Replacement: "list"}),
+				"old":     actions.Deprecated(testutils.CreateTestSchema(), actions.Deprecation{}),
+			},
+		},
+	}
+
+	parent := &cobra.Command{Use: "parent"}
+	if _, err := NewIdsecServiceExecAction(nil).defineServiceExecAction(actionDef, parent, nil); err != nil {
+		t.Fatalf("defineServiceExecAction returned error: %v", err)
+	}
+
+	for leaf, want := range map[string]bool{"create": false, "list-by": true, "old": true} {
+		cmd, _, err := parent.Find([]string{"secrets-db", leaf})
+		if err != nil {
+			t.Fatalf("%s: %v", leaf, err)
+		}
+		if got := strings.Contains(cmd.Short, "[DEPRECATED]"); got != want {
+			t.Errorf("%s: want deprecated=%v, got Short=%q", leaf, want, cmd.Short)
+		}
+	}
+}
+
+func TestDefineServiceExecAction_MarksFieldDeprecatedFromSDKTags(t *testing.T) {
+	t.Parallel()
+
+	type schema struct {
+		Name    string `flag:"name"`
+		OldFlag string `flag:"old-flag" deprecated:"--new-flag,use the new flag"`
+	}
+
+	actionDef := &actions.IdsecServiceCLIActionDefinition{
+		IdsecServiceBaseActionDefinition: actions.IdsecServiceBaseActionDefinition{
+			ActionName: "svc",
+			Schemas:    map[string]interface{}{"run": &schema{}},
+		},
+	}
+
+	parent := &cobra.Command{Use: "parent"}
+	if _, err := NewIdsecServiceExecAction(nil).defineServiceExecAction(actionDef, parent, nil); err != nil {
+		t.Fatalf("defineServiceExecAction returned error: %v", err)
+	}
+
+	leaf, _, err := parent.Find([]string{"svc", "run"})
+	if err != nil {
+		t.Fatalf("leaf not found: %v", err)
+	}
+
+	if f := leaf.Flags().Lookup("name"); f == nil || f.Deprecated != "" {
+		t.Errorf("untagged flag should not be deprecated, got %+v", f)
+	}
+	f := leaf.Flags().Lookup("old-flag")
+	if f == nil {
+		t.Fatal("--old-flag missing")
+	}
+	if f.Deprecated == "" {
+		t.Error("--old-flag should be marked deprecated")
+	}
+	if f.Hidden {
+		t.Error("--old-flag should remain visible in help")
 	}
 }
 

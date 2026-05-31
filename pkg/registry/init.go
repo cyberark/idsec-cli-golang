@@ -42,6 +42,7 @@ import (
 	siasecretsvmactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/secretsvm/actions"
 	siasettingsactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/settings/actions"
 	siashortenedconnectionstringactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/shortenedconnectionstring/actions"
+	siasshactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/ssh/actions"
 	siasshcaactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/sshca/actions"
 	siassoactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/sso/actions"
 	siaworkspacesdbactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/workspacesdb/actions"
@@ -76,6 +77,7 @@ func init() {
 			siadbstrongaccountsactions.CLIAction,
 			siaaccessactions.CLIAction,
 			siasshcaactions.CLIAction,
+			siasshactions.CLIAction,
 			siadbactions.CLIAction,
 			siashortenedconnectionstringactions.CLIAction,
 			siasettingsactions.CLIAction,

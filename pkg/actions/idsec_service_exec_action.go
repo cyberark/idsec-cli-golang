@@ -19,10 +19,12 @@ import (
 
 	"github.com/cyberark/idsec-cli-golang/pkg/cli"
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
+	"github.com/cyberark/idsec-cli-golang/pkg/common/deprecation"
 	"github.com/cyberark/idsec-cli-golang/pkg/registry"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models/actions"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
+	"github.com/cyberark/idsec-sdk-golang/pkg/validation"
 )
 
 // IdsecServiceExecAction is a struct that implements the IdsecExecAction interface for executing service actions.
@@ -313,6 +315,30 @@ func (s *IdsecServiceExecAction) setFromString(v reflect.Value, str string) erro
 	return nil
 }
 
+// applyActionDefDeprecation marks the cobra command as deprecated when the SDK
+// service action definition carries deprecation metadata.
+func applyActionDefDeprecation(cmd *cobra.Command, actionDef *actions.IdsecServiceCLIActionDefinition) {
+	if cmd == nil || actionDef == nil || actionDef.Deprecation == nil {
+		return
+	}
+	deprecation.MarkCommand(cmd, deprecation.Deprecation{
+		Message:     actionDef.Deprecation.Message,
+		Replacement: actionDef.Deprecation.Replacement,
+	})
+}
+
+// applySchemaEntryDeprecation marks a leaf cobra command deprecated when the
+// matching ActionToSchemaMap entry was wrapped with modelsactions.Deprecated.
+func applySchemaEntryDeprecation(cmd *cobra.Command, dep *actions.Deprecation) {
+	if cmd == nil || dep == nil {
+		return
+	}
+	deprecation.MarkCommand(cmd, deprecation.Deprecation{
+		Message:     dep.Message,
+		Replacement: dep.Replacement,
+	})
+}
+
 // defineServiceExecAction creates a cobra command for a service action definition.
 //
 // defineServiceExecAction processes a service action definition and creates the
@@ -350,6 +376,8 @@ func (s *IdsecServiceExecAction) defineServiceExecAction(
 		Long:    descriptionWithAliases,
 	}
 
+	applyActionDefDeprecation(actionCmd, actionDef)
+
 	actionDest := actionDef.ActionName
 	if len(parentActionsDef) > 0 {
 		for _, p := range parentActionsDef {
@@ -358,7 +386,8 @@ func (s *IdsecServiceExecAction) defineServiceExecAction(
 	}
 
 	if len(actionDef.Schemas) > 0 {
-		for actionName, schema := range actionDef.Schemas {
+		for actionName, rawSchema := range actionDef.Schemas {
+			schema, schemaDep := actions.UnwrapSchema(rawSchema)
 			subCmd := &cobra.Command{
 				Use: actionName,
 				Run: func(cmd *cobra.Command, args []string) {
@@ -369,6 +398,7 @@ func (s *IdsecServiceExecAction) defineServiceExecAction(
 					s.runExecAction(cmd, args)
 				},
 			}
+			applySchemaEntryDeprecation(subCmd, schemaDep)
 			if schema != nil {
 				flags, err := sflags.ParseStruct(schema)
 				if err != nil {
@@ -408,6 +438,14 @@ func (s *IdsecServiceExecAction) defineServiceExecAction(
 					}
 					if field.Tag.Get("default") != "" {
 						subCmd.Flag(flag.Name).DefValue = field.Tag.Get("default")
+					}
+					if fieldDep := actions.FieldDeprecation(field); fieldDep != nil {
+						if err := deprecation.MarkFlag(subCmd.Flags(), flag.Name, deprecation.Deprecation{
+							Message:     fieldDep.Message,
+							Replacement: fieldDep.Replacement,
+						}); err != nil {
+							return nil, err
+						}
 					}
 				}
 			}
@@ -973,10 +1011,11 @@ func (s *IdsecServiceExecAction) RunExecAction(api *cli.IdsecCLIAPI, cmd *cobra.
 			}
 		}
 	}
-	actionSchema, ok := actionSchemaDef.Schemas[actionName]
+	rawActionSchema, ok := actionSchemaDef.Schemas[actionName]
 	if !ok {
 		return fmt.Errorf("action %s not supported", actionName)
 	}
+	actionSchema, _ := actions.UnwrapSchema(rawActionSchema)
 	if actionSchema != nil {
 		actionSchemaType := reflect.TypeOf(actionSchema)
 		if actionSchemaType.Kind() == reflect.Ptr {
@@ -989,6 +1028,9 @@ func (s *IdsecServiceExecAction) RunExecAction(api *cli.IdsecCLIAPI, cmd *cobra.
 		actionArgs, err := s.resolveActionArgs(cmd, execCmd, actionSchema)
 		if err != nil {
 			return err
+		}
+		if err := validation.ValidateStruct(actionSchema); err != nil {
+			return fmt.Errorf("invalid input for action %q: %w", actionName, err)
 		}
 		result = actionMethod.Call(actionArgs)
 	} else {

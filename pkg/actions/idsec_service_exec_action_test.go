@@ -1,6 +1,9 @@
 package actions
 
 import (
+	"encoding/json"
+	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -8,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/cyberark/idsec-cli-golang/pkg/actions/testutils"
+	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models/actions"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
@@ -737,6 +741,7 @@ func TestIdsecServiceExecAction_serializeAndPrintOutput(t *testing.T) {
 		name       string
 		result     []reflect.Value
 		actionName string
+		pageSize   int
 		// Note: This function prints to console, so we mainly test that it doesn't panic
 		shouldPanic bool
 	}{
@@ -778,6 +783,15 @@ func TestIdsecServiceExecAction_serializeAndPrintOutput(t *testing.T) {
 			actionName:  "test-action",
 			shouldPanic: false,
 		},
+		{
+			name: "success_handles_slice_with_page_size",
+			result: []reflect.Value{
+				reflect.ValueOf([]interface{}{"a", "b", "c"}),
+			},
+			actionName:  "test-action",
+			pageSize:    10,
+			shouldPanic: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -794,7 +808,7 @@ func TestIdsecServiceExecAction_serializeAndPrintOutput(t *testing.T) {
 				}
 			}()
 
-			action.serializeAndPrintOutput(tt.result, tt.actionName)
+			action.serializeAndPrintOutput(tt.result, tt.actionName, tt.pageSize)
 		})
 	}
 }
@@ -1937,5 +1951,128 @@ func TestIdsecServiceExecAction_resolveActionArgs(t *testing.T) {
 				tt.validateFunc(t, result)
 			}
 		})
+	}
+}
+
+// captureStdout redirects os.Stdout for the duration of fn and returns whatever
+// was written. The pager falls back to a direct stdout writer when stdout is
+// not a TTY (as under "go test"), so this captures pageItems' rendered output.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+
+	done := make(chan string, 1)
+	go func() {
+		data, _ := io.ReadAll(r)
+		done <- string(data)
+	}()
+
+	fn()
+
+	os.Stdout = orig
+	_ = w.Close()
+	out := <-done
+	_ = r.Close()
+	return out
+}
+
+func TestPageItems_non_interactive_json_array(t *testing.T) {
+	items := []interface{}{
+		map[string]interface{}{"id": "1", "name": "safe-a"},
+		map[string]interface{}{"id": "2", "name": "safe-b"},
+	}
+	action := NewIdsecServiceExecAction(nil)
+	out := captureStdout(t, func() {
+		action.pageItems(seqFromSlice(reflect.ValueOf(items)), 0)
+	})
+
+	expected := "[\n" +
+		"  {\n" +
+		"    \"id\": \"1\",\n" +
+		"    \"name\": \"safe-a\"\n" +
+		"  },\n" +
+		"  {\n" +
+		"    \"id\": \"2\",\n" +
+		"    \"name\": \"safe-b\"\n" +
+		"  }\n" +
+		"]\n"
+	if out != expected {
+		t.Errorf("expected:\n%q\ngot:\n%q", expected, out)
+	}
+
+	var parsed []interface{}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("JSON output is not valid: %v\noutput:\n%s", err, out)
+	}
+	if len(parsed) != 2 {
+		t.Errorf("expected 2 items, got %d", len(parsed))
+	}
+}
+
+func TestPageItems_interactive_advances_through_all_pages(t *testing.T) {
+	origTTY := args.IsStdoutTTY
+	args.IsStdoutTTY = func() bool { return true }
+	defer func() { args.IsStdoutTTY = origTTY }()
+
+	origPrompt := shouldContinueForNextItem
+	prompts := 0
+	shouldContinueForNextItem = func(renderedCount, pageSize int) bool {
+		if renderedCount > 0 && renderedCount%pageSize == 0 {
+			prompts++
+		}
+		return true
+	}
+	defer func() { shouldContinueForNextItem = origPrompt }()
+
+	items := []interface{}{"a", "b", "c", "d", "e"}
+	action := NewIdsecServiceExecAction(nil)
+	out := captureStdout(t, func() {
+		action.pageItems(seqFromSlice(reflect.ValueOf(items)), 2)
+	})
+
+	expected := "\"a\"\n\"b\"\n\"c\"\n\"d\"\n\"e\"\n"
+	if out != expected {
+		t.Errorf("expected:\n%q\ngot:\n%q", expected, out)
+	}
+	// Page boundaries at items 2 and 4 (5th item ends the stream without a prompt).
+	if prompts != 2 {
+		t.Errorf("expected 2 prompts, got %d", prompts)
+	}
+}
+
+func TestPageItems_interactive_quit_stops_output(t *testing.T) {
+	origTTY := args.IsStdoutTTY
+	args.IsStdoutTTY = func() bool { return true }
+	defer func() { args.IsStdoutTTY = origTTY }()
+
+	origPrompt := shouldContinueForNextItem
+	prompts := 0
+	shouldContinueForNextItem = func(renderedCount, pageSize int) bool {
+		if renderedCount > 0 && renderedCount%pageSize == 0 {
+			prompts++
+			return false
+		}
+		return true
+	}
+	defer func() { shouldContinueForNextItem = origPrompt }()
+
+	items := []interface{}{"a", "b", "c", "d", "e"}
+	action := NewIdsecServiceExecAction(nil)
+	out := captureStdout(t, func() {
+		action.pageItems(seqFromSlice(reflect.ValueOf(items)), 2)
+	})
+
+	// Only the first page is printed; quitting suppresses the rest.
+	expected := "\"a\"\n\"b\"\n"
+	if out != expected {
+		t.Errorf("expected:\n%q\ngot:\n%q", expected, out)
+	}
+	if prompts != 1 {
+		t.Errorf("expected 1 prompt before quit, got %d", prompts)
 	}
 }

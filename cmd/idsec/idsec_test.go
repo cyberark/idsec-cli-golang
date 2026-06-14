@@ -213,6 +213,84 @@ func TestIsKnownSubcommand(t *testing.T) {
 	}
 }
 
+func TestHasHelpFlag(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected bool
+	}{
+		{
+			name:     "success_returns_true_for_short_help_flag",
+			args:     []string{"pcloud", "safes", "-h"},
+			expected: true,
+		},
+		{
+			name:     "success_returns_true_for_long_help_flag",
+			args:     []string{"pcloud", "safes", "--help"},
+			expected: true,
+		},
+		{
+			name:     "success_returns_true_for_help_equals",
+			args:     []string{"pcloud", "--help=true"},
+			expected: true,
+		},
+		{
+			name:     "success_returns_false_when_help_missing",
+			args:     []string{"pcloud", "safes", "list"},
+			expected: false,
+		},
+		{
+			name:     "success_returns_false_for_empty_args",
+			args:     []string{},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := hasHelpFlag(tt.args)
+			if result != tt.expected {
+				t.Errorf("Expected hasHelpFlag to return %v for %v, got %v", tt.expected, tt.args, result)
+			}
+		})
+	}
+}
+
+func TestFirstPositionalArg(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected string
+	}{
+		{
+			name:     "success_returns_first_positional_for_service_path",
+			args:     []string{"pcloud", "safes", "--help"},
+			expected: "pcloud",
+		},
+		{
+			name:     "success_returns_empty_when_only_help_flag",
+			args:     []string{"--help"},
+			expected: "",
+		},
+		{
+			name:     "success_skips_config_value_then_returns_service",
+			args:     []string{"--config", "/tmp/c.yaml", "pcloud", "--help"},
+			expected: "pcloud",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := firstPositionalArg(tt.args)
+			if result != tt.expected {
+				t.Errorf("Expected firstPositionalArg to return %q for %v, got %q", tt.expected, tt.args, result)
+			}
+		})
+	}
+}
+
 func TestShouldShowHelpForError(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -479,6 +557,69 @@ func TestSetupCustomHelp(t *testing.T) {
 
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, cmd)
+			}
+		})
+	}
+}
+
+func TestRerouteHelpToExecIfNeeded(t *testing.T) {
+	tests := []struct {
+		name         string
+		args         []string
+		expectedArgs []string
+	}{
+		{
+			name:         "success_reroutes_help_for_service_resource_path",
+			args:         []string{"idsec", "pcloud", "safes", "--help"},
+			expectedArgs: []string{"idsec", "exec", "pcloud", "safes", "--help"},
+		},
+		{
+			name:         "success_reroutes_help_for_service_alias",
+			args:         []string{"idsec", "pc", "--help"},
+			expectedArgs: []string{"idsec", "exec", "pc", "--help"},
+		},
+		{
+			name:         "success_leaves_global_help_unchanged",
+			args:         []string{"idsec", "--help"},
+			expectedArgs: []string{"idsec", "--help"},
+		},
+		{
+			name:         "success_leaves_known_subcommand_help_unchanged",
+			args:         []string{"idsec", "login", "--help"},
+			expectedArgs: []string{"idsec", "login", "--help"},
+		},
+		{
+			name:         "success_leaves_explicit_exec_help_unchanged",
+			args:         []string{"idsec", "exec", "pcloud", "safes", "--help"},
+			expectedArgs: []string{"idsec", "exec", "pcloud", "safes", "--help"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Avoid t.Parallel(): tests mutate process-global os.Args.
+			originalArgs := make([]string, len(os.Args))
+			copy(originalArgs, os.Args)
+			defer func() {
+				os.Args = originalArgs
+			}()
+
+			os.Args = append([]string{}, tt.args...)
+
+			rootCmd := createRootCommand()
+			rootCmd.AddCommand(&cobra.Command{Use: "exec"})
+			rootCmd.AddCommand(&cobra.Command{Use: "login"})
+			rootCmd.AddCommand(&cobra.Command{Use: "version"})
+
+			rerouteHelpToExecIfNeeded(rootCmd)
+
+			if len(os.Args) != len(tt.expectedArgs) {
+				t.Fatalf("Expected os.Args length %d, got %d (actual=%v expected=%v)", len(tt.expectedArgs), len(os.Args), os.Args, tt.expectedArgs)
+			}
+			for i := range tt.expectedArgs {
+				if os.Args[i] != tt.expectedArgs[i] {
+					t.Fatalf("Expected os.Args[%d]=%q, got %q (actual=%v expected=%v)", i, tt.expectedArgs[i], os.Args[i], os.Args, tt.expectedArgs)
+				}
 			}
 		})
 	}

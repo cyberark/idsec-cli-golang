@@ -67,6 +67,33 @@ All commands have their own subcommands and respective arguments and aliases.
 idsec exec
 ```
 
+## Paging long list output
+
+Use `--page-size` when a command returns a long list and you want to browse the result in the terminal.
+
+```shell linenums="0"
+idsec policy cloud-access list-policies --profile-name myprofile --page-size 10
+```
+
+When `--page-size` is set and the command is running in an interactive terminal, the CLI prints exactly that number of items and waits for a keypress:
+
+- Press `space` or `Enter` to show the next page.
+- Press `q`, `Esc`, `Ctrl+C`, or `Ctrl+D` to stop paging.
+
+The pager controls only page boundaries and continue/quit behavior. Item rendering stays with command output formatting (currently pretty JSON for these list results). Between pages, output is appended so you can scroll up to previous pages.
+
+Paging is client-side only. The CLI still receives the SDK result and only controls interactive paging flow. When output is piped or redirected, the interactive pager is disabled and the CLI writes a JSON array so commands remain scriptable:
+
+```shell linenums="0"
+idsec policy cloud-access list-policies --profile-name myprofile --page-size 10 | jq '.'
+```
+
+Search is not built into the interactive pager. For searching or filtering, pipe the command output to tools such as `less`, `grep`, or `jq`:
+
+```shell linenums="0"
+idsec policy cloud-access list-policies --profile-name myprofile | less
+```
+
 ## Usage
 ```shell
 Exec an action
@@ -91,6 +118,7 @@ Flags:
       --log-level string            Log level to use while verbose (default "INFO")
       --logger-style string         Which verbose logger style to use (default "default")
       --output-path string          Output file to write data to
+      --page-size int               Show N items per page in interactive output, pausing between pages (0 = disabled)
       --profile-name string         Profile name to load (default "idsec")
       --raw                         Whether to raw output
       --refresh-auth                If a cache exists, will also try to refresh it

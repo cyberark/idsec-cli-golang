@@ -39,10 +39,27 @@ brew install idsec
 Docker
 ------
 
-A pre-built `linux/amd64` image is published to Docker Hub at [`cyberark/idsec-cli-golang`](https://hub.docker.com/r/cyberark/idsec-cli-golang). Pin a specific version for reproducible installs:
+Multi-arch images (`linux/amd64` and `linux/arm64`) are published to Docker Hub at [`cyberark/idsec-cli-golang`](https://hub.docker.com/r/cyberark/idsec-cli-golang). Each release pushes a multi-arch manifest list and moves the per-arch tags to the new build:
+
+| Tag | What it resolves to |
+| :--- | :--- |
+| `<version>` | Multi-arch manifest list pinned to that release — Docker auto-selects the matching arch |
+| `latest` | Multi-arch manifest list pointing at the most recent release |
+| `amd64` | Single-platform `linux/amd64` image of the most recent build |
+| `arm64` | Single-platform `linux/arm64` image of the most recent build |
+
+Pin a specific version for reproducible installs — Docker picks the right architecture automatically:
 
 ```shell
 docker pull cyberark/idsec-cli-golang:<version>   # e.g. 1.2.3
+```
+
+If you need to force a specific architecture (for example, running the amd64 image under emulation on Apple Silicon, or pulling for an air-gapped target host), use either `--platform` or the per-arch tag (note: the per-arch tags always track the latest build, not a specific version):
+
+```shell
+docker pull --platform linux/amd64 cyberark/idsec-cli-golang:<version>
+# or pull the per-arch tag directly (always the latest build)
+docker pull cyberark/idsec-cli-golang:arm64
 ```
 
 The image's `ENTRYPOINT` is `idsec` and its working directory is `/data`, so files in the directory you launch from are reachable as `./<filename>`. Mount `~/.idsec` to persist profiles and the keyring between runs:

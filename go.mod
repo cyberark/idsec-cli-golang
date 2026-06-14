@@ -6,14 +6,16 @@ require (
 	github.com/Iilun/survey/v2 v2.5.3
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/confluentinc/go-editor v0.11.0
-	github.com/cyberark/idsec-sdk-golang v0.4.0
+	github.com/cyberark/idsec-sdk-golang v0.5.0
 	github.com/fatih/color v1.18.0
+	github.com/mattn/go-isatty v0.0.20
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/octago/sflags v0.3.1
 	github.com/rhysd/go-github-selfupdate v1.2.3
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6
 	github.com/spf13/viper v1.20.1
+	golang.org/x/term v0.39.0
 	golang.org/x/text v0.33.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -78,7 +80,6 @@ require (
 	github.com/masterzen/simplexml v0.0.0-20190410153822-31eea3082786 // indirect
 	github.com/masterzen/winrm v0.0.0-20240702205601-3fad6e106085 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/mtibben/percent v0.2.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
@@ -103,7 +104,6 @@ require (
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20181106182150-f42d05182288 // indirect
 	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/term v0.39.0 // indirect
 	google.golang.org/appengine v1.3.0 // indirect
 	gopkg.in/errgo.v1 v1.0.1 // indirect
 	gopkg.in/retry.v1 v1.0.3 // indirect

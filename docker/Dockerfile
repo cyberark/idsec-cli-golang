@@ -1,4 +1,4 @@
-FROM cyberark.jfrog.io/dockerhub-remote/alpine:3.19
+FROM cyberark.jfrog.io/dockerhub-remote/alpine:3.21.7
 
 ARG BUILD_VERSION=v0.0.0-dev
 ARG GIT_COMMIT=unknown

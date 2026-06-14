@@ -21,8 +21,8 @@ import (
 // kubectlLoginISPRefreshGrace aligns with the SDK’s default token refresh grace (see idsec-sdk auth).
 const kubectlLoginISPRefreshGrace = 60 * time.Second
 
-// IdsecKubectlLoginAction hooks kubectl exec-credential behaviour: overrides `exec sca k8s elevate` Run
-// (raw JSON on stdout, no coloured success output) and adds hidden `kubectl-login` with the same Run.
+// IdsecKubectlLoginAction hooks kubectl exec-credential behaviour: hides `exec sca k8s elevate` from help,
+// blocks its direct use with an error, and adds hidden `kubectl-login` as the sole exec credential plugin entry point.
 type IdsecKubectlLoginAction struct {
 	profilesLoader *profiles.ProfileLoader
 }
@@ -36,8 +36,12 @@ func NewIdsecKubectlLoginAction(profilesLoader *profiles.ProfileLoader) *IdsecKu
 // DefineAction runs after exec SCA K8s actions are registered so findNestedCommand sees `elevate`.
 func (a *IdsecKubectlLoginAction) DefineAction(cmd *cobra.Command) {
 	if elevateCmd := findNestedCommand(cmd, "exec", "sca", "k8s", "elevate"); elevateCmd != nil {
+		elevateCmd.Hidden = true
 		elevateCmd.SilenceUsage = true
-		elevateCmd.Run = a.runKubectlLoginAction
+		elevateCmd.Run = func(cmd *cobra.Command, _ []string) {
+			fmt.Fprintln(os.Stderr, "Error: 'exec sca k8s elevate' is not supported.")
+			os.Exit(1)
+		}
 	}
 
 	aliasCmd := &cobra.Command{

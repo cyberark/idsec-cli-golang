@@ -3,6 +3,8 @@ package actions
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"iter"
 	"os"
 	"reflect"
 	"slices"
@@ -722,9 +724,17 @@ func (s *IdsecServiceExecAction) parseFlag(f *pflag.Flag, cmd *cobra.Command, fl
 // method execution and formats them appropriately for console output. It handles
 // various result types including structs, maps, arrays, channels, and primitive types.
 //
+// When pageSize > 0, list-shaped results (slices, arrays, channels) are rendered
+// with one JSON item per line. In an interactive terminal, the CLI prints
+// pageSize items, pauses for a keypress, and clears the screen before showing
+// the next page. In non-interactive output (pipes, CI, redirections), the CLI
+// writes a regular JSON array so the output remains scriptable. When pageSize
+// is 0, the output is identical to the legacy pretty-printed JSON format.
+//
 // Parameters:
 //   - result: Slice of reflect.Value containing the method execution results
 //   - actionName: The name of the action being executed (for generic success messages)
+//   - pageSize: Items per page for interactive paging (0 = disabled, legacy behavior)
 //
 // The function handles:
 //   - JSON serialization for complex types (structs, maps, arrays, slices)
@@ -732,7 +742,7 @@ func (s *IdsecServiceExecAction) parseFlag(f *pflag.Flag, cmd *cobra.Command, fl
 //   - Integer formatting for numeric results
 //   - Generic success messages when no specific output is available
 //   - Error handling for JSON serialization failures with fallback output
-func (s *IdsecServiceExecAction) serializeAndPrintOutput(result []reflect.Value, actionName string) {
+func (s *IdsecServiceExecAction) serializeAndPrintOutput(result []reflect.Value, actionName string, pageSize int) {
 	shouldPrintGenericResult := true
 	for _, res := range result {
 		if res.Kind() == reflect.Pointer && res.IsNil() {
@@ -745,42 +755,33 @@ func (s *IdsecServiceExecAction) serializeAndPrintOutput(result []reflect.Value,
 			res = res.Elem()
 		}
 		if res.Kind() == reflect.Struct || res.Kind() == reflect.Map || res.Kind() == reflect.Array || res.Kind() == reflect.Slice {
-			jsonData, err := json.MarshalIndent(res.Interface(), "", "  ")
-			if err != nil {
-				s.logger.Warning("error serializing result to JSON: %v", err)
-				args.PrintSuccess(res.Interface())
+			if pageSize > 0 && (res.Kind() == reflect.Array || res.Kind() == reflect.Slice) {
+				s.pageItems(seqFromSlice(res), pageSize)
 			} else {
-				args.PrintSuccess(string(jsonData))
+				jsonData, err := json.MarshalIndent(res.Interface(), "", "  ")
+				if err != nil {
+					s.logger.Warning("error serializing result to JSON: %v", err)
+					args.PrintSuccess(res.Interface())
+				} else {
+					args.PrintSuccess(string(jsonData))
+				}
 			}
 			shouldPrintGenericResult = false
 		} else if res.Kind() == reflect.Chan {
-			items := make([]interface{}, 0)
-			for {
-				pageValue, ok := res.Recv()
-				if !ok {
-					break
-				}
-				if !pageValue.IsValid() {
-					continue
-				}
-				if pageValue.Kind() == reflect.Pointer {
-					pageValue = pageValue.Elem()
-				}
-				itemsField := pageValue.FieldByName("Items")
-				if !itemsField.IsValid() || itemsField.Kind() != reflect.Slice {
-					items = append(items, pageValue.Interface())
-					continue
-				}
-				for i := 0; i < itemsField.Len(); i++ {
-					items = append(items, itemsField.Index(i).Interface())
-				}
-			}
-			jsonData, err := json.MarshalIndent(items, "", "  ")
-			if err != nil {
-				s.logger.Warning("error serializing result to JSON: %v", err)
-				args.PrintSuccess(items)
+			if pageSize > 0 {
+				s.pageItems(seqFromChannel(res), pageSize)
 			} else {
-				args.PrintSuccess(string(jsonData))
+				items := slices.Collect(seqFromChannel(res))
+				if items == nil {
+					items = []interface{}{}
+				}
+				jsonData, err := json.MarshalIndent(items, "", "  ")
+				if err != nil {
+					s.logger.Warning("error serializing result to JSON: %v", err)
+					args.PrintSuccess(items)
+				} else {
+					args.PrintSuccess(string(jsonData))
+				}
 			}
 			shouldPrintGenericResult = false
 		} else if res.Kind() == reflect.Int {
@@ -797,6 +798,129 @@ func (s *IdsecServiceExecAction) serializeAndPrintOutput(result []reflect.Value,
 	if len(result) == 0 || shouldPrintGenericResult {
 		caser := cases.Title(language.English)
 		args.PrintSuccess(fmt.Sprintf("%s finished successfully", strings.ReplaceAll(caser.String(actionName), "-", " ")))
+	}
+}
+
+// seqFromSlice yields each element of a slice or array reflect.Value as a
+// generic value, so slice-based and channel-based results can share one
+// rendering path.
+func seqFromSlice(v reflect.Value) iter.Seq[any] {
+	return func(yield func(any) bool) {
+		for i := 0; i < v.Len(); i++ {
+			if !yield(v.Index(i).Interface()) {
+				return
+			}
+		}
+	}
+}
+
+// seqFromChannel receives pages from a channel reflect.Value and yields each
+// item. Each page exposes its elements via an Items slice field; a page without
+// that field is yielded whole. Consumers that read the whole sequence drain the
+// SDK channel; interactive paging may stop early when the user quits.
+func seqFromChannel(ch reflect.Value) iter.Seq[any] {
+	return func(yield func(any) bool) {
+		for {
+			pageValue, ok := ch.Recv()
+			if !ok {
+				return
+			}
+			if !pageValue.IsValid() {
+				continue
+			}
+			if pageValue.Kind() == reflect.Pointer {
+				pageValue = pageValue.Elem()
+			}
+			itemsField := pageValue.FieldByName("Items")
+			if !itemsField.IsValid() || itemsField.Kind() != reflect.Slice {
+				if !yield(pageValue.Interface()) {
+					return
+				}
+				continue
+			}
+			for i := 0; i < itemsField.Len(); i++ {
+				if !yield(itemsField.Index(i).Interface()) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// shouldContinueForNextItem is the generic paging decision hook. It is a var so
+// tests can stub boundary behavior without terminal input.
+var shouldContinueForNextItem = args.ShouldContinueForNextItem
+
+// pageItems renders items as JSON. When stdout is an
+// interactive terminal it pages the output, printing pageSize items and then
+// pausing for a keypress before continuing, so "--page-size N" means exactly N
+// items per page. When stdout is not a TTY (pipes, CI, redirections) it instead
+// writes a valid JSON array so the output stays scriptable.
+func (s *IdsecServiceExecAction) pageItems(items iter.Seq[any], pageSize int) {
+	if pageSize > 0 && args.IsStdoutTTY() {
+		s.pageItemsInteractive(items, pageSize)
+		return
+	}
+	s.writeJSONArray(os.Stdout, items)
+}
+
+// pageItemsInteractive prints items as pretty JSON, a page of pageSize items at
+// a time. At each page boundary it pauses for a keypress; on continue it prints
+// the next page below the previous output, and on quit it returns immediately.
+// Returning stops reading the sequence at once (important for
+// channel-backed results so quitting does not wait for the rest to be fetched);
+// any remaining SDK producer goroutine is reclaimed when the process exits.
+func (s *IdsecServiceExecAction) pageItemsInteractive(items iter.Seq[any], pageSize int) {
+	count := 0
+	for item := range items {
+		line, err := json.MarshalIndent(item, "", "  ")
+		if err != nil {
+			s.logger.Warning("error marshaling item to JSON: %v", err)
+			continue
+		}
+		if !shouldContinueForNextItem(count, pageSize) {
+			return
+		}
+		_, _ = os.Stdout.Write(line)
+		// Add a blank line between items for readability in interactive paging.
+		_, _ = io.WriteString(os.Stdout, "\n")
+		count++
+	}
+}
+
+// writeJSONArray writes items as a pretty JSON array, suitable for piping or
+// redirection. Write errors (e.g. a broken pipe when the downstream consumer
+// exits early, as in "... | head") stop the loop so the channel is not
+// needlessly drained, and are logged once.
+func (s *IdsecServiceExecAction) writeJSONArray(w io.Writer, items iter.Seq[any]) {
+	var werr error
+	write := func(str string) {
+		if werr != nil {
+			return
+		}
+		_, werr = io.WriteString(w, str)
+	}
+
+	write("[\n")
+	first := true
+	for item := range items {
+		if werr != nil {
+			break
+		}
+		line, err := json.MarshalIndent(item, "", "  ")
+		if err != nil {
+			s.logger.Warning("error marshaling item to JSON: %v", err)
+			continue
+		}
+		if !first {
+			write(",\n")
+		}
+		first = false
+		write("  " + strings.ReplaceAll(string(line), "\n", "\n  "))
+	}
+	write("\n]\n")
+	if werr != nil {
+		s.logger.Warning("error writing output: %v", werr)
 	}
 }
 
@@ -1043,7 +1167,11 @@ func (s *IdsecServiceExecAction) RunExecAction(api *cli.IdsecCLIAPI, cmd *cobra.
 		}
 	}
 
-	s.serializeAndPrintOutput(result, actionName)
+	pageSize, _ := execCmd.PersistentFlags().GetInt("page-size")
+	if pageSize < 0 {
+		pageSize = 0
+	}
+	s.serializeAndPrintOutput(result, actionName, pageSize)
 
 	return nil
 }

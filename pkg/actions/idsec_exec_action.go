@@ -114,6 +114,7 @@ func NewIdsecBaseExecAction(execAction *IdsecExecAction, name string, profilesLo
 //   - request-file: Optional file containing action parameters
 //   - retry-count: Number of retry attempts for failed executions
 //   - refresh-auth: Forces authentication token refresh
+//   - page-size: Items per page for interactive paging, pausing between pages (0 = disabled)
 //
 // Parameters:
 //   - cmd: The parent cobra command to which the exec command will be added
@@ -139,6 +140,7 @@ func (a *IdsecBaseExecAction) DefineAction(cmd *cobra.Command) {
 	execCmd.PersistentFlags().String("request-file", "", "Request file containing the parameters for the exec action")
 	execCmd.PersistentFlags().Int("retry-count", 1, "Retry count for execution")
 	execCmd.PersistentFlags().Bool("refresh-auth", true, "If a cache exists, will also try to refresh it")
+	execCmd.PersistentFlags().Int("page-size", 0, "Show N items per page in interactive output, pausing between pages (0 = disabled)")
 	err := (*a.execAction).DefineExecAction(execCmd)
 	if err != nil {
 		args.PrintFailure(fmt.Sprintf("Error defining exec action %v", err))

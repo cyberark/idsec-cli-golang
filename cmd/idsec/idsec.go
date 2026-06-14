@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -69,6 +70,7 @@ func main() {
 	registerActions(rootCmd, profilesLoader)
 	setupCustomHelp(rootCmd)
 	setupDefaultRouting(rootCmd)
+	rerouteHelpToExecIfNeeded(rootCmd)
 	handleCommandExecution(rootCmd)
 }
 
@@ -146,6 +148,65 @@ func isKnownSubcommand(cmd *cobra.Command, arg string) bool {
 		}
 	}
 	return false
+}
+
+// hasHelpFlag returns true when args include any help flag form.
+func hasHelpFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" {
+			return true
+		}
+		if strings.HasPrefix(arg, "--help=") {
+			value := strings.TrimPrefix(arg, "--help=")
+			if enabled, err := strconv.ParseBool(value); err == nil && enabled {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// firstPositionalArg returns the first non-flag arg while skipping values consumed
+// by root-level flags that can appear before a command path.
+func firstPositionalArg(args []string) string {
+	skipNextValue := false
+	for _, arg := range args {
+		if skipNextValue {
+			skipNextValue = false
+			continue
+		}
+
+		// "--" means the rest are positional arguments.
+		if arg == "--" {
+			return ""
+		}
+
+		if strings.HasPrefix(arg, "-") {
+			if arg == "--config" {
+				skipNextValue = true
+			}
+			continue
+		}
+
+		return arg
+	}
+
+	return ""
+}
+
+// rerouteHelpToExecIfNeeded makes "idsec <service> ... --help" behave like
+// "idsec exec <service> ... --help" by prepending "exec" before command execution.
+func rerouteHelpToExecIfNeeded(rootCmd *cobra.Command) {
+	if len(os.Args) <= 1 || !hasHelpFlag(os.Args[1:]) {
+		return
+	}
+
+	serviceOrCmd := firstPositionalArg(os.Args[1:])
+	if serviceOrCmd == "" || isKnownSubcommand(rootCmd, serviceOrCmd) {
+		return
+	}
+
+	os.Args = append([]string{os.Args[0], "exec"}, os.Args[1:]...)
 }
 
 // routeToExec modifies os.Args to prepend "exec" and re-executes the command.

@@ -186,6 +186,9 @@ func TestIdsecKubectlLoginAction_DefineAction(t *testing.T) {
 				if !elevate.SilenceUsage {
 					t.Error("expected SilenceUsage to be true on elevate command after override")
 				}
+				if !elevate.Hidden {
+					t.Error("expected elevate command to be hidden from help")
+				}
 			},
 		},
 		{

@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
+	k8smodels "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s/models"
 )
 
 func normalizeCSP(value string) string {
@@ -17,8 +18,8 @@ func normalizeCSP(value string) string {
 }
 
 func isValidCSP(csp string) bool {
-	switch csp {
-	case "aws", "azure", "gcp":
+	switch strings.ToUpper(strings.TrimSpace(csp)) {
+	case k8smodels.CSPAWS, k8smodels.CSPAzure:
 		return true
 	default:
 		return false

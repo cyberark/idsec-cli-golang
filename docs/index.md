@@ -7,7 +7,7 @@ description: Idsec CLI Homepage
 
 ![Idsec CLI Golang](./media/sdk.png){: style="height:80%;width:70%"}
 
-The official CLI for CyberArk's Identity Security Platform Services.
+The official command-line interface for Idira Identity Security Platform operations
 
 ## Motivation
 

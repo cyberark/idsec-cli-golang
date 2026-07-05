@@ -125,10 +125,10 @@ func resolveGenerateKubeconfigFlags(cmd *cobra.Command) (csp string, allValue st
 	}
 
 	if csp != "" && !isValidCSP(csp) {
-		return "", "", fmt.Sprintf("invalid csp %q; use aws, azure, or gcp", strings.TrimSpace(rawCSP))
+		return "", "", fmt.Sprintf("invalid csp %q; use aws or azure", strings.TrimSpace(rawCSP))
 	}
 	if csp == "" && allValue == "false" {
-		return "", "", "with no --csp, --all=false or --all false is invalid; use --csp <aws|azure|gcp> or omit --all to generate for all CSPs"
+		return "", "", "with no --csp, --all=false or --all false is invalid; use --csp <aws|azure> or omit --all to generate for all CSPs"
 	}
 	return csp, allValue, ""
 }

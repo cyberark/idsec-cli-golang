@@ -12,7 +12,7 @@
 Idsec CLI Golang
 ==============
 
-CyberArk's Official Command-Line Interface for Identity Security Platform operations
+The official command-line interface for Idira Identity Security Platform operations
 
 Installation
 ============

@@ -690,6 +690,65 @@ func TestHandleCommandExecution_RoutesToExecOnUnknownFlag(t *testing.T) {
 	}
 }
 
+func TestValidateCommandPathBeforeExecution(t *testing.T) {
+	tests := []struct {
+		name            string
+		args            []string
+		expectedErrPart string
+	}{
+		{
+			name:            "error_when_exec_path_missing_service_no_flags",
+			args:            []string{"idsec", "exec", "cloud-access", "list-targets"},
+			expectedErrPart: `unknown command "cloud-access" for "idsec exec"`,
+		},
+		{
+			name:            "error_when_shorthand_path_missing_service_no_flags",
+			args:            []string{"idsec", "cloud-access", "list-targets"},
+			expectedErrPart: `unknown command "cloud-access" for "idsec exec"`,
+		},
+		{
+			name:            "success_for_valid_shorthand_service_path",
+			args:            []string{"idsec", "sca", "cloud-access", "list-targets"},
+			expectedErrPart: "",
+		},
+		{
+			name:            "success_for_valid_exec_path",
+			args:            []string{"idsec", "exec", "sca", "cloud-access", "list-targets"},
+			expectedErrPart: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Avoid t.Parallel(): this test mutates process-global os.Args.
+			originalArgs := make([]string, len(os.Args))
+			copy(originalArgs, os.Args)
+			defer func() {
+				os.Args = originalArgs
+			}()
+
+			os.Args = append([]string{}, tt.args...)
+			rootCmd := createRootCommand()
+			registerActions(rootCmd, profiles.DefaultProfilesLoader())
+
+			err := validateCommandPathBeforeExecution(rootCmd)
+			if tt.expectedErrPart == "" {
+				if err != nil {
+					t.Fatalf("Expected no error, got %v", err)
+				}
+				return
+			}
+
+			if err == nil {
+				t.Fatalf("Expected error containing %q, got nil", tt.expectedErrPart)
+			}
+			if !strings.Contains(err.Error(), tt.expectedErrPart) {
+				t.Fatalf("Expected error to contain %q, got %q", tt.expectedErrPart, err.Error())
+			}
+		})
+	}
+}
+
 func TestSetupDefaultRouting(t *testing.T) {
 	tests := []struct {
 		name         string

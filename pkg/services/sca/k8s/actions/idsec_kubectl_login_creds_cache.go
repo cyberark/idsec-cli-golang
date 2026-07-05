@@ -16,12 +16,33 @@ import (
 
 const (
 	elevateCredsServiceName  = "idsec-sca-k8s-elevate"
-	aksTokenCredsServiceName = "idsec-sca-k8s-aks-token"
-	aksTokenRefreshBuffer    = 60 * time.Second
+	execCredCredsServiceName = "idsec-sca-k8s-execcred"
+	// execCredSkew is a tiny clock-skew tolerance applied on read so we don't
+	// serve a credential right at the edge of its already-buffered expiry. The
+	// SDK has baked the 60s early-refresh window into status.expirationTimestamp
+	// so this is intentionally small (no double-buffering).
+	execCredSkew = 5 * time.Second
+	// rawTokenEarlyRefreshBuffer is subtracted from raw (non-SDK-stamped) expiry
+	// times — Elevate sessionExpTime, ISP id_token exp, Azure-proxy AKS JWT exp —
+	// when computing the effective ExecCredential TTL min. SDK-stamped
+	// status.expirationTimestamp values already include this 60s early-refresh
+	// window and must not be buffered again.
+	rawTokenEarlyRefreshBuffer = 60 * time.Second
 	// Re-call Elevate this long before sessionExpTime when the session is long-lived.
 	elevateSessionRefreshBuffer = 5 * time.Minute
 	// Short API sessions need a smaller margin or the cache would never hit.
 	elevateSessionRefreshBufferMin = 10 * time.Second
+)
+
+// CachedExecCredentialMethod identifies the connection-method shape of a cached
+// ExecCredential. It is both an integrity gate on read (mismatch = clean miss
+// + purge) and a storage-policy signal on write (proxy entries are never
+// written to the basic-file fallback because they carry a private key).
+type CachedExecCredentialMethod string
+
+const (
+	ExecCredMethodDirect CachedExecCredentialMethod = "direct"
+	ExecCredMethodProxy  CachedExecCredentialMethod = "proxy"
 )
 
 type cachedElevateCreds struct {
@@ -29,11 +50,25 @@ type cachedElevateCreds struct {
 	SavedAt       time.Time                           `json:"savedAt"`
 }
 
-type cachedAKSToken struct {
-	Token               string    `json:"token"`
-	ExpiresAt           time.Time `json:"expiresAt"`
-	SavedAt             time.Time `json:"savedAt"`
-	AzureCLIFingerprint string    `json:"azureCliFingerprint,omitempty"`
+// cachedExecCredential is the value persisted in the OS keyring by the unified
+// cache. The kubectl-ready ExecCredential JSON is stored verbatim in
+// ExecCredentialJSON and emitted to stdout on cache hit without any further
+// reconstruction. ExpiresAt is the parsed status.expirationTimestamp value
+// (the SDK has already applied the early-refresh buffer). CSP and Method are
+// integrity gates on read; AzureCLIFingerprint is set for both azure-direct
+// and azure-proxy entries (a local `az` identity rotation invalidates the
+// AKS access token used by direct AND the DPA-issued cert whose subject is
+// derived from that token via jwe_extension_value). LastServedParentPID records
+// the kubectl process that received this credential. If the same kubectl process
+// asks again before expiry, client-go likely retried after a 401.
+type cachedExecCredential struct {
+	ExecCredentialJSON  string                     `json:"execCredential"`
+	ExpiresAt           time.Time                  `json:"expiresAt"`
+	SavedAt             time.Time                  `json:"savedAt"`
+	CSP                 string                     `json:"csp"`
+	Method              CachedExecCredentialMethod `json:"method"`
+	AzureCLIFingerprint string                     `json:"azureCliFingerprint,omitempty"`
+	LastServedParentPID int                        `json:"lastServedParentPid,omitempty"`
 }
 
 // AzureCLIFingerprint returns mtime:size for azureProfile.json (or AZURE_CONFIG_DIR); empty means unknown.
@@ -51,6 +86,169 @@ func AzureCLIFingerprint() string {
 		return ""
 	}
 	return fmt.Sprintf("%d:%d", info.ModTime().UnixNano(), info.Size())
+}
+
+// ---------------------------------------------------------------------------
+// ExecCredential effective TTL helpers.
+// ---------------------------------------------------------------------------
+
+type execCredFlow string
+
+const (
+	execCredFlowAWSDirect   execCredFlow = "aws direct"
+	execCredFlowAWSProxy    execCredFlow = "aws proxy"
+	execCredFlowAzureDirect execCredFlow = "azure direct"
+	execCredFlowAzureProxy  execCredFlow = "azure proxy"
+)
+
+// ttlCandidate is one expiry dimension considered when computing the effective
+// ExecCredential TTL. SDK-stamped timestamps set alreadyBuffered=true and
+// skew=0; raw token/session expiries use rawTokenEarlyRefreshBuffer.
+type ttlCandidate struct {
+	name            string
+	when            time.Time
+	skew            time.Duration
+	alreadyBuffered bool
+	skipReason      string
+}
+
+// effective returns the candidate instant used in the min() comparison after
+// applying any early-refresh buffer (skew).
+func (c ttlCandidate) effective() time.Time {
+	if c.when.IsZero() {
+		return time.Time{}
+	}
+	return c.when.Add(-c.skew)
+}
+
+// computeEffectiveExecCredentialExpiry returns the minimum effective expiry
+// across the supplied candidates. Already-buffered ExecCredential/cert
+// timestamps should pass skew=0; raw token and session expiries should pass
+// rawTokenEarlyRefreshBuffer so all dimensions refresh early.
+//
+// If any candidate is missing its expiration (zero when / non-empty skipReason)
+// an error is returned naming every missing candidate. We refuse to compute a
+// min TTL on a partial view because an unbounded dimension would silently
+// extend the cached ExecCredential past one of its underlying credentials.
+func computeEffectiveExecCredentialExpiry(cands ...ttlCandidate) (time.Time, string, error) {
+	var missing []string
+	for _, c := range cands {
+		if c.when.IsZero() {
+			reason := strings.TrimSpace(c.skipReason)
+			if reason == "" {
+				reason = "missing expiration"
+			}
+			missing = append(missing, fmt.Sprintf("%s (%s)", c.name, reason))
+		}
+	}
+	if len(missing) > 0 {
+		return time.Time{}, "", fmt.Errorf(
+			"cannot compute effective ExecCredential TTL: %d candidate(s) missing expiration: %s",
+			len(missing), strings.Join(missing, "; "),
+		)
+	}
+
+	var minCand ttlCandidate
+	for _, c := range cands {
+		if minCand.when.IsZero() || c.effective().Before(minCand.effective()) {
+			minCand = c
+		}
+	}
+	if minCand.when.IsZero() {
+		return time.Time{}, "", fmt.Errorf("cannot compute effective ExecCredential TTL: no candidates supplied")
+	}
+	return minCand.effective(), minCand.name, nil
+}
+
+// execCredentialExpiresAtCandidate reads status.expirationTimestamp from an
+// ExecCredential (direct EKS/AKS bearer or proxy cert). The SDK helper name
+// references proxy creds but applies to any ExecCredential shape.
+func execCredentialExpiresAtCandidate(name string, execCred *k8smodels.IdsecSCAK8sExecCredential) ttlCandidate {
+	exp, err := k8sservice.ProxyExecCredentialExpiresAt(execCred)
+	if err != nil {
+		return ttlCandidate{name: name, skipReason: fmt.Sprintf("missing/unparseable expirationTimestamp: %v", err)}
+	}
+	return ttlCandidate{name: name, when: exp, alreadyBuffered: true}
+}
+
+// execCredTTLCandidates returns the per-flow expiry dimensions that feed the
+// effective ExecCredential TTL min. Each flow includes idtokenlifetime; direct
+// and proxy Azure paths also include Elevate where applicable.
+func execCredTTLCandidates(
+	flow execCredFlow,
+	execCred *k8smodels.IdsecSCAK8sExecCredential,
+	elevateExpiresAt, idTokenExpiresAt time.Time,
+	aksAccessToken string,
+) []ttlCandidate {
+	switch flow {
+	case execCredFlowAWSDirect:
+		return []ttlCandidate{
+			execCredentialExpiresAtCandidate("eks", execCred),
+			rawTokenTTLCandidate("elevate", elevateExpiresAt),
+			rawTokenTTLCandidate("idtokenlifetime", idTokenExpiresAt),
+		}
+	case execCredFlowAWSProxy:
+		return []ttlCandidate{
+			execCredentialExpiresAtCandidate("cert", execCred),
+			rawTokenTTLCandidate("idtokenlifetime", idTokenExpiresAt),
+		}
+	case execCredFlowAzureDirect:
+		return []ttlCandidate{
+			execCredentialExpiresAtCandidate("aks", execCred),
+			rawTokenTTLCandidate("elevate", elevateExpiresAt),
+			rawTokenTTLCandidate("idtokenlifetime", idTokenExpiresAt),
+		}
+	case execCredFlowAzureProxy:
+		return []ttlCandidate{
+			execCredentialExpiresAtCandidate("cert", execCred),
+			parseAKSTTLCandidate(aksAccessToken),
+			rawTokenTTLCandidate("elevate", elevateExpiresAt),
+			rawTokenTTLCandidate("idtokenlifetime", idTokenExpiresAt),
+		}
+	default:
+		return nil
+	}
+}
+
+// rawTokenTTLCandidate wraps a raw expiry (Elevate session or ISP id_token)
+// with the standard early-refresh buffer applied at min-time.
+func rawTokenTTLCandidate(name string, exp time.Time) ttlCandidate {
+	if exp.IsZero() {
+		return ttlCandidate{name: name, skipReason: "empty expiration"}
+	}
+	return ttlCandidate{name: name, when: exp, skew: rawTokenEarlyRefreshBuffer}
+}
+
+// parseAKSTTLCandidate extracts the JWT exp from the Azure-proxy AKS access
+// token forwarded as jwe_extension_value and applies the early-refresh buffer.
+func parseAKSTTLCandidate(accessToken string) ttlCandidate {
+	exp, err := k8sservice.ParseAccessTokenExpiry(accessToken)
+	if err != nil {
+		return ttlCandidate{name: "aks", skipReason: fmt.Sprintf("access-token exp unparseable: %v", err)}
+	}
+	return ttlCandidate{name: "aks", when: exp, skew: rawTokenEarlyRefreshBuffer}
+}
+
+// deriveElevateExpiry returns the concrete Elevate session expiry used as a
+// TTL candidate. Prefers sessionExpTime from the API; falls back to
+// base+provider ElevateTTL (from cache SavedAt on hits, or pre-API timestamp
+// on misses) when the API omits sessionExpTime.
+func deriveElevateExpiry(elevateResult *k8smodels.IdsecSCAK8sElevateResult, base time.Time, fallbackTTL time.Duration, verbose bool) (time.Time, string) {
+	if elevateResult != nil {
+		if trimmed := strings.TrimSpace(elevateResult.SessionExpTime); trimmed != "" {
+			if exp, err := parseSessionExpTime(trimmed); err == nil {
+				return exp, "sessionExpTime"
+			} else if verbose {
+				kubectlLoginVerbose("Elevate sessionExpTime %q unparseable, using fallbackTTL: %v", trimmed, err)
+			}
+		}
+	}
+	// base is intentionally captured before the Elevate API round-trip so
+	// fallbackTTL stays conservative when sessionExpTime is absent.
+	if fallbackTTL > 0 && !base.IsZero() {
+		return base.Add(fallbackTTL), "fallbackTTL"
+	}
+	return time.Time{}, ""
 }
 
 // lazyKeyring opens the OS keyring once per (service name, basic-store) pair; sync.Once is thread-safe lazy init.
@@ -71,26 +269,39 @@ func (k *lazyKeyring) get() (idseckeyring.IdsecKeyringImpl, error) {
 
 var (
 	krElevateCreds  = &lazyKeyring{service: elevateCredsServiceName}
-	krAKSToken      = &lazyKeyring{service: aksTokenCredsServiceName}
+	krExecCred      = &lazyKeyring{service: execCredCredsServiceName}
+	krExecCredBasic = &lazyKeyring{service: execCredCredsServiceName, basic: true}
 	krBasicFallback = &lazyKeyring{service: elevateCredsServiceName, basic: true}
+
+	currentParentPID        = os.Getppid
+	currentAzureFingerprint = AzureCLIFingerprint
 )
 
-func buildAKSTokenCacheKey(csp, roleID, fqdn, username, organizationID string) string {
-	key := buildCacheKey(csp, roleID, fqdn, username)
-	if org := strings.TrimSpace(organizationID); org != "" {
-		key += ":" + strings.ToLower(org)
-	}
-	return key
-}
-
-func buildCacheKey(csp, roleID, fqdn, username string) string {
-	return fmt.Sprintf(
+// kubectl-login cache key shapes (both bind to internal_session_id when present):
+//
+//	Elevate keyring:  CSP:shortRole:fqdn:user[:organizationID][:sessionID]
+//	Unified execcred: CSP:shortRole:fqdn:user:sessionID  (no organizationID)
+//
+// An empty sessionID disables both caches at the API boundary (callers fall
+// through to the cold path). When sessionID is set it is the final key segment
+// for Elevate and the required final segment for unified execcred.
+//
+// buildCacheKey forms the Elevate keyring cache key.
+func buildCacheKey(csp, organizationID, roleID, fqdn, username, sessionID string) string {
+	key := fmt.Sprintf(
 		"%s:%s:%s:%s",
 		strings.ToUpper(strings.TrimSpace(csp)),
 		shortRoleKey(roleID),
 		fqdn,
 		normalizeUsername(username),
 	)
+	if org := strings.TrimSpace(organizationID); org != "" {
+		key += ":" + org
+	}
+	if sid := strings.TrimSpace(sessionID); sid != "" {
+		key += ":" + sid
+	}
+	return key
 }
 
 func normalizeUsername(username string) string {
@@ -132,7 +343,7 @@ func isCachedElevateStillValid(
 	if result == nil {
 		return false, "empty result"
 	}
-	if strings.ToUpper(strings.TrimSpace(csp)) == "AZURE" && strings.TrimSpace(result.SessionExpTime) != "" {
+	if strings.ToUpper(strings.TrimSpace(csp)) == k8smodels.CSPAzure && strings.TrimSpace(result.SessionExpTime) != "" {
 		exp, err := parseSessionExpTime(result.SessionExpTime)
 		if err != nil {
 			return false, fmt.Sprintf("invalid sessionExpTime: %v", err)
@@ -201,44 +412,48 @@ func parseSessionExpTime(raw string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unrecognized time format %q", raw)
 }
 
-// LoadCachedElevateKeyringWithReason loads cached Elevate JSON from the keyring (hitReason/missReason for logs).
-func LoadCachedElevateKeyringWithReason(csp, roleID, fqdn, username string, fallbackTTL time.Duration) (result *k8smodels.IdsecSCAK8sElevateResult, hitReason, missReason string, err error) {
-	if fallbackTTL == 0 && strings.ToUpper(strings.TrimSpace(csp)) != "AZURE" {
-		return nil, "", "", nil
+// LoadCachedElevateKeyringWithReason loads cached Elevate JSON from the keyring
+// with SavedAt metadata so callers can derive fallbackTTL-based expiry bounds.
+func LoadCachedElevateKeyringWithReason(csp, organizationID, roleID, fqdn, username, sessionID string, fallbackTTL time.Duration) (result *k8smodels.IdsecSCAK8sElevateResult, savedAt time.Time, hitReason, missReason string, err error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, time.Time{}, "", "missing session id (cache disabled)", nil
+	}
+	if fallbackTTL == 0 && strings.ToUpper(strings.TrimSpace(csp)) != k8smodels.CSPAzure {
+		return nil, time.Time{}, "", "", nil
 	}
 
 	impl, err := krElevateCreds.get()
 	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to open credential cache: %w", err)
+		return nil, time.Time{}, "", "", fmt.Errorf("failed to open credential cache: %w", err)
 	}
 
-	key := buildCacheKey(csp, roleID, fqdn, username)
+	key := buildCacheKey(csp, organizationID, roleID, fqdn, username, sessionID)
 	data, err := impl.GetPassword(elevateCredsServiceName, key)
 	if err != nil || data == "" {
-		return nil, "", "no cached entry", nil
+		return nil, time.Time{}, "", "no cached entry", nil
 	}
 
 	var cached cachedElevateCreds
 	if err := json.Unmarshal([]byte(data), &cached); err != nil {
 		_ = impl.DeletePassword(elevateCredsServiceName, key)
-		return nil, "", "corrupt cached entry (removed)", nil
+		return nil, time.Time{}, "", "corrupt cached entry (removed)", nil
 	}
 
 	now := time.Now()
 	valid, reason := isCachedElevateStillValid(csp, cached.ElevateResult, cached.SavedAt, fallbackTTL, now)
 	if !valid {
 		_ = impl.DeletePassword(elevateCredsServiceName, key)
-		return nil, "", reason, nil
+		return nil, time.Time{}, "", reason, nil
 	}
 
-	return cached.ElevateResult, reason, "", nil
+	return cached.ElevateResult, cached.SavedAt, reason, "", nil
 }
 
 // describeElevateSessionExpiry returns a log line about sessionExpTime parsing and remaining lifetime.
 func describeElevateSessionExpiry(sessionExpTime string) string {
 	sessionExpTime = strings.TrimSpace(sessionExpTime)
 	if sessionExpTime == "" {
-		return "no sessionExpTime in response (Azure cache falls back to SavedAt+1h TTL)"
+		return "no sessionExpTime in response (cache falls back to provider ElevateTTL)"
 	}
 	exp, err := parseSessionExpTime(sessionExpTime)
 	if err != nil {
@@ -255,99 +470,229 @@ func describeElevateSessionExpiry(sessionExpTime string) string {
 	)
 }
 
-func isCachedAKSTokenStillValid(expiresAt, now time.Time) (bool, string) {
-	if expiresAt.IsZero() {
-		return false, "no expiry"
-	}
-	remaining := expiresAt.Sub(now)
-	if remaining <= 0 {
-		return false, fmt.Sprintf("AKS token expired at %s", expiresAt.Format(time.RFC3339))
-	}
-	if now.Add(aksTokenRefreshBuffer).Before(expiresAt) {
-		return true, fmt.Sprintf("JWT exp %s (%s remaining, buffer %s)",
-			expiresAt.Format(time.RFC3339), remaining.Round(time.Second), aksTokenRefreshBuffer)
-	}
-	return false, fmt.Sprintf("AKS token within %s of JWT exp (%s remaining)",
-		aksTokenRefreshBuffer, remaining.Round(time.Second))
+// buildUnifiedExecCredKey forms the unified ExecCredential cache key used by
+// the pre-Evaluate fast path. Shape: <CSP>:<shortRole>:<fqdn>:<normalizedUser>:<sessionID>.
+//
+// organizationID is intentionally NOT in the key. Cluster FQDN is unique per
+// cluster, so two clusters in different organizations cannot collide. Binding
+// the key to internal_session_id (sessionID) rotates the entire cache namespace
+// on full re-auth without any explicit clear.
+func buildUnifiedExecCredKey(csp, roleID, fqdn, username, sessionID string) string {
+	return fmt.Sprintf(
+		"%s:%s:%s:%s:%s",
+		strings.ToUpper(strings.TrimSpace(csp)),
+		shortRoleKey(roleID),
+		fqdn,
+		normalizeUsername(username),
+		strings.TrimSpace(sessionID),
+	)
 }
 
-// LoadCachedAKSToken returns a cached AKS JWT or missReason.
-func LoadCachedAKSToken(csp, roleID, fqdn, username, organizationID string) (*cachedAKSToken, string, string, error) {
-	if strings.ToUpper(strings.TrimSpace(csp)) != "AZURE" {
-		return nil, "", "", nil
-	}
-
-	impl, err := krAKSToken.get()
+func saveUnifiedExecCredentialEntry(impl idseckeyring.IdsecKeyringImpl, key string, cached cachedExecCredential) error {
+	payload, err := json.Marshal(cached)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to open AKS token cache: %w", err)
+		return fmt.Errorf("failed to marshal unified execcred cache: %w", err)
+	}
+	return impl.SetPassword(execCredCredsServiceName, key, string(payload))
+}
+
+func deleteUnifiedExecCredentialByKey(key string) {
+	if impl, err := krExecCred.get(); err == nil {
+		_ = impl.DeletePassword(execCredCredsServiceName, key)
+	}
+	if basicImpl, err := krExecCredBasic.get(); err == nil {
+		_ = basicImpl.DeletePassword(execCredCredsServiceName, key)
+	}
+}
+
+// LoadUnifiedExecCredential returns a valid cached ExecCredential entry for the
+// supplied identity, or (nil, _, missReason, _) when absent / expired / corrupt
+// / mismatched. expectedMethod, when non-empty, is enforced as an integrity gate
+// (mismatch → purge + miss). Callers running the pre-Evaluate fast path pass
+// expectedMethod="" because the connection method is not yet known; in that
+// mode the cached entry's own Method tag describes what we are returning.
+//
+// An empty sessionID disables the cache entirely (returns "" hitReason and a
+// missReason explaining why) so callers fall through to the cold path safely
+// when the ISP token is missing internal_session_id.
+func LoadUnifiedExecCredential(
+	csp, roleID, fqdn, username, sessionID string,
+	expectedMethod CachedExecCredentialMethod,
+) (entry *cachedExecCredential, hitReason, missReason string, err error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, "", "missing session id (cache disabled)", nil
 	}
 
-	key := buildAKSTokenCacheKey(csp, roleID, fqdn, username, organizationID)
-	data, err := impl.GetPassword(aksTokenCredsServiceName, key)
+	primaryKeyring, err := krExecCred.get()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to open unified execcred cache: %w", err)
+	}
+
+	key := buildUnifiedExecCredKey(csp, roleID, fqdn, username, sessionID)
+	keyringHoldingEntry := primaryKeyring
+	data, err := primaryKeyring.GetPassword(execCredCredsServiceName, key)
 	if err != nil || data == "" {
-		return nil, "", "no cached AKS token", nil
+		// Direct entries may have landed in the basic-file fallback on hosts
+		// without an OS keyring. Look there too. Proxy entries are never written
+		// to the basic backend, so a hit there is by construction a direct entry.
+		if basicKeyring, bErr := krExecCredBasic.get(); bErr == nil && basicKeyring != primaryKeyring {
+			if d2, e2 := basicKeyring.GetPassword(execCredCredsServiceName, key); e2 == nil && d2 != "" {
+				data = d2
+				keyringHoldingEntry = basicKeyring
+			}
+		}
+		if data == "" {
+			return nil, "", "no cached entry", nil
+		}
 	}
 
-	var cached cachedAKSToken
-	if err := json.Unmarshal([]byte(data), &cached); err != nil || cached.Token == "" {
-		_ = impl.DeletePassword(aksTokenCredsServiceName, key)
-		return nil, "", "corrupt AKS token entry (removed)", nil
+	var cached cachedExecCredential
+	if jErr := json.Unmarshal([]byte(data), &cached); jErr != nil || strings.TrimSpace(cached.ExecCredentialJSON) == "" {
+		deleteUnifiedExecCredentialByKey(key)
+		return nil, "", "corrupt cached entry (removed)", nil
 	}
 
-	valid, reason := isCachedAKSTokenStillValid(cached.ExpiresAt, time.Now())
-	if !valid {
-		_ = impl.DeletePassword(aksTokenCredsServiceName, key)
-		return nil, "", reason, nil
+	if !strings.EqualFold(strings.TrimSpace(cached.CSP), strings.TrimSpace(csp)) {
+		deleteUnifiedExecCredentialByKey(key)
+		return nil, "", fmt.Sprintf("csp mismatch (cached=%s, expected=%s)", cached.CSP, csp), nil
+	}
+	if expectedMethod != "" && cached.Method != expectedMethod {
+		deleteUnifiedExecCredentialByKey(key)
+		return nil, "", fmt.Sprintf("method mismatch (cached=%s, expected=%s)", cached.Method, expectedMethod), nil
 	}
 
+	now := time.Now()
+	if cached.ExpiresAt.IsZero() || now.Add(execCredSkew).After(cached.ExpiresAt) {
+		remaining := cached.ExpiresAt.Sub(now).Round(time.Second)
+		deleteUnifiedExecCredentialByKey(key)
+		return nil, "", fmt.Sprintf("entry expired (%s remaining)", remaining), nil
+	}
+
+	if strings.EqualFold(strings.TrimSpace(csp), k8smodels.CSPAzure) {
+		currentFP := currentAzureFingerprint()
+		// Azure credentials depend on the local az identity. If it changed, the
+		// cached AKS token or proxy cert may no longer match the active user.
+		if currentFP == "" || currentFP != cached.AzureCLIFingerprint {
+			deleteUnifiedExecCredentialByKey(key)
+			return nil, "", "azure cli fingerprint changed", nil
+		}
+	}
+
+	kubectlParentPID := currentParentPID()
+	var markerReason string
+	if kubectlParentPID > 0 {
+		// Kubernetes does not tell exec plugins that the previous request got 401.
+		// A repeated request from the same kubectl process for an unexpired entry is
+		// the strongest signal we have, so purge and let the cold path regenerate.
+		if cached.LastServedParentPID == kubectlParentPID {
+			deleteUnifiedExecCredentialByKey(key)
+			return nil, "", fmt.Sprintf(
+				"probable 401 refresh: same kubectl parent process requested unexpired cached credential again (parentPID=%d); forcing cold path",
+				kubectlParentPID,
+			), nil
+		}
+		cached.LastServedParentPID = kubectlParentPID
+		if err := saveUnifiedExecCredentialEntry(keyringHoldingEntry, key, cached); err != nil {
+			deleteUnifiedExecCredentialByKey(key)
+			return nil, "", fmt.Sprintf("serve marker update failed for kubectl parentPID=%d (removed cached entry; forcing cold path)", kubectlParentPID), nil
+		}
+		markerReason = fmt.Sprintf("serve marker updated for kubectl parentPID=%d", kubectlParentPID)
+	} else {
+		markerReason = "serve marker skipped (kubectl parentPID unavailable)"
+	}
+
+	reason := fmt.Sprintf("method=%s expiresAt=%s (%s remaining)",
+		cached.Method,
+		cached.ExpiresAt.Format(time.RFC3339),
+		cached.ExpiresAt.Sub(now).Round(time.Second),
+	)
+	reason = fmt.Sprintf("%s; %s", reason, markerReason)
 	return &cached, reason, "", nil
 }
 
-func DeleteCachedAKSToken(csp, roleID, fqdn, username, organizationID string) error {
-	impl, err := krAKSToken.get()
-	if err != nil {
-		return err
+// SaveUnifiedExecCredential persists the kubectl-ready ExecCredential JSON.
+//
+// For ExecCredMethodProxy entries the basic-file fallback is REFUSED because
+// proxy entries carry a private key. On secure-storage failure the proxy entry
+// is simply not cached; the next call regenerates from DPA SSO acquire. This
+// honors the proxy team directive to avoid storing the token on the user's
+// machine in plaintext.
+//
+// expiresAt must be the ExecCredential status.expirationTimestamp the SDK
+// already wrote (early-refresh buffer baked in); the cache treats it as final.
+func SaveUnifiedExecCredential(
+	csp, roleID, fqdn, username, sessionID string,
+	method CachedExecCredentialMethod,
+	execCredJSON string,
+	expiresAt time.Time,
+	azureCLIFingerprint string,
+) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return fmt.Errorf("cannot cache execcred: sessionID is empty")
 	}
-	return impl.DeletePassword(aksTokenCredsServiceName, buildAKSTokenCacheKey(csp, roleID, fqdn, username, organizationID))
-}
-
-// SaveAKSToken caches the AKS JWT (with optional azureCLIFingerprint for fast reuse).
-func SaveAKSToken(csp, roleID, fqdn, username, organizationID, token, azureCLIFingerprint string) error {
-	expiresAt, err := k8sservice.ParseAccessTokenExpiry(token)
-	if err != nil {
-		return fmt.Errorf("cannot cache AKS token without JWT exp: %w", err)
+	if strings.TrimSpace(execCredJSON) == "" {
+		return fmt.Errorf("cannot cache execcred: empty JSON payload")
+	}
+	if expiresAt.IsZero() {
+		return fmt.Errorf("cannot cache execcred: expiresAt is zero")
+	}
+	if method != ExecCredMethodDirect && method != ExecCredMethodProxy {
+		return fmt.Errorf("unknown execcred method %q", method)
 	}
 
-	impl, err := krAKSToken.get()
+	impl, err := krExecCred.get()
 	if err != nil {
-		return fmt.Errorf("failed to open AKS token cache: %w", err)
+		return fmt.Errorf("failed to open unified execcred cache: %w", err)
 	}
 
-	data, err := json.Marshal(cachedAKSToken{
-		Token:               token,
-		ExpiresAt:           expiresAt,
-		SavedAt:             time.Now(),
+	payload, err := json.Marshal(cachedExecCredential{
+		ExecCredentialJSON:  execCredJSON,
+		ExpiresAt:           expiresAt.UTC(),
+		SavedAt:             time.Now().UTC(),
+		CSP:                 strings.TrimSpace(csp),
+		Method:              method,
 		AzureCLIFingerprint: azureCLIFingerprint,
+		LastServedParentPID: currentParentPID(),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to marshal AKS token cache: %w", err)
+		return fmt.Errorf("failed to marshal unified execcred cache: %w", err)
 	}
 
-	key := buildAKSTokenCacheKey(csp, roleID, fqdn, username, organizationID)
-	if err := impl.SetPassword(aksTokenCredsServiceName, key, string(data)); err != nil {
-		basicImpl, bErr := krBasicFallback.get()
+	key := buildUnifiedExecCredKey(csp, roleID, fqdn, username, sessionID)
+	if setErr := impl.SetPassword(execCredCredsServiceName, key, string(payload)); setErr == nil {
+		return nil
+	} else if method == ExecCredMethodProxy {
+		// Architectural rule: proxy entries (private key) MUST NEVER live in
+		// the basic-file fallback. Skip caching; cold path will run next time.
+		return fmt.Errorf("proxy execcred not cached: secure keyring unavailable, plaintext fallback refused: %w", setErr)
+	} else {
+		basicImpl, bErr := krExecCredBasic.get()
 		if bErr != nil {
-			return fmt.Errorf("failed to save AKS token to cache: %w", err)
+			return fmt.Errorf("failed to save execcred to cache: %w", setErr)
 		}
-		if bErr := basicImpl.SetPassword(aksTokenCredsServiceName, key, string(data)); bErr != nil {
-			return fmt.Errorf("failed to save AKS token to cache (basic fallback): %w", bErr)
+		if bErr := basicImpl.SetPassword(execCredCredsServiceName, key, string(payload)); bErr != nil {
+			return fmt.Errorf("failed to save execcred to cache (basic fallback): %w", bErr)
 		}
 	}
 	return nil
 }
 
+// DeleteUnifiedExecCredential removes a unified cache entry, used by the
+// Azure-direct fingerprint-mismatch / live-verify-failed path.
+func DeleteUnifiedExecCredential(csp, roleID, fqdn, username, sessionID string) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil
+	}
+	key := buildUnifiedExecCredKey(csp, roleID, fqdn, username, sessionID)
+	deleteUnifiedExecCredentialByKey(key)
+	return nil
+}
+
 // SaveCreds writes Elevate result JSON to the keyring.
-func SaveCreds(csp, roleID, fqdn, username string, result *k8smodels.IdsecSCAK8sElevateResult) error {
+func SaveCreds(csp, organizationID, roleID, fqdn, username, sessionID string, result *k8smodels.IdsecSCAK8sElevateResult) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil
+	}
 	impl, err := krElevateCreds.get()
 	if err != nil {
 		return fmt.Errorf("failed to open credential cache: %w", err)
@@ -361,7 +706,7 @@ func SaveCreds(csp, roleID, fqdn, username string, result *k8smodels.IdsecSCAK8s
 		return fmt.Errorf("failed to marshal cached creds: %w", err)
 	}
 
-	key := buildCacheKey(csp, roleID, fqdn, username)
+	key := buildCacheKey(csp, organizationID, roleID, fqdn, username, sessionID)
 	if err := impl.SetPassword(elevateCredsServiceName, key, string(data)); err != nil {
 		basicImpl, bErr := krBasicFallback.get()
 		if bErr != nil {

@@ -142,12 +142,7 @@ func setupCustomHelp(rootCmd *cobra.Command) {
 
 // isKnownSubcommand checks if the given argument matches a known subcommand or its alias.
 func isKnownSubcommand(cmd *cobra.Command, arg string) bool {
-	for _, subCmd := range cmd.Commands() {
-		if subCmd.Name() == arg || slices.Contains(subCmd.Aliases, arg) {
-			return true
-		}
-	}
-	return false
+	return findSubcommand(cmd, arg) != nil
 }
 
 // hasHelpFlag returns true when args include any help flag form.
@@ -278,8 +273,96 @@ func shouldShowHelpForError(errStr string) bool {
 		strings.Contains(errLower, "usage")
 }
 
+func findSubcommand(cmd *cobra.Command, name string) *cobra.Command {
+	for _, subCmd := range cmd.Commands() {
+		if subCmd.Name() == name || slices.Contains(subCmd.Aliases, name) {
+			return subCmd
+		}
+	}
+	return nil
+}
+
+func parseFlagToken(flagToken string) (string, bool) {
+	trimmed := strings.TrimLeft(flagToken, "-")
+	if trimmed == "" {
+		return "", false
+	}
+	if idx := strings.Index(trimmed, "="); idx >= 0 {
+		return trimmed[:idx], true
+	}
+	return trimmed, false
+}
+
+func commandAcceptsFlagValue(cmd *cobra.Command, flagName string) bool {
+	flag := cmd.Flags().Lookup(flagName)
+	if flag == nil {
+		flag = cmd.InheritedFlags().Lookup(flagName)
+	}
+	if flag == nil {
+		return false
+	}
+	return flag.Value.Type() != "bool"
+}
+
+// findUnknownCommandInArgs walks argv tokens and returns the first unmatched
+// positional token plus the command path where matching failed.
+func findUnknownCommandInArgs(rootCmd *cobra.Command, argv []string) (string, string) {
+	current := rootCmd
+	for i := 0; i < len(argv); i++ {
+		token := argv[i]
+		if token == "--" {
+			break
+		}
+
+		if strings.HasPrefix(token, "-") {
+			flagName, hasInlineValue := parseFlagToken(token)
+			if flagName != "" && !hasInlineValue && commandAcceptsFlagValue(current, flagName) && i+1 < len(argv) {
+				i++
+			}
+			continue
+		}
+
+		next := findSubcommand(current, token)
+		if next == nil {
+			return token, current.CommandPath()
+		}
+		current = next
+	}
+	return "", ""
+}
+
+func validateCommandPathBeforeExecution(rootCmd *cobra.Command) error {
+	if len(os.Args) <= 1 {
+		return nil
+	}
+
+	argv := os.Args[1:]
+	firstArg := firstPositionalArg(argv)
+	if firstArg == "" {
+		return nil
+	}
+
+	// Shorthand service routing ("idsec <service> ...") should validate the path
+	// under exec before command execution, otherwise Cobra may print exec help.
+	validationArgs := argv
+	if !isKnownSubcommand(rootCmd, firstArg) {
+		validationArgs = append([]string{"exec"}, argv...)
+	}
+
+	unknownToken, failedPath := findUnknownCommandInArgs(rootCmd, validationArgs)
+	if unknownToken == "" || failedPath == "" {
+		return nil
+	}
+	return fmt.Errorf("unknown command %q for %q", unknownToken, failedPath)
+}
+
 // handleCommandExecution executes the root command and handles errors, including routing unknown commands to exec.
 func handleCommandExecution(rootCmd *cobra.Command) {
+	if validationErr := validateCommandPathBeforeExecution(rootCmd); validationErr != nil {
+		fmt.Println(validationErr)
+		os.Exit(1)
+	}
+
 	if err := rootCmd.Execute(); err != nil {
 		errStr := err.Error()
 

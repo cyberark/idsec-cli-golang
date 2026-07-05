@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/cyberark/idsec-cli-golang/pkg/actions/testutils"
+	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
+	k8sservice "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s"
 	k8smodels "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s/models"
 )
 
@@ -107,7 +110,6 @@ func TestIdsecKubectlLoginAction_DefineAction(t *testing.T) {
 					"fqdn",
 					"organization-id",
 					"namespace-id",
-					"verbose",
 				}
 				for _, flag := range expectedFlags {
 					if cmd.Flags().Lookup(flag) == nil {
@@ -399,7 +401,6 @@ func TestAddElevateFlags(t *testing.T) {
 					"fqdn",
 					"organization-id",
 					"namespace-id",
-					"verbose",
 				}
 				for _, flag := range expectedFlags {
 					if cmd.Flags().Lookup(flag) == nil {
@@ -452,58 +453,26 @@ func TestAddElevateFlags(t *testing.T) {
 	}
 }
 
-func TestKubectlLoginVerboseEnabled(t *testing.T) {
+func TestKubectlLoginDiagnosticsEnabled(t *testing.T) {
 	tests := []struct {
-		name  string
-		setup func(t *testing.T) (*cobra.Command, func())
-		want  bool
+		name string
+		env  string
+		want bool
 	}{
-		{
-			name: "env_IDSEC_VERBOSE_true",
-			setup: func(t *testing.T) (*cobra.Command, func()) {
-				t.Setenv("IDSEC_VERBOSE", "true")
-				return &cobra.Command{Use: "kubectl-login"}, func() {}
-			},
-			want: true,
-		},
-		{
-			name: "local_verbose_flag",
-			setup: func(t *testing.T) (*cobra.Command, func()) {
-				cmd := &cobra.Command{Use: "kubectl-login"}
-				cmd.Flags().Bool("verbose", false, "")
-				requireNoError(t, cmd.ParseFlags([]string{"--verbose"}))
-				return cmd, func() {}
-			},
-			want: true,
-		},
-		{
-			name: "exec_persistent_verbose_flag",
-			setup: func(t *testing.T) (*cobra.Command, func()) {
-				exec := &cobra.Command{Use: "exec"}
-				exec.PersistentFlags().Bool("verbose", false, "")
-				requireNoError(t, exec.ParseFlags([]string{"--verbose"}))
-				elevate := &cobra.Command{Use: "elevate"}
-				exec.AddCommand(elevate)
-				return elevate, func() {}
-			},
-			want: true,
-		},
-		{
-			name: "disabled_by_default",
-			setup: func(t *testing.T) (*cobra.Command, func()) {
-				t.Setenv("IDSEC_VERBOSE", "")
-				return &cobra.Command{Use: "kubectl-login"}, func() {}
-			},
-			want: false,
-		},
+		{name: "env_IDSEC_VERBOSE_true", env: "true", want: true},
+		{name: "env_IDSEC_VERBOSE_1", env: "1", want: true},
+		{name: "disabled_by_default", env: "", want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd, cleanup := tt.setup(t)
-			defer cleanup()
-			if got := kubectlLoginVerboseEnabled(cmd); got != tt.want {
-				t.Errorf("kubectlLoginVerboseEnabled() = %v, want %v", got, tt.want)
+			if tt.env == "" {
+				t.Setenv("IDSEC_VERBOSE", "")
+			} else {
+				t.Setenv("IDSEC_VERBOSE", tt.env)
+			}
+			if got := kubectlLoginDiagnosticsEnabled(); got != tt.want {
+				t.Errorf("kubectlLoginDiagnosticsEnabled() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -512,12 +481,117 @@ func TestKubectlLoginVerboseEnabled(t *testing.T) {
 func TestKubectlLoginVerbose_WritesToStderrOnly(t *testing.T) {
 	t.Setenv("IDSEC_VERBOSE", "true")
 
-	cmd := &cobra.Command{Use: "kubectl-login"}
 	stderr := captureKubectlLoginStderr(t, func() {
-		kubectlLoginVerbose(cmd, "diagnostic line %d", 42)
+		kubectlLoginVerbose("diagnostic line %d", 42)
 	})
-	if !bytes.Contains(stderr, []byte("[kubectl-login] diagnostic line 42")) {
+	if !bytes.Contains(stderr, []byte("kubectl-login | ")) ||
+		!bytes.Contains(stderr, []byte(" | DEBUG | diagnostic line 42")) {
 		t.Fatalf("expected verbose line on stderr, got: %q", stderr)
+	}
+}
+
+func TestKubectlLoginLogLevelInfoSuppressesDebug(t *testing.T) {
+	t.Setenv("IDSEC_VERBOSE", "true")
+	t.Setenv(k8sservice.KubectlLoginLogLevelEnvVar, "info")
+
+	stderr := captureKubectlLoginStderr(t, func() {
+		kubectlLoginInfo("info line")
+		kubectlLoginVerbose("debug line")
+	})
+	logs := string(stderr)
+	if !strings.Contains(logs, " | INFO | info line") {
+		t.Fatalf("expected INFO line, got: %q", logs)
+	}
+	if strings.Contains(logs, "debug line") {
+		t.Fatalf("did not expect DEBUG line at info level, got: %q", logs)
+	}
+}
+
+func TestLogProxyExecCredential_DoesNotDumpCredentialJSON(t *testing.T) {
+	t.Setenv("IDSEC_VERBOSE", "true")
+
+	cred := &k8smodels.IdsecSCAK8sExecCredential{
+		APIVersion: "client.authentication.k8s.io/v1beta1",
+		Kind:       "ExecCredential",
+		Status: k8smodels.IdsecSCAK8sExecCredentialStatus{
+			ClientCertificateData: "CERTDATA",
+			ClientKeyData:         "KEYDATA",
+		},
+	}
+
+	stderr := captureKubectlLoginStderr(t, func() {
+		logProxyExecCredential(cred, "test")
+	})
+	logs := string(stderr)
+	if !strings.Contains(logs, "kubectl-login | ") ||
+		!strings.Contains(logs, " | INFO | proxy ExecCredential (test):") {
+		t.Fatalf("expected safe ExecCredential summary, got: %q", logs)
+	}
+	for _, forbidden := range []string{"ExecCredential JSON", "CERTDATA", "KEYDATA"} {
+		if strings.Contains(logs, forbidden) {
+			t.Fatalf("did not expect %q in verbose logs: %q", forbidden, logs)
+		}
+	}
+}
+
+func TestKubectlLoginLogLevelIsolationSuppressesSDKStdoutLogging(t *testing.T) {
+	t.Setenv(config.IdsecLogLevelEnvVar, "info")
+	originalKubectlLevel, hadKubectlLevel := os.LookupEnv(k8sservice.KubectlLoginLogLevelEnvVar)
+	_ = os.Unsetenv(k8sservice.KubectlLoginLogLevelEnvVar)
+	t.Cleanup(func() {
+		if hadKubectlLevel {
+			_ = os.Setenv(k8sservice.KubectlLoginLogLevelEnvVar, originalKubectlLevel)
+		} else {
+			_ = os.Unsetenv(k8sservice.KubectlLoginLogLevelEnvVar)
+		}
+	})
+
+	restore := setupKubectlLoginLogging()
+
+	if got := os.Getenv(config.IdsecLogLevelEnvVar); got != "CRITICAL" {
+		t.Fatalf("expected SDK %s to be CRITICAL during kubectl-login, got %q", config.IdsecLogLevelEnvVar, got)
+	}
+	if got := os.Getenv(k8sservice.KubectlLoginLogLevelEnvVar); got != "info" {
+		t.Fatalf("expected kubectl-login log level inherited from IDSEC_LOG_LEVEL, got %q", got)
+	}
+	if got := k8sservice.KubectlLoginEffectiveLogLevel(); got != k8sservice.KubectlLoginLogLevelInfo {
+		t.Fatalf("expected effective kubectl-login level info from IDSEC_LOG_LEVEL, got %v", got)
+	}
+
+	restore()
+	if got := os.Getenv(config.IdsecLogLevelEnvVar); got != "info" {
+		t.Fatalf("expected original %s restored, got %q", config.IdsecLogLevelEnvVar, got)
+	}
+	if got := os.Getenv(k8sservice.KubectlLoginLogLevelEnvVar); got != "" {
+		t.Fatalf("expected private kubectl-login log level restored to empty, got %q", got)
+	}
+}
+
+func TestKubectlLoginLogLevelIsolationAlwaysSilencesSDKStdoutLogging(t *testing.T) {
+	_ = os.Unsetenv(config.IdsecLogLevelEnvVar)
+	originalKubectlLevel, hadKubectlLevel := os.LookupEnv(k8sservice.KubectlLoginLogLevelEnvVar)
+	_ = os.Unsetenv(k8sservice.KubectlLoginLogLevelEnvVar)
+	t.Cleanup(func() {
+		_ = os.Unsetenv(config.IdsecLogLevelEnvVar)
+		if hadKubectlLevel {
+			_ = os.Setenv(k8sservice.KubectlLoginLogLevelEnvVar, originalKubectlLevel)
+		} else {
+			_ = os.Unsetenv(k8sservice.KubectlLoginLogLevelEnvVar)
+		}
+	})
+
+	restore := setupKubectlLoginLogging()
+
+	if got := os.Getenv(config.IdsecLogLevelEnvVar); got != "CRITICAL" {
+		t.Fatalf("expected SDK %s to be CRITICAL even when unset before kubectl-login, got %q", config.IdsecLogLevelEnvVar, got)
+	}
+	if got := os.Getenv(k8sservice.KubectlLoginLogLevelEnvVar); got != "" {
+		t.Fatalf("expected kubectl-login private log level unchanged when IDSEC_LOG_LEVEL unset, got %q", got)
+	}
+
+	restore()
+	if got, ok := os.LookupEnv(config.IdsecLogLevelEnvVar); ok {
+		t.Fatalf("expected %s restored to unset, got %q", config.IdsecLogLevelEnvVar, got)
 	}
 }
 
@@ -525,6 +599,87 @@ func requireNoError(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestServeFromUnifiedCache_EmptySessionEarlyReturns asserts the helper
+// short-circuits before any keyring I/O when sessionID is empty (the cache
+// is keyed on internal_session_id; an empty value means "no cache").
+func TestServeFromUnifiedCache_EmptySessionEarlyReturns(t *testing.T) {
+	t.Setenv("IDSEC_VERBOSE", "true")
+	a := &IdsecKubectlLoginAction{}
+	cmd := &cobra.Command{Use: "kubectl-login"}
+
+	stderr := captureKubectlLoginStderr(t, func() {
+		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", kubectlLoginSession{
+			ispUsername: "alice@example.com",
+		})
+		if served := a.serveFromUnifiedCache(cmd, req); served {
+			t.Fatalf("expected served=false for empty sessionID")
+		}
+	})
+	if bytes.Contains(stderr, []byte("unified cache lookup")) {
+		t.Errorf("expected no cache-lookup verbose line for empty sessionID; got: %q", stderr)
+	}
+}
+
+// TestSaveUnifiedExecCredential_EmptySessionNoOp asserts the helper is a
+// no-op (no keyring write, no warning) when the session id cannot be
+// extracted — matching the lookup-side guard in serveFromUnifiedCache.
+func TestSaveUnifiedExecCredential_EmptySessionNoOp(t *testing.T) {
+	t.Setenv("IDSEC_VERBOSE", "true")
+	a := &IdsecKubectlLoginAction{}
+	cmd := &cobra.Command{Use: "kubectl-login"}
+	cred := &k8smodels.IdsecSCAK8sExecCredential{
+		APIVersion: "client.authentication.k8s.io/v1beta1",
+		Kind:       "ExecCredential",
+		Status: k8smodels.IdsecSCAK8sExecCredentialStatus{
+			Token:               "tok",
+			ExpirationTimestamp: "2099-01-01T00:00:00Z",
+		},
+	}
+
+	stderr := captureKubectlLoginStderr(t, func() {
+		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", kubectlLoginSession{
+			ispUsername: "alice@example.com",
+		})
+		a.saveUnifiedExecCredential(cmd, req, "direct", cred)
+	})
+	if bytes.Contains(stderr, []byte("unified cache saved")) {
+		t.Errorf("expected no save attempt for empty sessionID; got: %q", stderr)
+	}
+	if bytes.Contains(stderr, []byte("unified cache save failed")) {
+		t.Errorf("expected no save error for empty sessionID; got: %q", stderr)
+	}
+}
+
+// TestSaveUnifiedExecCredential_NoExpirationSkipsSave asserts that an
+// ExecCredential without status.expirationTimestamp is never persisted: the
+// cache TTL contract requires an authoritative expiry per architect review.
+func TestSaveUnifiedExecCredential_NoExpirationSkipsSave(t *testing.T) {
+	t.Setenv("IDSEC_VERBOSE", "true")
+	a := &IdsecKubectlLoginAction{}
+	cmd := &cobra.Command{Use: "kubectl-login"}
+	cred := &k8smodels.IdsecSCAK8sExecCredential{
+		APIVersion: "client.authentication.k8s.io/v1beta1",
+		Kind:       "ExecCredential",
+		Status: k8smodels.IdsecSCAK8sExecCredentialStatus{
+			Token: "tok",
+		},
+	}
+
+	stderr := captureKubectlLoginStderr(t, func() {
+		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", kubectlLoginSession{
+			ispUsername: "alice@example.com",
+			sessionID:   "sid-not-empty",
+		})
+		a.saveUnifiedExecCredential(cmd, req, "direct", cred)
+	})
+	if !strings.Contains(string(stderr), "skipping unified cache save: ExecCredential has no expirationTimestamp") {
+		t.Errorf("expected verbose skip line about missing expirationTimestamp; got: %q", stderr)
+	}
+	if bytes.Contains(stderr, []byte("unified cache saved")) {
+		t.Errorf("expected no save attempt when expirationTimestamp is missing; got: %q", stderr)
 	}
 }
 

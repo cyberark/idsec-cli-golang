@@ -12,7 +12,7 @@ The following steps are required before running most CLI workflows. Complete the
 For private repositories, configure Git credentials:
 
 ```shell linenums="0"
-# Requires Go 1.24+ and git 2.24+
+# Requires Go 1.25+ and git 2.24+
 export GOPRIVATE=github.com
 git config --global url."https://<username>:<token>@github.com".insteadOf "https://github.com"
 go install github.com/cyberark/idsec-cli-golang/cmd/idsec@latest

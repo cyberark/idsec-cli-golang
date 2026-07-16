@@ -56,7 +56,7 @@ import (
 	smsessionsactions "github.com/cyberark/idsec-cli-golang/pkg/services/sm/sessions/actions"
 
 	policysdkactions "github.com/cyberark/idsec-sdk-golang/pkg/services/policy/actions"
-	scasdkactions "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/actions"
+	scasdkactions "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/discovery/actions"
 )
 
 func init() {

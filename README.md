@@ -81,7 +81,7 @@ The profiles can be configured upon need and be used for the consecutive actions
 The CLI has the following basic commands:
 - <b>configure</b> - Configures profiles and their respective authentication methods
 - <b>login</b> - Logs into the profile authentication methods
-- <b>exec</b> - Executes different commands based on the supported services
+- <b>exec</b> - Executes different commands based on the supported services (this is the default command, so it can be omitted)
 - <b>profiles</b> - Manage multiple profiles on the machine
 - <b>cache</b> - Manage the cache of the authentication methods
 - <b>upgrade</b> - Upgrade the CLI to the latest version
@@ -192,6 +192,8 @@ exec
 ----
 The exec command is used to execute various commands based on supported services for the fitting logged in authenticators
 
+exec is the default command, so it can be omitted (e.g. `idsec sia sso short-lived-password` is equivalent to `idsec exec sia sso short-lived-password`)
+
 The following services and commands are supported:
 - <b>sia</b> - Secure Infrastructure Access Services
   - <b>sso</b> - SIA SSO Management
@@ -225,466 +227,466 @@ Any command has its own subcommands, with respective arguments
 
 For example, generating a short lived password for DB
 ```shell
-idsec exec sia sso short-lived-password
+idsec sia sso short-lived-password
 ```
 
 Or a short lived password for RDP
 ```shell
-idsec exec sia sso short-lived-password --service DPA-RDP
+idsec sia sso short-lived-password --service DPA-RDP
 ```
 
 Add SIA VM Target Set
 ```shell
-idsec exec sia workspaces-target-sets create --name mydomain.com --type Domain
+idsec sia workspaces-target-sets create --name mydomain.com --type Domain
 ```
 
 Add SIA VM Secret
 ```shell
-idsec exec sia secrets-vm create --secret-type ProvisionerUser --provisioner-username=myuser --provisioner-password=mypassword
+idsec sia secrets-vm create --secret-type ProvisionerUser --provisioner-username=myuser --provisioner-password=mypassword
 ```
 
 List connector pools
 ```shell
-idsec exec exec cmgr pools list
+idsec cmgr pools list
 ```
 
 Get connector installation script
 ```shell
-idsec exec sia access connector-setup-script --connector-type ON-PREMISE --connector-os windows --connector-pool-id 588741d5-e059-479d-b4c4-3d821a87f012
+idsec sia access connector-setup-script --connector-type ON-PREMISE --connector-os windows --connector-pool-id 588741d5-e059-479d-b4c4-3d821a87f012
 ```
 
 Create a PCloud Safe
 ```shell
-idsec exec pcloud safes create --safe-name=safe
+idsec pcloud safes create --safe-name=safe
 ```
 
 Create a PCloud Account
 ```shell
-idsec exec pcloud accounts create --name account --safe-name safe --platform-id='UnixSSH' --username root --address 1.2.3.4 --secret-type=password --secret mypass
+idsec pcloud accounts create --name account --safe-name safe --platform-id='UnixSSH' --username root --address 1.2.3.4 --secret-type=password --secret mypass
 ```
 
 Retrieve a PCloud Account Credentials
 ```shell
-idsec exec pcloud accounts get-credentials --account-id 11_1
+idsec pcloud accounts get-credentials --account-id 11_1
 ```
 
 Create an Identity User
 ```shell
-idsec exec identity users create --roles "DpaAdmin" --username "myuser"
+idsec identity users create --roles "DpaAdmin" --username "myuser"
 ```
 
 Create an Identity service / oauth user
 ```shell
-idsec exec identity users create-user --roles "DpaAdmin" --username "myuser" --is-service-user --is-oauth-client
+idsec identity users create-user --roles "DpaAdmin" --username "myuser" --is-service-user --is-oauth-client
 ```
 
 Configure User Attributes Schema
 ```shell
-idsec exec identity users upsert-attributes-schema --columns '[{"name": "department_attr1", "Title": "department_attr1", "Type": "Text", "Description": "Department attribute 1"}, {"name": "location_attr2", "Title": "location_attr2", "Type": "Text", "Description": "Location attribute 2"}]'
+idsec identity users upsert-attributes-schema --columns '[{"name": "department_attr1", "Title": "department_attr1", "Type": "Text", "Description": "Department attribute 1"}, {"name": "location_attr2", "Title": "location_attr2", "Type": "Text", "Description": "Location attribute 2"}]'
 ```
 
 Remove User Attributes Schema Columns
 ```shell
-idsec exec identity users delete-attributes-schema --column-names department_attr1,location_attr2
+idsec identity users delete-attributes-schema --column-names department_attr1,location_attr2
 ```
 
 Get User Attributes Schema
 ```shell
-idsec exec identity users attributes-schema
+idsec identity users attributes-schema
 ```
 
 Set User Attributes
 ```shell
-idsec exec identity users upsert-attributes --user-id 692d75bf-a7a5-4abe-8e37-7056d3337beb --attributes department_attr1:engineering --attributes location_attr2:NYC
+idsec identity users upsert-attributes --user-id 692d75bf-a7a5-4abe-8e37-7056d3337beb --attributes department_attr1:engineering --attributes location_attr2:NYC
 ```
 
 Remove User Attributes
 ```shell
-idsec exec identity users delete-attributes --user-id 692d75bf-a7a5-4abe-8e37-7056d3337beb --attribute-names department_attr1,location_attr2
+idsec identity users delete-attributes --user-id 692d75bf-a7a5-4abe-8e37-7056d3337beb --attribute-names department_attr1,location_attr2
 ```
 
 Get User Attributes
 ```shell
-idsec exec identity users get-attributes --user-id 692d75bf-a7a5-4abe-8e37-7056d3337beb
+idsec identity users get-attributes --user-id 692d75bf-a7a5-4abe-8e37-7056d3337beb
 ```
 
 Create an Identity Role
 ```shell
-idsec exec identity roles create-role --role-name myrole
+idsec identity roles create-role --role-name myrole
 ```
 
 List all directories identities
 ```shell
-idsec exec identity directories list-entities
+idsec identity directories list-entities
 ```
 
 Add SIA Database Strong Account
 ```shell
-idsec exec sia db-strong-accounts create --store-type managed --name "my-postgres-account" --platform PostgreSQL --address "db.example.com" --username "dbuser" --port 5432 --database "mydb" --password "mypassword"
+idsec sia db-strong-accounts create --store-type managed --name "my-postgres-account" --platform PostgreSQL --address "db.example.com" --username "dbuser" --port 5432 --database "mydb" --password "mypassword"
 ```
 
 Delete SIA Database Secret
 ```shell
-idsec exec sia secrets-db delete --secret-name mysecret
+idsec sia secrets-db delete --secret-name mysecret
 ```
 
 Add SIA database
 ```shell
-idsec exec sia workspaces-db create --name mydatabase --provider-engine aurora-mysql --read-write-endpoint myrds.com
+idsec sia workspaces-db create --name mydatabase --provider-engine aurora-mysql --read-write-endpoint myrds.com
 ```
 
 Delete SIA database
 ```shell
-idsec exec sia workspaces-db delete --id databaseid
+idsec sia workspaces-db delete --id databaseid
 ```
 
 List all SIA Settings
 ```shell
-idsec exec sia settings list-settings
+idsec sia settings list-settings
 ```
 
 Get specific SIA setting
 ```shell
-idsec exec sia settings adb-mfa-caching
+idsec sia settings adb-mfa-caching
 ```
 
 Set specific SIA setting
 ```shell
-idsec exec sia settings set-rdp-mfa-caching --is-mfa-caching-enabled=true --client-ip-enforced=false
+idsec sia settings set-rdp-mfa-caching --is-mfa-caching-enabled=true --client-ip-enforced=false
 ```
 
 Get Secrets Hub Configuration
 ```shell
-idsec exec sechub configurations get
+idsec sechub configurations get
 ```
 Update Secrets Hub Configuration
 ```shell
-idsec exec sechub configurations update --sync-settings 360
+idsec sechub configurations update --sync-settings 360
 ```
 
 Get Secrets Hub Filters
 ```shell
-idsec exec sechub filters get --store-id store-e488dd22-a59c-418c-bbe3-3f061dd9b667
+idsec sechub filters get --store-id store-e488dd22-a59c-418c-bbe3-3f061dd9b667
 ```
 Add Secrets Hub Filter
 ```shell
-idsec exec sechub filters create --type "PAM_SAFE" --store-id store-e488dd22-a59c-418c-bbe3-3f061dd9b667 --data-safe-name "example-safe"
+idsec sechub filters create --type "PAM_SAFE" --store-id store-e488dd22-a59c-418c-bbe3-3f061dd9b667 --data-safe-name "example-safe"
 ```
 Delete Secrets Hub Filter
 ```shell
-idsec exec sechub filters delete --filter-id filter-7f3d187d-7439-407f-b968-ec27650be692 --store-id store-e488dd22-a59c-418c-bbe3-3f061dd9b667
+idsec sechub filters delete --filter-id filter-7f3d187d-7439-407f-b968-ec27650be692 --store-id store-e488dd22-a59c-418c-bbe3-3f061dd9b667
 ```
 
 Get Secrets Hub Scans
 ```shell
-idsec exec sechub scans get
+idsec sechub scans get
 ```
 Trigger Secrets Hub Scan
 ```shell
-idsec exec sechub scans trigger --id default --secret-stores-ids store-e488dd22-a59c-418c-bbe3-3f061dd9b667 type secret-store
+idsec sechub scans trigger --id default --secret-stores-ids store-e488dd22-a59c-418c-bbe3-3f061dd9b667 type secret-store
 ```
 
 Create Secrets Hub Secret Store
 ```shell
-idsec exec sechub secret-stores create --type AWS_ASM --description sdk-testing --name "SDK Testing" --state ENABLED --data-aws-account-alias ALIAS-NAME-EXAMPLE --data-aws-region-id us-east-1 --data-aws-account-id 123456789123 --data-aws-rolename Secrets-Hub-IAM-Role-Name-Created-For-Secrets-Hub
+idsec sechub secret-stores create --type AWS_ASM --description sdk-testing --name "SDK Testing" --state ENABLED --data-aws-account-alias ALIAS-NAME-EXAMPLE --data-aws-region-id us-east-1 --data-aws-account-id 123456789123 --data-aws-rolename Secrets-Hub-IAM-Role-Name-Created-For-Secrets-Hub
 ```
 Retrieve Secrets Hub Secret Store
 ```shell
-idsec exec sechub secret-stores get --secret-store-id store-e488dd22-a59c-418c-bbe3-3f061dd9b667
+idsec sechub secret-stores get --secret-store-id store-e488dd22-a59c-418c-bbe3-3f061dd9b667
 ```
 Update Secrets Hub Secret Store
 ```shell
-idsec exec sechub secret-stores update --secret-store-id store-7f3d187d-7439-407f-b968-ec27650be692 --name "New Name" --description "Updated Description" --data-aws-account-alias "Test2"
+idsec sechub secret-stores update --secret-store-id store-7f3d187d-7439-407f-b968-ec27650be692 --name "New Name" --description "Updated Description" --data-aws-account-alias "Test2"
 ```
 Delete Secrets Hub Secret Store
 ```shell
-idsec exec sechub secret-stores delete --secret-store-id store-fd11bc7c-22d0-4d9b-ac1b-f8458161935f
+idsec sechub secret-stores delete --secret-store-id store-fd11bc7c-22d0-4d9b-ac1b-f8458161935f
 ```
 
 Get Secrets Hub Secrets
 ```shell
-idsec exec sechub secrets get-secrets
+idsec sechub secrets get-secrets
 ```
 Get Secrets Hub Secrets using a filter
 ```shell
-idsec exec sechub secrets get-secrets-by --limit 5 --projection EXTEND --filter "name CONTAINS EXAMPLE"
+idsec sechub secrets get-secrets-by --limit 5 --projection EXTEND --filter "name CONTAINS EXAMPLE"
 ```
 
 Get Secrets Hub Service Information
 ```shell
-idsec exec sechub service-info get
+idsec sechub service-info get
 ```
 
 List Secrets Hub Sync Policies
 ```shell
-idsec exec sechub sync-policies list
+idsec sechub sync-policies list
 ```
 Get Secrets Hub Sync Policy
 ```shell
-idsec exec sechub sync-policies get --policy-id policy-7f3d187d-7439-407f-b968-ec27650be692 --projection EXTEND
+idsec sechub sync-policies get --policy-id policy-7f3d187d-7439-407f-b968-ec27650be692 --projection EXTEND
 ```
 Create Secrets Hub Sync Policy
 ```shell
-idsec exec sechub sync-policies create --name "New Sync Policy" --description "New Sync Policy Description" --filter-type PAM_SAFE --filter-data-safe-name EXAMPLE-SAFE-NAME --source-id store-e488dd22-a59c-418c-bbe3-3f061dd12367 --target-id store-e488dd22-a59c-418c-bbe3-3f061dd9b667
+idsec sechub sync-policies create --name "New Sync Policy" --description "New Sync Policy Description" --filter-type PAM_SAFE --filter-data-safe-name EXAMPLE-SAFE-NAME --source-id store-e488dd22-a59c-418c-bbe3-3f061dd12367 --target-id store-e488dd22-a59c-418c-bbe3-3f061dd9b667
 ```
 Delete Secrets Hub Sync Policy
 ```shell
-idsec exec sechub sync-policies delete --policy-id policy-7f3d187d-7439-407f-b968-ec27650be692
+idsec sechub sync-policies delete --policy-id policy-7f3d187d-7439-407f-b968-ec27650be692
 ```
 
 List Sessions
 ```shell
-idsec exec sm sessions list
+idsec sm sessions list
 ```
 
 Count Sessions
 ```shell
-idsec exec sm sessions count
+idsec sm sessions count
 ```
 
 List Sessions By Filter
 ```shell
-idsec exec sm sessions list-by --search "duration LE 01:00:00"
+idsec sm sessions list-by --search "duration LE 01:00:00"
 ```
 
 Count Sessions By Filter
 ```shell
-idsec exec sm sessions count-by --search "command STARTSWITH ls"
+idsec sm sessions count-by --search "command STARTSWITH ls"
 ```
 
 Get Session
 ```shell
-idsec exec sm sessions get --session-id my-id
+idsec sm sessions get --session-id my-id
 ```
 
 Get Sessions Statistics
 ```shell
-idsec exec sm sessions stats
+idsec sm sessions stats
 ```
 
 List Session Activities
 ```shell
-idsec exec sm session-activities list --session-id my-id
+idsec sm session-activities list --session-id my-id
 ```
 
 Count Session Activities
 ```shell
-idsec exec sm session-activities count --session-id my-id
+idsec sm session-activities count --session-id my-id
 ```
 
 List Session Activities By Filter
 ```shell
-idsec exec sm session-activities list-by --session-id my-id --command-contains "ls"
+idsec sm session-activities list-by --session-id my-id --command-contains "ls"
 ```
 
 Count Session Activities By Filter
 ```shell
-idsec exec sm session-activities count-by --session-id my-id --command-contains "chmod"
+idsec sm session-activities count-by --session-id my-id --command-contains "chmod"
 ```
 
 List all policies
 ```shell
-idsec exec policy list-policies
+idsec policy list-policies
 ```
 
 Delete DB Policy
 ```shell
-idsec exec policy db delete-policy --policy-id my-policy-id
+idsec policy db delete-policy --policy-id my-policy-id
 ```
 
 List DB Policies
 ```shell
-idsec exec policy db list-policies
+idsec policy db list-policies
 ```
 
 Get DB Policy
 ```shell
-idsec exec policy db policy --policy-id my-policy-id
+idsec policy db policy --policy-id my-policy-id
 ```
 
 Create DB Policy
 ```shell
-idsec exec policy db create-policy --request-file /path/to/policy-request.json
+idsec policy db create-policy --request-file /path/to/policy-request.json
 ```
 
 List Cloud Access Policies
 ```shell
-idsec exec policy cloud-access list-policies
+idsec policy cloud-access list-policies
 ```
 
 Get Cloud Access Policy
 ```shell
-idsec exec policy cloud-access policy --policy-id my-policy-id
+idsec policy cloud-access policy --policy-id my-policy-id
 ```
 
 Create Cloud Access Policy
 ```shell
-idsec exec policy cloud-access create-policy --request-file /path/to/policy-request.json
+idsec policy cloud-access create-policy --request-file /path/to/policy-request.json
 ```
 
 Delete Cloud Access Policy
 ```shell
-idsec exec policy cloud-access delete-policy --policy-id my-policy-id
+idsec policy cloud-access delete-policy --policy-id my-policy-id
 ```
 
 List VM Policies
 ```shell
-idsec exec policy vm list-policies
+idsec policy vm list-policies
 ```
 
 Get VM Policy
 ```shell
-idsec exec policy vm policy --policy-id my-policy-id
+idsec policy vm policy --policy-id my-policy-id
 ```
 
 Delete VM Policy
 ```shell
-idsec exec policy vm delete-policy --policy-id my-policy-id
+idsec policy vm delete-policy --policy-id my-policy-id
 ```
 
 Connect to MySQL ZSP with the mysql cli via Idsec CLI
 ```shell
-idsec exec sia db mysql --target-address myaddress.com
+idsec sia db mysql --target-address myaddress.com
 ```
 
 Connect to PostgreSQL Vaulted with the psql cli via Idsec CLI
 ```shell
-idsec exec sia db psql --target-address myaddress.com --target-user myuser
+idsec sia db psql --target-address myaddress.com --target-user myuser
 ```
 
 Generate a connection string alias for a given raw connection string
 ```shell
-idsec exec sia shortened-connection-string generate --raw-connection-string=jack.sparrow@caribbean.airlines#caribbean-airlines@the.black.pearl.com103639
+idsec sia shortened-connection-string generate --raw-connection-string=jack.sparrow@caribbean.airlines#caribbean-airlines@the.black.pearl.com103639
 ```
 
 Install SIA SSH public key on a target machine
 ```shell
-idsec exec sia ssh-ca install-public-key --private-key-path /path/to/key.pem --target-machine 1.1.1.1 --username user
+idsec sia ssh-ca install-public-key --private-key-path /path/to/key.pem --target-machine 1.1.1.1 --username user
 ```
 
 Remove SIA SSH public key from a target machine
 ```shell
-idsec exec sia ssh-ca uninstall-public-key --private-key-path /path/to/key.pem --target-machine 1.1.1.1 --username user
+idsec sia ssh-ca uninstall-public-key --private-key-path /path/to/key.pem --target-machine 1.1.1.1 --username user
 ```
 
 Check if SIA SSH public key is installed on a target machine
 ```shell
-idsec exec sia ssh-ca is-public-key-installed --private-key-path /path/to/key.pem --target-machine 1.1.1.1 --username user
+idsec sia ssh-ca is-public-key-installed --private-key-path /path/to/key.pem --target-machine 1.1.1.1 --username user
 ```
 
 Add a SIA certificate
 ```shell
-idsec exec sia certificates create --cert-name name --cert-type PEM --file /path/to/cert.crt
+idsec sia certificates create --cert-name name --cert-type PEM --file /path/to/cert.crt
 ```
 
 Update a SIA certificate
 ```shell
-idsec exec sia certificates update --certificate-id cert-id --cert-name new-name --file /path/to/new-cert.crt
+idsec sia certificates update --certificate-id cert-id --cert-name new-name --file /path/to/new-cert.crt
 ```
 
 List all SIA certificates
 ```shell
-idsec exec sia certificates list
+idsec sia certificates list
 ```
 
 Import a pCloud Platform
 ```shell
-idsec exec pcloud platforms import --platform-zip-path /path/to/zip
+idsec pcloud platforms import --platform-zip-path /path/to/zip
 ```
 
 Import a pCloud Target Platform
 ```shell
-idsec exec pcloud target-platforms import --platform-zip-path /path/to/zip
+idsec pcloud target-platforms import --platform-zip-path /path/to/zip
 ```
 
 Export a pCloud Platform
 ```shell
-idsec exec pcloud platforms export --platform-id myid --output-folder /path/to/folder
+idsec pcloud platforms export --platform-id myid --output-folder /path/to/folder
 ```
 
 Export a pCloud Target Platform
 ```shell
-idsec exec pcloud target-platforms export --target-platform-id 123 --output-folder /path/to/folder
+idsec pcloud target-platforms export --target-platform-id 123 --output-folder /path/to/folder
 ```
 
 List pCloud Target Platforms
 ```shell
-idsec exec pcloud target-platforms list
+idsec pcloud target-platforms list
 ```
 
 Activate a pCloud Target Platform
 ```shell
-idsec exec pcloud target-platforms activate --target-platform-id 123
+idsec pcloud target-platforms activate --target-platform-id 123
 ```
 
 Deactivate a pCloud Target Platform
 ```shell
-idsec exec pcloud target-platforms deactivate --target-platform-id 123
+idsec pcloud target-platforms deactivate --target-platform-id 123
 ```
 
 Delete a pCloud Target Platform
 ```shell
-idsec exec pcloud target-platforms delete --target-platform-id 123
+idsec pcloud target-platforms delete --target-platform-id 123
 ```
 
 Create an Identity Auth Profile
 ```shell
-idsec exec identity auth-profiles create-auth-profile --auth-profile-name myprofile --first-challenges UP --second-challenges EMAIL,OTP
+idsec identity auth-profiles create-auth-profile --auth-profile-name myprofile --first-challenges UP --second-challenges EMAIL,OTP
 ```
 
 List Identity Auth Profiles
 ```shell
-idsec exec identity auth-profiles list-auth-profiles
+idsec identity auth-profiles list-auth-profiles
 ```
 
 Delete an Identity Auth Profile
 ```shell
-idsec exec identity auth-profiles delete-auth-profile --auth-profile-id ab75c8da-b04b-4c6e-9b6e-165e36c24018
+idsec identity auth-profiles delete-auth-profile --auth-profile-id ab75c8da-b04b-4c6e-9b6e-165e36c24018
 ```
 
 Create an Identity Policy
 ```shell
-idsec exec identity policies create-policy --policy-name mypolicy --auth-profile-name "myprofile"
+idsec identity policies create-policy --policy-name mypolicy --auth-profile-name "myprofile"
 ```
 
 List Identity Policies
 ```shell
-idsec exec identity policies list-policies
+idsec identity policies list-policies
 ```
 
 Make an Identity Policy Inactive
 ```shell
-idsec exec identity policies update-policy --policy-name mypolicy --policy-status Inactive
+idsec identity policies update-policy --policy-name mypolicy --policy-status Inactive
 ```
 
 Delete an Identity Policy
 ```shell
-idsec exec identity policies delete-policy --policy-name mypolicy
+idsec identity policies delete-policy --policy-name mypolicy
 ```
 
 Create a pCloud Application
 ```shell
-idsec exec pcloud applications create --app-id myapp --business-owner-f-name "user" --business-owner-l-name "name" --business-owner-email user@name.com
+idsec pcloud applications create --app-id myapp --business-owner-f-name "user" --business-owner-l-name "name" --business-owner-email user@name.com
 ```
 
 List pCloud Applications
 ```shell
-idsec exec pcloud applications list
+idsec pcloud applications list
 ```
 
 Delete pCloud Application
 ```shell
-idsec exec pcloud applications delete --app-id myapp
+idsec pcloud applications delete --app-id myapp
 ```
 
 Create a pCloud Application Auth Method
 ```shell
-idsec exec pcloud applications create-auth-method --app-id myapp --auth-type hash --auth-value myhash --comment mycomment
+idsec pcloud applications create-auth-method --app-id myapp --auth-type hash --auth-value myhash --comment mycomment
 ```
 
 Delete a pCloud Application Auth Method
 ```shell
-idsec exec pcloud applications delete-auth-method --app-id myapp --auth-id 1
+idsec pcloud applications delete-auth-method --app-id myapp --auth-id 1
 ```
 
 You can view all of the commands via the --help for each respective exec action
@@ -995,7 +997,7 @@ File logging and stdout logging are fully independent:
 This means you can keep stdout silent while still capturing detailed logs to the file:
 ```shell
 # No --verbose: stdout is silent, but file still captures INFO+ logs
-idsec exec pcloud safes list
+idsec pcloud safes list
 cat ~/.idsec/logs/idsec-cli.log
 ```
 
@@ -1085,7 +1087,7 @@ This guide walks through adding a new action to a resource that already exists (
 The CLI uses a reflection-based execution model. When a user runs:
 
 ```bash
-idsec exec pcloud accounts get-credentials --account-id 11_1
+idsec pcloud accounts get-credentials --account-id 11_1
 ```
 
 The CLI resolves this as a method chain via reflection:
@@ -1223,13 +1225,13 @@ go mod tidy
 make all
 
 # Check the new action appears in help
-idsec exec pcloud accounts --help
+idsec pcloud accounts --help
 
 # Inspect the generated flags
-idsec exec pcloud accounts get-credentials --help
+idsec pcloud accounts get-credentials --help
 
 # Test the action
-idsec exec pcloud accounts get-credentials --account-id 11_1
+idsec pcloud accounts get-credentials --account-id 11_1
 ```
 
 #### Summary

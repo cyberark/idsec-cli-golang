@@ -122,7 +122,13 @@ func setupKubectlLoginLogging() func() {
 	}
 	_ = os.Setenv(config.IdsecLogLevelEnvVar, "CRITICAL")
 
+	// kubectl reads this plugin's stdout as the ExecCredential JSON only; reserve
+	// stdout so any informational auth prompts (e.g. the ISP browser-redirect
+	// message during a silent refresh) go to stderr instead of corrupting it.
+	config.ReserveStdoutForData()
+
 	return func() {
+		config.ReleaseStdoutForData()
 		if logLevelEnvSet {
 			_ = os.Setenv(config.IdsecLogLevelEnvVar, originalLogLevel)
 		} else {

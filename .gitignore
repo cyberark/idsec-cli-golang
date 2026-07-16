@@ -127,3 +127,4 @@ scan_repo
 content/
 *.zip
 *.tar.gz
+.DS_Store

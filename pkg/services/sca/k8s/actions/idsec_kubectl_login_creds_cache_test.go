@@ -10,134 +10,195 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	idseckeyring "github.com/cyberark/idsec-sdk-golang/pkg/common/keyring"
+	"github.com/cyberark/idsec-sdk-golang/pkg/models"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	commonmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
 	k8sservice "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s"
 	k8smodels "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s/models"
 )
 
-func TestBuildCacheKey(t *testing.T) {
+func TestBuildSCAK8sCacheKey(t *testing.T) {
+	const (
+		testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+		testSID  = "sid-abc-123"
+	)
 	tests := []struct {
-		name     string
-		csp      string
-		roleKey  string
-		fqdn     string
-		username string
-		expected string
+		name        string
+		profileName string
+		csp         string
+		roleKey     string
+		fqdn        string
+		userUUID    string
+		namespace   string
+		sessionID   string
+		expected    string
 	}{
 		{
-			name:     "success_formats_correctly",
-			csp:      "AWS",
-			roleKey:  "arn:aws:iam::123456789012:role/k8s-role",
-			fqdn:     "745445889F087548523CF96B3D365FF0.gr7.us-east-1.eks.amazonaws.com",
-			username: "alice@example.com",
-			expected: "AWS:arn:aws:iam::123456789012:role/k8s-role:745445889F087548523CF96B3D365FF0.gr7.us-east-1.eks.amazonaws.com:alice@example.com",
+			name:        "all_fields_set",
+			profileName: "prod",
+			csp:         "AWS",
+			roleKey:     "arn:aws:iam::123456789012:role/k8s-role",
+			fqdn:        "cluster.gr7.us-east-1.eks.amazonaws.com",
+			userUUID:    testUUID,
+			namespace:   "",
+			sessionID:   testSID,
+			expected:    "prod:AWS:arn_aws_iam__123456789012_role/k8s-role:cluster.gr7.us-east-1.eks.amazonaws.com:" + testUUID + ":" + testSID,
 		},
 		{
-			name:     "success_uppercases_csp",
-			csp:      "azure",
-			roleKey:  "my-role",
-			fqdn:     "mycluster.eastus.azmk8s.io",
-			username: "bob@example.com",
-			expected: "AZURE:my-role:mycluster.eastus.azmk8s.io:bob@example.com",
+			name:        "with_namespace",
+			profileName: "prod",
+			csp:         "AZURE",
+			roleKey:     "role-guid",
+			fqdn:        "cluster.eastus.azmk8s.io",
+			userUUID:    testUUID,
+			namespace:   "remediation-tracker",
+			sessionID:   testSID,
+			expected:    "prod:AZURE:role-guid:cluster.eastus.azmk8s.io:" + testUUID + ":remediation-tracker:" + testSID,
 		},
 		{
-			name:     "success_mixed_case_csp_is_uppercased",
-			csp:      "Aws",
-			roleKey:  "role-name",
-			fqdn:     "cluster.example.com",
-			username: "carol@example.com",
-			expected: "AWS:role-name:cluster.example.com:carol@example.com",
+			name:        "csp_is_uppercased",
+			profileName: "dev",
+			csp:         "azure",
+			roleKey:     "role-guid",
+			fqdn:        "cluster.eastus.azmk8s.io",
+			userUUID:    testUUID,
+			namespace:   "",
+			sessionID:   testSID,
+			expected:    "dev:AZURE:role-guid:cluster.eastus.azmk8s.io:" + testUUID + ":" + testSID,
 		},
 		{
-			name:     "success_username_is_lowercased_and_trimmed",
-			csp:      "AWS",
-			roleKey:  "arn:aws:iam::123:role/foo",
-			fqdn:     "cluster.example.com",
-			username: "  Alice@Example.COM  ",
-			expected: "AWS:arn:aws:iam::123:role/foo:cluster.example.com:alice@example.com",
+			name:        "profile_name_colon_sanitized",
+			profileName: "org:prod",
+			csp:         "AWS",
+			roleKey:     "arn:aws:iam::123:role/foo",
+			fqdn:        "cluster.example.com",
+			userUUID:    testUUID,
+			namespace:   "",
+			sessionID:   testSID,
+			expected:    "org_prod:AWS:arn_aws_iam__123_role/foo:cluster.example.com:" + testUUID + ":" + testSID,
 		},
 		{
-			name:     "success_empty_username_produces_trailing_separator",
-			csp:      "AWS",
-			roleKey:  "arn:aws:iam::123:role/foo",
-			fqdn:     "cluster.example.com",
-			username: "",
-			expected: "AWS:arn:aws:iam::123:role/foo:cluster.example.com:",
+			name:        "profile_name_case_preserved",
+			profileName: "MyProfile",
+			csp:         "AWS",
+			roleKey:     "arn:aws:iam::123:role/foo",
+			fqdn:        "cluster.example.com",
+			userUUID:    testUUID,
+			namespace:   "",
+			sessionID:   testSID,
+			expected:    "MyProfile:AWS:arn_aws_iam__123_role/foo:cluster.example.com:" + testUUID + ":" + testSID,
 		},
 		{
-			name:     "success_empty_fqdn_produces_consecutive_separators",
-			csp:      "AWS",
-			roleKey:  "arn:aws:iam::123:role/foo",
-			fqdn:     "",
-			username: "alice@example.com",
-			expected: "AWS:arn:aws:iam::123:role/foo::alice@example.com",
+			name:        "namespace_colon_sanitized",
+			profileName: "prod",
+			csp:         "AZURE",
+			roleKey:     "role-guid",
+			fqdn:        "cluster.azmk8s.io",
+			userUUID:    testUUID,
+			namespace:   "ns:foo",
+			sessionID:   testSID,
+			expected:    "prod:AZURE:role-guid:cluster.azmk8s.io:" + testUUID + ":ns_foo:" + testSID,
 		},
 		{
-			name:     "success_empty_role_key_produces_consecutive_separators",
-			csp:      "AWS",
-			roleKey:  "",
-			fqdn:     "cluster.eks.amazonaws.com",
-			username: "alice@example.com",
-			expected: "AWS::cluster.eks.amazonaws.com:alice@example.com",
+			name:        "user_uuid_trimmed_only_not_lowercased",
+			profileName: "prod",
+			csp:         "AWS",
+			roleKey:     "role",
+			fqdn:        "cluster.example.com",
+			userUUID:    "  " + testUUID + "  ",
+			namespace:   "",
+			sessionID:   testSID,
+			expected:    "prod:AWS:role:cluster.example.com:" + testUUID + ":" + testSID,
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			got := buildCacheKey(tt.csp, "", tt.roleKey, tt.fqdn, tt.username, "")
+			got := buildSCAK8sCacheKey(tt.profileName, tt.csp, tt.roleKey, tt.fqdn, tt.userUUID, tt.namespace, tt.sessionID)
 			if got != tt.expected {
-				t.Errorf("buildCacheKey(%q, %q, %q, %q, %q) = %q, want %q",
-					tt.csp, "", tt.roleKey, tt.fqdn, tt.username, got, tt.expected)
+				t.Errorf("buildSCAK8sCacheKey = %q, want %q", got, tt.expected)
 			}
 		})
 	}
 }
 
-func TestBuildCacheKey_AzureRoleIsShortened(t *testing.T) {
-	t.Run("success_azure_role_definition_is_truncated_to_uuid", func(t *testing.T) {
-		t.Parallel()
+func TestBuildSCAK8sCacheKey_AzureRoleIsShortened(t *testing.T) {
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
 
+	t.Run("azure_role_definition_truncated_to_uuid", func(t *testing.T) {
+		t.Parallel()
 		longAzureRoleID := "/subscriptions/00000000-1111-2222-3333-444444444444/providers/Microsoft.Authorization/roleDefinitions/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-		key := buildCacheKey("AZURE", "", longAzureRoleID, "mycluster.eastus.azmk8s.io", "alice@example.com", "")
-		expected := "AZURE:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:mycluster.eastus.azmk8s.io:alice@example.com"
-		if key != expected {
-			t.Errorf("expected key %q, got %q", expected, key)
+		got := buildSCAK8sCacheKey("prod", "AZURE", longAzureRoleID, "cluster.eastus.azmk8s.io", testUUID, "", "sid-1")
+		want := "prod:AZURE:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:cluster.eastus.azmk8s.io:" + testUUID + ":sid-1"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
 		}
 	})
 
-	t.Run("success_aws_role_arn_is_kept_as_is", func(t *testing.T) {
+	t.Run("aws_role_arn_colons_sanitized", func(t *testing.T) {
 		t.Parallel()
-
 		awsRoleARN := "arn:aws:iam::123456789012:role/k8s_sca_test_role"
-		key := buildCacheKey("AWS", "", awsRoleARN, "cluster.eks.amazonaws.com", "alice@example.com", "")
-		expected := "AWS:arn:aws:iam::123456789012:role/k8s_sca_test_role:cluster.eks.amazonaws.com:alice@example.com"
-		if key != expected {
-			t.Errorf("expected key %q, got %q", expected, key)
+		got := buildSCAK8sCacheKey("prod", "AWS", awsRoleARN, "cluster.eks.amazonaws.com", testUUID, "", "sid-1")
+		want := "prod:AWS:arn_aws_iam__123456789012_role/k8s_sca_test_role:cluster.eks.amazonaws.com:" + testUUID + ":sid-1"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
 		}
 	})
 }
 
-func TestBuildCacheKey_DifferentUsernamesProduceDifferentKeys(t *testing.T) {
+func TestBuildSCAK8sCacheKey_DifferentUserUUIDsProduceDifferentKeys(t *testing.T) {
 	t.Parallel()
-
-	keyAlice := buildCacheKey("AWS", "", "arn:aws:iam::123:role/foo", "cluster.eks.amazonaws.com", "alice@example.com", "")
-	keyBob := buildCacheKey("AWS", "", "arn:aws:iam::123:role/foo", "cluster.eks.amazonaws.com", "bob@example.com", "")
-	if keyAlice == keyBob {
-		t.Errorf("expected per-user cache keys to differ; both yielded %q", keyAlice)
+	keyA := buildSCAK8sCacheKey("prod", "AWS", "arn:aws:iam::123:role/foo", "cluster.eks.amazonaws.com", "uuid-a", "", "sid-1")
+	keyB := buildSCAK8sCacheKey("prod", "AWS", "arn:aws:iam::123:role/foo", "cluster.eks.amazonaws.com", "uuid-b", "", "sid-1")
+	if keyA == keyB {
+		t.Errorf("expected per-user cache keys to differ; both yielded %q", keyA)
 	}
 }
 
-func TestBuildCacheKey_IncludesSessionIDWithoutSidPrefix(t *testing.T) {
+func TestBuildSCAK8sCacheKey_DifferentProfilesIsolateKeys(t *testing.T) {
 	t.Parallel()
-
-	got := buildCacheKey("AWS", "org-1", "arn:aws:iam::123:role/foo", "cluster.eks.amazonaws.com", "alice@example.com", "session-abc")
-	want := "AWS:arn:aws:iam::123:role/foo:cluster.eks.amazonaws.com:alice@example.com:org-1:session-abc"
-	if got != want {
-		t.Errorf("buildCacheKey with sessionID = %q, want %q", got, want)
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	keyA := buildSCAK8sCacheKey("prod", "AWS", "role", "cluster.eks.amazonaws.com", testUUID, "", "sid-1")
+	keyB := buildSCAK8sCacheKey("dev", "AWS", "role", "cluster.eks.amazonaws.com", testUUID, "", "sid-1")
+	if keyA == keyB {
+		t.Errorf("expected per-profile cache keys to differ; both yielded %q", keyA)
 	}
-	if strings.Contains(got, ":sid:") {
-		t.Errorf("elevate cache key must not contain :sid: prefix; got %q", got)
+}
+
+func TestBuildSCAK8sCacheKey_DifferentNamespacesIsolateKeys(t *testing.T) {
+	t.Parallel()
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	keyNS := buildSCAK8sCacheKey("prod", "AZURE", "role", "cluster.azmk8s.io", testUUID, "remediation-tracker", "sid-1")
+	keyNoNS := buildSCAK8sCacheKey("prod", "AZURE", "role", "cluster.azmk8s.io", testUUID, "", "sid-1")
+	if keyNS == keyNoNS {
+		t.Errorf("expected namespace-scoped and cluster-scoped keys to differ; both = %q", keyNS)
+	}
+}
+
+func TestSanitizeCacheSegment(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"prod", "prod"},
+		{"org:prod", "org_prod"},
+		{"  prod  ", "prod"},
+		{"ns:foo:bar", "ns_foo_bar"},
+		{"", ""},
+		{"  ", ""},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+			if got := sanitizeCacheSegment(tt.input); got != tt.want {
+				t.Errorf("sanitizeCacheSegment(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -176,62 +237,6 @@ func TestShortRoleKey(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestNormalizeUsername(t *testing.T) {
-	tests := []struct {
-		name     string
-		username string
-		want     string
-	}{
-		{
-			name:     "lowercases_mixed_case_email",
-			username: "Alice@Example.COM",
-			want:     "alice@example.com",
-		},
-		{
-			name:     "trims_surrounding_whitespace",
-			username: "   alice@example.com\n",
-			want:     "alice@example.com",
-		},
-		{
-			name:     "empty_returns_empty",
-			username: "",
-			want:     "",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := normalizeUsername(tt.username); got != tt.want {
-				t.Errorf("normalizeUsername(%q) = %q, want %q", tt.username, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestBuildCacheKey_Format(t *testing.T) {
-	t.Run("success_key_contains_four_colon_separated_parts", func(t *testing.T) {
-		t.Parallel()
-
-		key := buildCacheKey("AWS", "", "arn:aws:iam::123:role/foo", "mycluster.eks.amazonaws.com", "alice@example.com", "")
-		// The key must start with the uppercased CSP.
-		if !strings.HasPrefix(key, "AWS:") {
-			t.Errorf("expected key to start with 'AWS:', got %q", key)
-		}
-		// The key must end with the normalized username.
-		if !strings.HasSuffix(key, ":alice@example.com") {
-			t.Errorf("expected key to end with ':alice@example.com', got %q", key)
-		}
-		// The role ARN portion must be present.
-		if !strings.Contains(key, "arn:aws:iam::123:role/foo") {
-			t.Errorf("expected key to contain role ARN, got %q", key)
-		}
-		// FQDN must be present between role and username.
-		if !strings.Contains(key, ":mycluster.eks.amazonaws.com:") {
-			t.Errorf("expected key to contain ':<fqdn>:', got %q", key)
-		}
-	})
 }
 
 func TestParseSessionExpTime(t *testing.T) {
@@ -316,32 +321,30 @@ func TestIsCachedElevateStillValid_AWSFallbackTTL(t *testing.T) {
 }
 
 func TestLoadCachedElevateKeyring(t *testing.T) {
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
 	tests := []struct {
 		name        string
 		csp         string
 		roleKey     string
 		fqdn        string
-		username    string
 		ttl         time.Duration
 		expectNil   bool
 		expectError bool
 	}{
 		{
-			name:        "success_ttl_zero_returns_nil_without_keyring_access",
+			name:        "ttl_zero_returns_nil_without_keyring_access_aws",
 			csp:         "AWS",
 			roleKey:     "arn:aws:iam::123:role/k8s-role",
 			fqdn:        "745445889F087548523CF96B3D365FF0.gr7.us-east-1.eks.amazonaws.com",
-			username:    "alice@example.com",
 			ttl:         0,
 			expectNil:   true,
 			expectError: false,
 		},
 		{
-			name:        "success_ttl_zero_for_azure_returns_nil",
+			name:        "ttl_zero_for_azure_returns_nil",
 			csp:         "AZURE",
 			roleKey:     "azure-role",
 			fqdn:        "mycluster.eastus.azmk8s.io",
-			username:    "alice@example.com",
 			ttl:         0,
 			expectNil:   true,
 			expectError: false,
@@ -349,10 +352,11 @@ func TestLoadCachedElevateKeyring(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			result, _, _, _, err := LoadCachedElevateKeyringWithReason(tt.csp, "", tt.roleKey, tt.fqdn, tt.username, "", tt.ttl)
+			result, _, _, _, err := LoadCachedElevateKeyringWithReason("prod", tt.csp, tt.roleKey, tt.fqdn, testUUID, "", "sid-1", tt.ttl)
 
 			if tt.expectError && err == nil {
 				t.Error("expected error but got nil")
@@ -367,25 +371,6 @@ func TestLoadCachedElevateKeyring(t *testing.T) {
 				t.Error("expected non-nil result but got nil")
 			}
 		})
-	}
-}
-
-func TestBuildCacheKey_WithOrgSuffix(t *testing.T) {
-	t.Parallel()
-	const orgID = "00000000-1111-2222-3333-444444444444"
-	got := buildCacheKey("AZURE", orgID, "role-guid", "cluster.azmk8s.io", "alice@contoso.com", "")
-	want := "AZURE:role-guid:cluster.azmk8s.io:alice@contoso.com:" + orgID
-	if got != want {
-		t.Errorf("buildCacheKey with org = %q, want %q", got, want)
-	}
-}
-
-func TestBuildCacheKey_DifferentOrgsProduceDifferentKeys(t *testing.T) {
-	t.Parallel()
-	a := buildCacheKey("AZURE", "org-a", "role", "fqdn", "user@x.com", "")
-	b := buildCacheKey("AZURE", "org-b", "role", "fqdn", "user@x.com", "")
-	if a == b {
-		t.Errorf("expected different keys for different orgs; both %q", a)
 	}
 }
 
@@ -468,6 +453,17 @@ func (m *memoryKeyring) ClearAllPasswords() error {
 	return nil
 }
 
+func (m *memoryKeyring) ListKeys(serviceName string) ([]string, error) {
+	prefix := serviceName + "\x00"
+	keys := make([]string, 0)
+	for k := range m.items {
+		if strings.HasPrefix(k, prefix) {
+			keys = append(keys, strings.TrimPrefix(k, prefix))
+		}
+	}
+	return keys, nil
+}
+
 func readyTestKeyring(impl *memoryKeyring) *lazyKeyring {
 	k := &lazyKeyring{service: execCredCredsServiceName}
 	k.once.Do(func() {
@@ -485,6 +481,24 @@ func withExecCredentialKeyrings(t *testing.T, primary, basic *memoryKeyring) {
 	t.Cleanup(func() {
 		krExecCred = oldPrimary
 		krExecCredBasic = oldBasic
+	})
+}
+
+// withAllCacheKeyrings wires elevate + execcred primary/basic and AWS IDC OIDC
+// primary to the same in-memory stores.
+func withAllCacheKeyrings(t *testing.T, primary, basic *memoryKeyring) {
+	t.Helper()
+	withExecCredentialKeyrings(t, primary, basic)
+	oldElev := krElevateCreds
+	oldElevBasic := krBasicFallback
+	oldOIDC := krAWSIDCOIDC
+	krElevateCreds = readyTestKeyring(primary)
+	krBasicFallback = readyTestKeyring(basic)
+	krAWSIDCOIDC = readyTestKeyring(primary)
+	t.Cleanup(func() {
+		krElevateCreds = oldElev
+		krBasicFallback = oldElevBasic
+		krAWSIDCOIDC = oldOIDC
 	})
 }
 
@@ -543,96 +557,127 @@ func validCachedExecCredential(expiresAt time.Time) cachedExecCredential {
 	}
 }
 
-// TestBuildUnifiedExecCredKey_Shape verifies the key format is exactly
-// CSP:shortRole:fqdn:user:sid (in that order, colon-separated, no orgID).
-func TestBuildUnifiedExecCredKey_Shape(t *testing.T) {
+// TestBuildSCAK8sCacheKey_Shape verifies the key format is
+// profileName:CSP:shortRole:fqdn:userUUID[:namespace]:sessionID.
+func TestBuildSCAK8sCacheKey_Shape(t *testing.T) {
 	t.Parallel()
-	got := buildUnifiedExecCredKey(
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	got := buildSCAK8sCacheKey(
+		"prod",
 		"aws",
 		"arn:aws:iam::123456789012:role/k8s-role",
 		"cluster.example.com",
-		"  Alice@Example.COM  ",
+		testUUID,
+		"",
 		"sid-abc-123",
 	)
-	want := "AWS:arn:aws:iam::123456789012:role/k8s-role:cluster.example.com:alice@example.com:sid-abc-123"
+	want := "prod:AWS:arn_aws_iam__123456789012_role/k8s-role:cluster.example.com:" + testUUID + ":sid-abc-123"
 	if got != want {
-		t.Errorf("buildUnifiedExecCredKey = %q, want %q", got, want)
+		t.Errorf("buildSCAK8sCacheKey = %q, want %q", got, want)
 	}
 }
 
-// TestBuildUnifiedExecCredKey_AzureRoleShortened verifies the Azure long-form
-// roleDefinitions/<guid> resource IDs are shortened to just the trailing GUID
-// (matching the existing shortRoleKey contract).
-func TestBuildUnifiedExecCredKey_AzureRoleShortened(t *testing.T) {
+// TestBuildSCAK8sCacheKey_WithNamespace verifies namespace is included in the key.
+func TestBuildSCAK8sCacheKey_WithNamespace(t *testing.T) {
 	t.Parallel()
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	got := buildSCAK8sCacheKey("prod", "AZURE", "role-guid", "cluster.azmk8s.io", testUUID, "remediation-tracker", "sid-1")
+	want := "prod:AZURE:role-guid:cluster.azmk8s.io:" + testUUID + ":remediation-tracker:sid-1"
+	if got != want {
+		t.Errorf("buildSCAK8sCacheKey with namespace = %q, want %q", got, want)
+	}
+}
+
+// TestBuildSCAK8sCacheKey_AzureRoleShortened verifies the Azure long-form
+// roleDefinitions/<guid> resource IDs are shortened to just the trailing GUID.
+func TestBuildSCAK8sCacheKey_AzureRoleShortened(t *testing.T) {
+	t.Parallel()
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
 	roleID := "/subscriptions/sub-1/providers/Microsoft.Authorization/roleDefinitions/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-	got := buildUnifiedExecCredKey(
-		"AZURE",
-		roleID,
-		"mycluster.eastus.azmk8s.io",
-		"alice@contoso.com",
-		"sid-xyz",
-	)
-	want := "AZURE:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:mycluster.eastus.azmk8s.io:alice@contoso.com:sid-xyz"
+	got := buildSCAK8sCacheKey("prod", "AZURE", roleID, "mycluster.eastus.azmk8s.io", testUUID, "", "sid-xyz")
+	want := "prod:AZURE:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:mycluster.eastus.azmk8s.io:" + testUUID + ":sid-xyz"
 	if got != want {
-		t.Errorf("buildUnifiedExecCredKey azure = %q, want %q", got, want)
+		t.Errorf("buildSCAK8sCacheKey azure = %q, want %q", got, want)
 	}
 }
 
-// TestBuildUnifiedExecCredKey_NoOrganizationID confirms the key never includes
-// organizationID (the explicit design choice — FQDN already disambiguates).
-func TestBuildUnifiedExecCredKey_NoOrganizationID(t *testing.T) {
+func TestBuildSCAK8sCacheKey_NoOrganizationID(t *testing.T) {
 	t.Parallel()
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
 	const orgID = "00000000-1111-2222-3333-444444444444"
-	got := buildUnifiedExecCredKey("AZURE", "role-guid", "cluster.azmk8s.io", "alice@contoso.com", "sid-1")
+	got := buildSCAK8sCacheKey("prod", "AZURE", "role-guid", "cluster.azmk8s.io", testUUID, "", "sid-1")
 	if strings.Contains(got, orgID) {
-		t.Errorf("unified key must not contain organizationID; got %q", got)
+		t.Errorf("key must not contain organizationID; got %q", got)
 	}
 }
 
-// TestBuildUnifiedExecCredKey_DifferentSessionsRotateNamespace ensures rotation
+// TestBuildSCAK8sCacheKey_DifferentSessionsRotateNamespace ensures rotation
 // of internal_session_id (re-auth) automatically partitions cache namespaces.
-func TestBuildUnifiedExecCredKey_DifferentSessionsRotateNamespace(t *testing.T) {
+func TestBuildSCAK8sCacheKey_DifferentSessionsRotateNamespace(t *testing.T) {
 	t.Parallel()
-	a := buildUnifiedExecCredKey("AWS", "role", "fqdn.example.com", "user@x.com", "sid-A")
-	b := buildUnifiedExecCredKey("AWS", "role", "fqdn.example.com", "user@x.com", "sid-B")
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	a := buildSCAK8sCacheKey("prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-A")
+	b := buildSCAK8sCacheKey("prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-B")
 	if a == b {
 		t.Errorf("unified keys for different sessionIDs must differ; both = %q", a)
 	}
 }
 
-// TestBuildUnifiedExecCredKey_DifferentCSPsDoNotCollide guards against the
-// (impossible-by-policy but worth-asserting) case of an AWS and Azure entry
-// for the same identity colliding on the same key.
-func TestBuildUnifiedExecCredKey_DifferentCSPsDoNotCollide(t *testing.T) {
+// TestBuildSCAK8sCacheKey_DifferentCSPsDoNotCollide guards against AWS and Azure
+// entries for the same identity colliding on the same key.
+func TestBuildSCAK8sCacheKey_DifferentCSPsDoNotCollide(t *testing.T) {
 	t.Parallel()
-	a := buildUnifiedExecCredKey("AWS", "role", "fqdn.example.com", "user@x.com", "sid-1")
-	b := buildUnifiedExecCredKey("AZURE", "role", "fqdn.example.com", "user@x.com", "sid-1")
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	a := buildSCAK8sCacheKey("prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1")
+	b := buildSCAK8sCacheKey("prod", "AZURE", "role", "fqdn.example.com", testUUID, "", "sid-1")
 	if a == b {
 		t.Errorf("unified keys for different CSPs must differ; both = %q", a)
 	}
 }
 
-// TestLoadUnifiedExecCredential_EmptySessionDisablesCache verifies the safety
-// fall-through when the ISP token did not yield internal_session_id: we must
-// NEVER touch the keyring and must return a clear missReason.
+// TestLoadUnifiedExecCredential_EmptySessionDisablesCache verifies that
+// missing sessionID or userUUID disables the cache without touching the keyring.
 func TestLoadUnifiedExecCredential_EmptySessionDisablesCache(t *testing.T) {
 	t.Parallel()
-	entry, hitReason, missReason, err := LoadUnifiedExecCredential(
-		"AWS", "role", "fqdn.example.com", "user@x.com", "", "",
-	)
-	if err != nil {
-		t.Fatalf("unexpected error on empty sessionID: %v", err)
-	}
-	if entry != nil {
-		t.Errorf("expected nil entry when sessionID is empty; got %+v", entry)
-	}
-	if hitReason != "" {
-		t.Errorf("expected empty hitReason; got %q", hitReason)
-	}
-	if missReason == "" {
-		t.Errorf("expected non-empty missReason explaining cache disabled")
-	}
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+
+	t.Run("empty_session_id", func(t *testing.T) {
+		t.Parallel()
+		entry, hitReason, missReason, err := LoadUnifiedExecCredential(
+			"prod", "AWS", "role", "fqdn.example.com", testUUID, "", "", "",
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if entry != nil {
+			t.Errorf("expected nil entry when sessionID is empty; got %+v", entry)
+		}
+		if hitReason != "" {
+			t.Errorf("expected empty hitReason; got %q", hitReason)
+		}
+		if !strings.Contains(missReason, "sessionID") {
+			t.Errorf("expected missReason to mention sessionID; got %q", missReason)
+		}
+	})
+
+	t.Run("empty_user_uuid", func(t *testing.T) {
+		t.Parallel()
+		entry, hitReason, missReason, err := LoadUnifiedExecCredential(
+			"prod", "AWS", "role", "fqdn.example.com", "", "", "sid-1", "",
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if entry != nil {
+			t.Errorf("expected nil entry when userUUID is empty; got %+v", entry)
+		}
+		if hitReason != "" {
+			t.Errorf("expected empty hitReason; got %q", hitReason)
+		}
+		if !strings.Contains(missReason, "userUUID") {
+			t.Errorf("expected missReason to mention userUUID; got %q", missReason)
+		}
+	})
 }
 
 func TestLoadUnifiedExecCredential_UpdatesParentMarkerOnCacheHit(t *testing.T) {
@@ -641,11 +686,12 @@ func TestLoadUnifiedExecCredential_UpdatesParentMarkerOnCacheHit(t *testing.T) {
 	withExecCredentialKeyrings(t, primary, basic)
 	withParentPID(t, 4242)
 
-	key := buildUnifiedExecCredKey("AWS", "role", "fqdn.example.com", "user@x.com", "sid-1")
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	key := buildSCAK8sCacheKey("prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1")
 	storeCachedExecCredentialForTest(t, primary, key, validCachedExecCredential(time.Now().Add(15*time.Minute)))
 
 	entry, hitReason, missReason, err := LoadUnifiedExecCredential(
-		"AWS", "role", "fqdn.example.com", "user@x.com", "sid-1", "",
+		"prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1", "",
 	)
 	if err != nil {
 		t.Fatalf("load unified credential: %v", err)
@@ -678,16 +724,17 @@ func TestLoadUnifiedExecCredential_SameParentUnexpiredPurgesAsProbable401(t *tes
 	withExecCredentialKeyrings(t, primary, basic)
 	withParentPID(t, 5150)
 
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
 	expiresAt := time.Now().Add(15 * time.Minute)
 	if err := SaveUnifiedExecCredential(
-		"AWS", "role", "fqdn.example.com", "user@x.com",
+		"prod", "AWS", "role", "fqdn.example.com", testUUID, "",
 		"sid-1", ExecCredMethodDirect, `{"status":{"token":"redacted"}}`, expiresAt, "",
 	); err != nil {
 		t.Fatalf("save unified credential: %v", err)
 	}
 
 	entry, hitReason, missReason, err := LoadUnifiedExecCredential(
-		"AWS", "role", "fqdn.example.com", "user@x.com", "sid-1", "",
+		"prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1", "",
 	)
 	if err != nil {
 		t.Fatalf("second load returned error: %v", err)
@@ -702,7 +749,7 @@ func TestLoadUnifiedExecCredential_SameParentUnexpiredPurgesAsProbable401(t *tes
 		t.Fatalf("expected missReason to include parent PID and cold-path decision, got %q", missReason)
 	}
 
-	key := buildUnifiedExecCredKey("AWS", "role", "fqdn.example.com", "user@x.com", "sid-1")
+	key := buildSCAK8sCacheKey("prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1")
 	if _, ok := loadCachedExecCredentialForTest(t, primary, key); ok {
 		t.Fatal("expected probable 401 path to delete primary cache entry")
 	}
@@ -717,15 +764,16 @@ func TestSaveUnifiedExecCredential_StoresParentMarkerForFreshCredential(t *testi
 	withExecCredentialKeyrings(t, primary, basic)
 	withParentPID(t, 6060)
 
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
 	expiresAt := time.Now().Add(15 * time.Minute)
 	if err := SaveUnifiedExecCredential(
-		"AWS", "role", "fqdn.example.com", "user@x.com",
+		"prod", "AWS", "role", "fqdn.example.com", testUUID, "",
 		"sid-1", ExecCredMethodDirect, `{"status":{"token":"redacted"}}`, expiresAt, "",
 	); err != nil {
 		t.Fatalf("save unified credential: %v", err)
 	}
 
-	key := buildUnifiedExecCredKey("AWS", "role", "fqdn.example.com", "user@x.com", "sid-1")
+	key := buildSCAK8sCacheKey("prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1")
 	persisted, ok := loadCachedExecCredentialForTest(t, primary, key)
 	if !ok {
 		t.Fatal("expected fresh credential to be cached")
@@ -741,13 +789,14 @@ func TestLoadUnifiedExecCredential_ExpiredEntryWinsBeforeSameParentCheck(t *test
 	withExecCredentialKeyrings(t, primary, basic)
 	withParentPID(t, 6262)
 
-	key := buildUnifiedExecCredKey("AWS", "role", "fqdn.example.com", "user@x.com", "sid-1")
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	key := buildSCAK8sCacheKey("prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1")
 	cached := validCachedExecCredential(time.Now().Add(-time.Minute))
 	cached.LastServedParentPID = 6262
 	storeCachedExecCredentialForTest(t, primary, key, cached)
 
 	entry, hitReason, missReason, err := LoadUnifiedExecCredential(
-		"AWS", "role", "fqdn.example.com", "user@x.com", "sid-1", "",
+		"prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1", "",
 	)
 	if err != nil {
 		t.Fatalf("load unified credential: %v", err)
@@ -769,14 +818,15 @@ func TestLoadUnifiedExecCredential_MismatchWinsBeforeSameParentCheck(t *testing.
 	withExecCredentialKeyrings(t, primary, basic)
 	withParentPID(t, 7373)
 
-	key := buildUnifiedExecCredKey("AWS", "role", "fqdn.example.com", "user@x.com", "sid-1")
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	key := buildSCAK8sCacheKey("prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1")
 	cached := validCachedExecCredential(time.Now().Add(15 * time.Minute))
 	cached.CSP = "AZURE"
 	cached.LastServedParentPID = 7373
 	storeCachedExecCredentialForTest(t, primary, key, cached)
 
 	entry, hitReason, missReason, err := LoadUnifiedExecCredential(
-		"AWS", "role", "fqdn.example.com", "user@x.com", "sid-1", "",
+		"prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1", "",
 	)
 	if err != nil {
 		t.Fatalf("load unified credential: %v", err)
@@ -799,7 +849,8 @@ func TestLoadUnifiedExecCredential_AzureFingerprintWinsBeforeSameParentCheck(t *
 	withParentPID(t, 7474)
 	withAzureFingerprint(t, "current-fingerprint")
 
-	key := buildUnifiedExecCredKey("AZURE", "role", "fqdn.example.com", "user@x.com", "sid-1")
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	key := buildSCAK8sCacheKey("prod", "AZURE", "role", "fqdn.example.com", testUUID, "", "sid-1")
 	cached := validCachedExecCredential(time.Now().Add(15 * time.Minute))
 	cached.CSP = k8smodels.CSPAzure
 	cached.AzureCLIFingerprint = "old-fingerprint"
@@ -807,7 +858,7 @@ func TestLoadUnifiedExecCredential_AzureFingerprintWinsBeforeSameParentCheck(t *
 	storeCachedExecCredentialForTest(t, primary, key, cached)
 
 	entry, hitReason, missReason, err := LoadUnifiedExecCredential(
-		"AZURE", "role", "fqdn.example.com", "user@x.com", "sid-1", "",
+		"prod", "AZURE", "role", "fqdn.example.com", testUUID, "", "sid-1", "",
 	)
 	if err != nil {
 		t.Fatalf("load unified credential: %v", err)
@@ -832,11 +883,12 @@ func TestLoadUnifiedExecCredential_BasicFallbackUpdatesParentMarker(t *testing.T
 	withExecCredentialKeyrings(t, primary, basic)
 	withParentPID(t, 8484)
 
-	key := buildUnifiedExecCredKey("AWS", "role", "fqdn.example.com", "user@x.com", "sid-1")
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	key := buildSCAK8sCacheKey("prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1")
 	storeCachedExecCredentialForTest(t, basic, key, validCachedExecCredential(time.Now().Add(15*time.Minute)))
 
 	entry, hitReason, missReason, err := LoadUnifiedExecCredential(
-		"AWS", "role", "fqdn.example.com", "user@x.com", "sid-1", "",
+		"prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1", "",
 	)
 	if err != nil {
 		t.Fatalf("load unified credential: %v", err)
@@ -868,12 +920,13 @@ func TestLoadUnifiedExecCredential_ParentMarkerWriteFailureForcesColdPath(t *tes
 	withExecCredentialKeyrings(t, primary, basic)
 	withParentPID(t, 9595)
 
-	key := buildUnifiedExecCredKey("AWS", "role", "fqdn.example.com", "user@x.com", "sid-1")
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	key := buildSCAK8sCacheKey("prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1")
 	storeCachedExecCredentialForTest(t, primary, key, validCachedExecCredential(time.Now().Add(15*time.Minute)))
 	primary.setErr = errors.New("write failed")
 
 	entry, hitReason, missReason, err := LoadUnifiedExecCredential(
-		"AWS", "role", "fqdn.example.com", "user@x.com", "sid-1", "",
+		"prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1", "",
 	)
 	if err != nil {
 		t.Fatalf("load unified credential: %v", err)
@@ -895,27 +948,27 @@ func TestLoadUnifiedExecCredential_ParentMarkerWriteFailureForcesColdPath(t *tes
 	}
 }
 
-// TestSaveUnifiedExecCredential_GuardClauses asserts the four input-validation
-// guards on Save (no sid, zero expiry, empty payload, unknown method). These
-// guards prevent us from polluting the keyring with malformed entries that
-// would later cause confusing miss reasons or silent data-shape corruption.
+// TestSaveUnifiedExecCredential_GuardClauses asserts input-validation guards on Save.
 func TestSaveUnifiedExecCredential_GuardClauses(t *testing.T) {
 	t.Parallel()
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
 	validExp := time.Now().Add(15 * time.Minute)
 	validJSON := `{"apiVersion":"client.authentication.k8s.io/v1beta1","kind":"ExecCredential"}`
 
 	cases := []struct {
 		name      string
 		sessionID string
+		userUUID  string
 		method    CachedExecCredentialMethod
 		json      string
 		expiresAt time.Time
 		errSubstr string
 	}{
-		{name: "empty_sid", sessionID: "", method: ExecCredMethodDirect, json: validJSON, expiresAt: validExp, errSubstr: "sessionID is empty"},
-		{name: "zero_expiry", sessionID: "sid-1", method: ExecCredMethodDirect, json: validJSON, expiresAt: time.Time{}, errSubstr: "expiresAt is zero"},
-		{name: "empty_json", sessionID: "sid-1", method: ExecCredMethodDirect, json: "   ", expiresAt: validExp, errSubstr: "empty JSON payload"},
-		{name: "unknown_method", sessionID: "sid-1", method: CachedExecCredentialMethod("bogus"), json: validJSON, expiresAt: validExp, errSubstr: "unknown execcred method"},
+		{name: "empty_sid", sessionID: "", userUUID: testUUID, method: ExecCredMethodDirect, json: validJSON, expiresAt: validExp, errSubstr: "sessionID is empty"},
+		{name: "empty_user_uuid", sessionID: "sid-1", userUUID: "", method: ExecCredMethodDirect, json: validJSON, expiresAt: validExp, errSubstr: "userUUID is empty"},
+		{name: "zero_expiry", sessionID: "sid-1", userUUID: testUUID, method: ExecCredMethodDirect, json: validJSON, expiresAt: time.Time{}, errSubstr: "expiresAt is zero"},
+		{name: "empty_json", sessionID: "sid-1", userUUID: testUUID, method: ExecCredMethodDirect, json: "   ", expiresAt: validExp, errSubstr: "empty JSON payload"},
+		{name: "unknown_method", sessionID: "sid-1", userUUID: testUUID, method: CachedExecCredentialMethod("bogus"), json: validJSON, expiresAt: validExp, errSubstr: "unknown execcred method"},
 	}
 
 	for _, tc := range cases {
@@ -923,7 +976,7 @@ func TestSaveUnifiedExecCredential_GuardClauses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := SaveUnifiedExecCredential(
-				"AWS", "role", "fqdn.example.com", "user@x.com",
+				"prod", "AWS", "role", "fqdn.example.com", tc.userUUID, "",
 				tc.sessionID, tc.method, tc.json, tc.expiresAt, "",
 			)
 			if err == nil {
@@ -936,12 +989,17 @@ func TestSaveUnifiedExecCredential_GuardClauses(t *testing.T) {
 	}
 }
 
-// TestDeleteUnifiedExecCredential_EmptySessionIDIsNoop ensures Delete does not
-// error on missing sessionID (matches the Save/Load fall-through contract).
-func TestDeleteUnifiedExecCredential_EmptySessionIDIsNoop(t *testing.T) {
+// TestDeleteUnifiedExecCredential_EmptyClaimsIsNoop ensures Delete does not
+// error on missing sessionID or userUUID.
+func TestDeleteUnifiedExecCredential_EmptyClaimsIsNoop(t *testing.T) {
 	t.Parallel()
-	if err := DeleteUnifiedExecCredential("AWS", "role", "fqdn.example.com", "user@x.com", ""); err != nil {
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+
+	if err := DeleteUnifiedExecCredential("prod", "AWS", "role", "fqdn.example.com", testUUID, "", ""); err != nil {
 		t.Fatalf("expected nil error for empty sessionID, got %v", err)
+	}
+	if err := DeleteUnifiedExecCredential("prod", "AWS", "role", "fqdn.example.com", "", "", "sid-1"); err != nil {
+		t.Fatalf("expected nil error for empty userUUID, got %v", err)
 	}
 }
 
@@ -975,41 +1033,37 @@ func TestComputeEffectiveExecCredentialExpiry_FlowFormulas(t *testing.T) {
 		wantPicked string
 	}{
 		{
-			name: "aws_direct_min_eks_elevate_idtoken",
+			name: "aws_direct_min_eks_elevate",
 			candidates: []ttlCandidate{
 				{name: "eks", when: now.Add(14 * time.Minute), alreadyBuffered: true},
 				{name: "elevate", when: now.Add(60 * time.Minute), skew: rawTokenEarlyRefreshBuffer},
-				{name: "idtokenlifetime", when: now.Add(12 * time.Hour), skew: rawTokenEarlyRefreshBuffer},
 			},
 			want:       now.Add(14 * time.Minute),
 			wantPicked: "eks",
 		},
 		{
-			name: "aws_proxy_min_cert_idtoken",
+			name: "aws_proxy_cert_only",
 			candidates: []ttlCandidate{
 				{name: "cert", when: now.Add(30 * time.Minute), alreadyBuffered: true},
-				{name: "idtokenlifetime", when: now.Add(10 * time.Minute), skew: rawTokenEarlyRefreshBuffer},
 			},
-			want:       now.Add(9 * time.Minute),
-			wantPicked: "idtokenlifetime",
+			want:       now.Add(30 * time.Minute),
+			wantPicked: "cert",
 		},
 		{
-			name: "azure_direct_min_aks_elevate_idtoken",
+			name: "azure_direct_min_aks_elevate",
 			candidates: []ttlCandidate{
 				{name: "aks", when: now.Add(45 * time.Minute), alreadyBuffered: true},
 				{name: "elevate", when: now.Add(12 * time.Minute), skew: rawTokenEarlyRefreshBuffer},
-				{name: "idtokenlifetime", when: now.Add(12 * time.Hour), skew: rawTokenEarlyRefreshBuffer},
 			},
 			want:       now.Add(11 * time.Minute),
 			wantPicked: "elevate",
 		},
 		{
-			name: "azure_proxy_min_cert_aks_elevate_idtoken",
+			name: "azure_proxy_min_cert_aks_elevate",
 			candidates: []ttlCandidate{
 				{name: "cert", when: now.Add(30 * time.Minute), alreadyBuffered: true},
 				{name: "aks", when: now.Add(20 * time.Minute), skew: rawTokenEarlyRefreshBuffer},
 				{name: "elevate", when: now.Add(60 * time.Minute), skew: rawTokenEarlyRefreshBuffer},
-				{name: "idtokenlifetime", when: now.Add(12 * time.Hour), skew: rawTokenEarlyRefreshBuffer},
 			},
 			want:       now.Add(19 * time.Minute),
 			wantPicked: "aks",
@@ -1042,12 +1096,12 @@ func TestComputeEffectiveExecCredentialExpiry_AnyMissingFailsWithCandidateDetail
 		t.Parallel()
 		got, picked, err := computeEffectiveExecCredentialExpiry(
 			ttlCandidate{name: "cert", skipReason: "missing"},
-			ttlCandidate{name: "idtokenlifetime", skipReason: "empty"},
+			ttlCandidate{name: "elevate", skipReason: "empty"},
 		)
 		if err == nil {
 			t.Fatal("expected error when all candidates are missing expiration")
 		}
-		if !strings.Contains(err.Error(), "cert (missing)") || !strings.Contains(err.Error(), "idtokenlifetime (empty)") {
+		if !strings.Contains(err.Error(), "cert (missing)") || !strings.Contains(err.Error(), "elevate (empty)") {
 			t.Errorf("expected error to name each missing candidate with its reason; got %q", err.Error())
 		}
 		if !got.IsZero() || picked != "" {
@@ -1060,7 +1114,6 @@ func TestComputeEffectiveExecCredentialExpiry_AnyMissingFailsWithCandidateDetail
 		_, _, err := computeEffectiveExecCredentialExpiry(
 			ttlCandidate{name: "cert", when: now.Add(30 * time.Minute), alreadyBuffered: true},
 			ttlCandidate{name: "elevate", skipReason: "unparseable"},
-			ttlCandidate{name: "idtokenlifetime", when: now.Add(12 * time.Hour), skew: rawTokenEarlyRefreshBuffer},
 		)
 		if err == nil {
 			t.Fatal("expected error when any candidate is missing expiration")
@@ -1132,26 +1185,67 @@ func TestComputeEffectiveExecCredentialExpiry_TiesPickInsertionOrder(t *testing.
 
 func TestLoadCachedElevateKeyringWithReason_EmptySessionDisablesCache(t *testing.T) {
 	t.Parallel()
-	result, savedAt, hitReason, missReason, err := LoadCachedElevateKeyringWithReason(
-		"AWS", "", "arn:aws:iam::123:role/foo", "cluster.eks.amazonaws.com", "alice@example.com", "", time.Hour,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != nil || !savedAt.IsZero() || hitReason != "" {
-		t.Fatalf("expected empty result on disabled cache; got result=%v savedAt=%v hitReason=%q", result, savedAt, hitReason)
-	}
-	if missReason != "missing session id (cache disabled)" {
-		t.Errorf("missReason = %q, want %q", missReason, "missing session id (cache disabled)")
-	}
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+
+	t.Run("empty_session_id", func(t *testing.T) {
+		t.Parallel()
+		result, savedAt, hitReason, missReason, err := LoadCachedElevateKeyringWithReason(
+			"prod", "AWS", "arn:aws:iam::123:role/foo", "cluster.eks.amazonaws.com", testUUID, "", "", time.Hour,
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != nil || !savedAt.IsZero() || hitReason != "" {
+			t.Fatalf("expected empty result on disabled cache; got result=%v savedAt=%v hitReason=%q", result, savedAt, hitReason)
+		}
+		if !strings.Contains(missReason, "sessionID") {
+			t.Errorf("missReason = %q, want mention of sessionID", missReason)
+		}
+	})
+
+	t.Run("empty_user_uuid", func(t *testing.T) {
+		t.Parallel()
+		result, savedAt, hitReason, missReason, err := LoadCachedElevateKeyringWithReason(
+			"prod", "AWS", "arn:aws:iam::123:role/foo", "cluster.eks.amazonaws.com", "", "", "sid-1", time.Hour,
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != nil || !savedAt.IsZero() || hitReason != "" {
+			t.Fatalf("expected empty result when userUUID is empty; got result=%v savedAt=%v hitReason=%q", result, savedAt, hitReason)
+		}
+		if !strings.Contains(missReason, "userUUID") {
+			t.Errorf("missReason = %q, want mention of userUUID", missReason)
+		}
+	})
 }
 
-func TestSaveCreds_EmptySessionIDIsNoop(t *testing.T) {
+func TestSaveElevateCreds_EmptyClaimsReturnsError(t *testing.T) {
 	t.Parallel()
-	err := SaveCreds("AWS", "", "role", "fqdn", "user@x.com", "", &k8smodels.IdsecSCAK8sElevateResult{SessionID: "s"})
-	if err != nil {
-		t.Fatalf("expected nil error for empty sessionID, got %v", err)
-	}
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	result := &k8smodels.IdsecSCAK8sElevateResult{SessionID: "s"}
+
+	t.Run("empty_session_id", func(t *testing.T) {
+		t.Parallel()
+		err := SaveElevateCreds("prod", "AWS", "role", "fqdn", testUUID, "", "", result)
+		if err == nil {
+			t.Fatal("expected error for empty sessionID, got nil")
+		}
+		if !strings.Contains(err.Error(), "sessionID is empty") {
+			t.Errorf("error %q does not contain 'sessionID is empty'", err.Error())
+		}
+	})
+
+	t.Run("empty_user_uuid", func(t *testing.T) {
+		t.Parallel()
+		err := SaveElevateCreds("prod", "AWS", "role", "fqdn", "", "", "sid-1", result)
+		if err == nil {
+			t.Fatal("expected error for empty userUUID, got nil")
+		}
+		if !strings.Contains(err.Error(), "userUUID is empty") {
+			t.Errorf("error %q does not contain 'userUUID is empty'", err.Error())
+		}
+	})
 }
 
 func TestDeriveElevateExpiry_UnparseableSessionExpTimeFallsBack(t *testing.T) {
@@ -1172,13 +1266,11 @@ func TestApplyFlowExecCredentialTTL_LogsCandidatesAndFinalTimestamp(t *testing.T
 	cmd := &cobra.Command{Use: "kubectl-login"}
 	now := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
 	cred := k8sservice.BuildProxyExecCredential("CERT", "KEY", now.Add(30*time.Minute))
-	loginSess := kubectlLoginSession{idTokenExpiresAt: now.Add(12 * time.Hour)}
-	req := buildKubectlLoginRequest("AZURE", "role", "fqdn", "org", "", "", loginSess)
 	aksToken := testJWTWithExp(now.Add(20 * time.Minute))
 
 	stderr := captureKubectlLoginStderr(t, func() {
 		(&IdsecKubectlLoginAction{}).applyFlowExecCredentialTTL(
-			cmd, execCredFlowAzureProxy, cred, now.Add(60*time.Minute), req, aksToken,
+			cmd, execCredFlowAzureProxy, cred, now.Add(60*time.Minute), aksToken,
 		)
 	})
 
@@ -1188,38 +1280,43 @@ func TestApplyFlowExecCredentialTTL_LogsCandidatesAndFinalTimestamp(t *testing.T
 		"cert: raw=2026-06-11T10:30:00Z effective=2026-06-11T10:30:00Z source=already-buffered",
 		"aks: raw=2026-06-11T10:20:00Z effective=2026-06-11T10:19:00Z source=raw skew=1m0s",
 		"elevate: raw=2026-06-11T11:00:00Z effective=2026-06-11T10:59:00Z source=raw skew=1m0s",
-		"idtokenlifetime: raw=2026-06-11T22:00:00Z effective=2026-06-11T21:59:00Z source=raw skew=1m0s",
 		"azure proxy effective TTL: selected=aks expirationTimestamp=2026-06-11T10:19:00Z",
 	} {
 		if !strings.Contains(logs, want) {
 			t.Errorf("expected logs to contain %q; got %s", want, logs)
 		}
 	}
+	if strings.Contains(logs, "idtokenlifetime") {
+		t.Errorf("idtokenlifetime must not appear in TTL candidates; got %s", logs)
+	}
 	if got := cred.Status.ExpirationTimestamp; got != "2026-06-11T10:19:00Z" {
 		t.Errorf("expected final expirationTimestamp to be rewritten, got %q", got)
 	}
 }
 
-func TestApplyFlowExecCredentialTTL_LogsCandidatesWithIDSECVerbose(t *testing.T) {
+func TestApplyFlowExecCredentialTTL_AWSProxyUsesCertExpiryOnly(t *testing.T) {
 	t.Setenv("IDSEC_VERBOSE", "true")
 	cmd := &cobra.Command{Use: "kubectl-login"}
 
 	now := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
 	cred := k8sservice.BuildProxyExecCredential("CERT", "KEY", now.Add(30*time.Minute))
-	loginSess := kubectlLoginSession{idTokenExpiresAt: now.Add(10 * time.Minute)}
-	req := buildKubectlLoginRequest("AWS", "role", "fqdn", "", "", "", loginSess)
 
 	stderr := captureKubectlLoginStderr(t, func() {
 		(&IdsecKubectlLoginAction{}).applyFlowExecCredentialTTL(
-			cmd, execCredFlowAWSProxy, cred, time.Time{}, req, "",
+			cmd, execCredFlowAWSProxy, cred, time.Time{}, "",
 		)
 	})
 
-	if !strings.Contains(string(stderr), "effective TTL candidates") {
+	logs := string(stderr)
+	if !strings.Contains(logs, "effective TTL candidates") {
 		t.Errorf("expected TTL candidate logs with IDSEC_VERBOSE=true, got %s", stderr)
 	}
-	if got := cred.Status.ExpirationTimestamp; got != "2026-06-11T10:09:00Z" {
-		t.Errorf("expected final expirationTimestamp to still be rewritten, got %q", got)
+	if strings.Contains(logs, "idtokenlifetime") {
+		t.Errorf("idtokenlifetime must not appear in AWS-proxy TTL candidates; got %s", logs)
+	}
+	// Cert expiry is already buffered by BuildProxyExecCredential; no extra id_token cap.
+	if got := cred.Status.ExpirationTimestamp; got != "2026-06-11T10:30:00Z" {
+		t.Errorf("expected AWS-proxy TTL to equal cert expirationTimestamp, got %q", got)
 	}
 }
 
@@ -1227,4 +1324,290 @@ func testJWTWithExp(exp time.Time) string {
 	payload := fmt.Sprintf(`{"exp":%d}`, exp.Unix())
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(payload))
 	return "eyJhbGciOiJIUzI1NiJ9." + encoded + ".sig"
+}
+
+func setupKubectlLoginISPKeyringTest(t *testing.T) {
+	t.Helper()
+	t.Setenv("IDSEC_BASIC_KEYRING", "true")
+	t.Setenv("IDSEC_KEYRING_FOLDER", t.TempDir())
+}
+
+func seedExpiredKubectlLoginISPKeyringToken(t *testing.T, profile *models.IdsecProfile, username string) {
+	t.Helper()
+	seedExpiredKubectlLoginISPKeyringTokenWithClaims(t, profile, username, "sid-expired", "91ff5db2-24c9-4a2b-b414-ec416dfbd43f")
+}
+
+func seedExpiredKubectlLoginISPKeyringTokenWithClaims(t *testing.T, profile *models.IdsecProfile, username, sessionID, userUUID string) {
+	t.Helper()
+	kr := idseckeyring.NewIdsecKeyring("IdsecISPAuth")
+	past := time.Now().Add(-1 * time.Hour)
+	if err := kr.SaveToken(profile, &authmodels.IdsecToken{
+		Token:        testISPJWT(sessionID, userUUID),
+		Username:     username,
+		ExpiresIn:    commonmodels.IdsecRFC3339Time(past),
+		RefreshToken: "refresh-token",
+		TokenType:    authmodels.JWT,
+	}, username, true); err != nil {
+		t.Fatalf("failed to seed ISP keyring: %v", err)
+	}
+}
+
+func testISPJWT(sessionID, userUUID string) string {
+	payload := fmt.Sprintf(`{"internal_session_id":%q,"user_uuid":%q}`, sessionID, userUUID)
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(payload))
+	return "eyJhbGciOiJIUzI1NiJ9." + encoded + ".sig"
+}
+
+func TestLoadCachedISPSession(t *testing.T) {
+	setupKubectlLoginISPKeyringTest(t)
+
+	const username = "user@cyberark.cloud.1234"
+	profile := &models.IdsecProfile{ProfileName: "has-cached-isp-session-test"}
+
+	cached, claims, err := loadCachedISPSession(profile, username)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cached {
+		t.Fatal("expected no cached ISP session for empty keyring")
+	}
+	if claims.SessionID != "" || claims.UserUUID != "" {
+		t.Fatalf("expected empty claims when no cache, got %+v", claims)
+	}
+
+	seedExpiredKubectlLoginISPKeyringToken(t, profile, username)
+
+	cached, claims, err = loadCachedISPSession(profile, username)
+	if err != nil {
+		t.Fatalf("unexpected error after seeding cache: %v", err)
+	}
+	if !cached {
+		t.Fatal("expected cached ISP session for expired refreshable token")
+	}
+	if claims.SessionID != "sid-expired" || claims.UserUUID != "91ff5db2-24c9-4a2b-b414-ec416dfbd43f" {
+		t.Fatalf("expected pre-refresh claims from seeded JWT, got %+v", claims)
+	}
+}
+
+func TestLoadCachedISPSession_UnparseableTokenStillRefreshEligible(t *testing.T) {
+	setupKubectlLoginISPKeyringTest(t)
+
+	const username = "user@cyberark.cloud.1234"
+	profile := &models.IdsecProfile{ProfileName: "kubectl-login-opaque-token-test"}
+	kr := idseckeyring.NewIdsecKeyring("IdsecISPAuth")
+	past := time.Now().Add(-1 * time.Hour)
+	if err := kr.SaveToken(profile, &authmodels.IdsecToken{
+		Token:        "not-a-jwt",
+		Username:     username,
+		ExpiresIn:    commonmodels.IdsecRFC3339Time(past),
+		RefreshToken: "refresh-token",
+		TokenType:    authmodels.JWT,
+	}, username, true); err != nil {
+		t.Fatalf("failed to seed ISP keyring: %v", err)
+	}
+
+	hasCache, claims, err := loadCachedISPSession(profile, username)
+	if err != nil {
+		t.Fatalf("unexpected cache probe error: %v", err)
+	}
+	if !hasCache {
+		t.Fatal("expected opaque/unparseable token entry to remain refresh-eligible")
+	}
+	if claims.SessionID != "" || claims.UserUUID != "" {
+		t.Fatalf("expected empty claims for unparseable token, got %+v", claims)
+	}
+}
+
+func TestLoadCachedISPSession_ExpiredStillRefreshEligible(t *testing.T) {
+	setupKubectlLoginISPKeyringTest(t)
+
+	const username = "user@cyberark.cloud.1234"
+	profile := &models.IdsecProfile{ProfileName: "kubectl-login-expired-cache-test"}
+	seedExpiredKubectlLoginISPKeyringToken(t, profile, username)
+
+	hasCache, _, err := loadCachedISPSession(profile, username)
+	if err != nil {
+		t.Fatalf("unexpected cache probe error: %v", err)
+	}
+	if !hasCache {
+		t.Fatal("expected expired refreshable session to remain cache-eligible for silent refresh")
+	}
+}
+
+func TestParseCacheKeyAndRewrite(t *testing.T) {
+	t.Parallel()
+	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+
+	key := buildSCAK8sCacheKey("prod", "AWS", "arn:aws:iam::123:role/foo", "fqdn.example.com", testUUID, "ns:a", "sid-old")
+	fields, ok := parseCacheKey(key)
+	if !ok {
+		t.Fatalf("parseCacheKey failed for %q", key)
+	}
+	if fields.profileName != "prod" || fields.userUUID != testUUID || fields.sessionID != "sid-old" {
+		t.Fatalf("unexpected fields: %+v", fields)
+	}
+	if !keyBelongsToUser(key, "prod", testUUID) {
+		t.Fatal("expected keyBelongsToUser")
+	}
+	if !keyMatchesSession(key, "sid-old") {
+		t.Fatal("expected keyMatchesSession")
+	}
+	newKey, ok := rewriteCacheKeySession(key, "sid-new")
+	if !ok {
+		t.Fatal("rewriteCacheKeySession failed")
+	}
+	want := buildSCAK8sCacheKey("prod", "AWS", "arn:aws:iam::123:role/foo", "fqdn.example.com", testUUID, "ns:a", "sid-new")
+	if newKey != want {
+		t.Fatalf("rewrite got %q want %q", newKey, want)
+	}
+}
+
+func TestRemapUserCacheSessionKeys_MultipleClusters(t *testing.T) {
+	primary := newMemoryKeyring()
+	basic := newMemoryKeyring()
+	withAllCacheKeyrings(t, primary, basic)
+
+	const (
+		profile = "prod"
+		uuid    = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+		oldSID  = "sid-old"
+		newSID  = "sid-new"
+	)
+
+	keyAOld := buildSCAK8sCacheKey(profile, "AWS", "role-a", "a.example.com", uuid, "", oldSID)
+	keyBOld := buildSCAK8sCacheKey(profile, "AZURE", "role-b", "b.example.com", uuid, "ns1", oldSID)
+	keyOtherUser := buildSCAK8sCacheKey(profile, "AWS", "role-c", "c.example.com", "other-uuid", "", oldSID)
+
+	storeCachedExecCredentialForTest(t, primary, keyAOld, validCachedExecCredential(time.Now().Add(15*time.Minute)))
+	storeCachedExecCredentialForTest(t, primary, keyBOld, validCachedExecCredential(time.Now().Add(15*time.Minute)))
+	storeCachedExecCredentialForTest(t, primary, keyOtherUser, validCachedExecCredential(time.Now().Add(15*time.Minute)))
+
+	elevPayload, _ := json.Marshal(cachedElevateCreds{
+		ElevateResult: &k8smodels.IdsecSCAK8sElevateResult{SessionID: "elev"},
+		SavedAt:       time.Now().UTC(),
+	})
+	_ = primary.SetPassword(elevateCredsServiceName, keyAOld, string(elevPayload))
+
+	oidcPayload, _ := json.Marshal(cachedAWSOIDCAccessToken{
+		AccessToken:  "access-token",
+		RefreshToken: "refresh-token",
+		ExpiresAt:    time.Now().UTC().Add(time.Hour),
+		SavedAt:      time.Now().UTC(),
+	})
+	_ = primary.SetPassword(awsIDCOIDCCredsServiceName, keyAOld, string(oidcPayload))
+
+	remapUserCacheSessionKeys(profile, uuid, oldSID, newSID)
+
+	keyANew := buildSCAK8sCacheKey(profile, "AWS", "role-a", "a.example.com", uuid, "", newSID)
+	keyBNew := buildSCAK8sCacheKey(profile, "AZURE", "role-b", "b.example.com", uuid, "ns1", newSID)
+
+	if _, ok := loadCachedExecCredentialForTest(t, primary, keyANew); !ok {
+		t.Fatal("expected cluster A remapped under new SID")
+	}
+	if _, ok := loadCachedExecCredentialForTest(t, primary, keyBNew); !ok {
+		t.Fatal("expected cluster B remapped under new SID")
+	}
+	if _, ok := loadCachedExecCredentialForTest(t, primary, keyAOld); ok {
+		t.Fatal("expected old cluster A key deleted")
+	}
+	if _, ok := loadCachedExecCredentialForTest(t, primary, keyOtherUser); !ok {
+		t.Fatal("expected other-user key untouched")
+	}
+	if data, _ := primary.GetPassword(elevateCredsServiceName, keyANew); data == "" {
+		t.Fatal("expected elevate entry remapped")
+	}
+	if data, _ := primary.GetPassword(awsIDCOIDCCredsServiceName, keyANew); data == "" {
+		t.Fatal("expected AWS IDC OIDC entry remapped")
+	}
+	if data, _ := primary.GetPassword(awsIDCOIDCCredsServiceName, keyAOld); data != "" {
+		t.Fatal("expected old AWS IDC OIDC key deleted")
+	}
+
+	// Idempotent: new already present → delete old only (no overwrite).
+	storeCachedExecCredentialForTest(t, primary, keyAOld, validCachedExecCredential(time.Now().Add(time.Hour)))
+	remapUserCacheSessionKeys(profile, uuid, oldSID, newSID)
+	if _, ok := loadCachedExecCredentialForTest(t, primary, keyAOld); ok {
+		t.Fatal("expected leftover old key deleted on second remap")
+	}
+}
+
+func TestPurgeUserCacheEntries(t *testing.T) {
+	primary := newMemoryKeyring()
+	basic := newMemoryKeyring()
+	withAllCacheKeyrings(t, primary, basic)
+
+	const (
+		profile = "prod"
+		uuid    = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	)
+	keep := buildSCAK8sCacheKey(profile, "AWS", "role", "a.example.com", "other-uuid", "", "sid-1")
+	drop := buildSCAK8sCacheKey(profile, "AWS", "role", "a.example.com", uuid, "", "sid-1")
+	storeCachedExecCredentialForTest(t, primary, keep, validCachedExecCredential(time.Now().Add(15*time.Minute)))
+	storeCachedExecCredentialForTest(t, primary, drop, validCachedExecCredential(time.Now().Add(15*time.Minute)))
+
+	oidcPayload, _ := json.Marshal(cachedAWSOIDCAccessToken{
+		AccessToken:  "access-token",
+		RefreshToken: "refresh-token",
+		ExpiresAt:    time.Now().UTC().Add(time.Hour),
+		SavedAt:      time.Now().UTC(),
+	})
+	_ = primary.SetPassword(awsIDCOIDCCredsServiceName, drop, string(oidcPayload))
+	_ = primary.SetPassword(awsIDCOIDCCredsServiceName, keep, string(oidcPayload))
+
+	purgeUserCacheEntries(profile, uuid)
+
+	if _, ok := loadCachedExecCredentialForTest(t, primary, drop); ok {
+		t.Fatal("expected user entry purged")
+	}
+	if _, ok := loadCachedExecCredentialForTest(t, primary, keep); !ok {
+		t.Fatal("expected other-user entry kept")
+	}
+	if data, _ := primary.GetPassword(awsIDCOIDCCredsServiceName, drop); data != "" {
+		t.Fatal("expected user AWS IDC OIDC entry purged")
+	}
+	if data, _ := primary.GetPassword(awsIDCOIDCCredsServiceName, keep); data == "" {
+		t.Fatal("expected other-user AWS IDC OIDC entry kept")
+	}
+}
+
+func TestPurgeUserCacheEntries_EmptyUserUUIDPurgesWholeProfile(t *testing.T) {
+	primary := newMemoryKeyring()
+	basic := newMemoryKeyring()
+	withAllCacheKeyrings(t, primary, basic)
+
+	const profile = "prod"
+	userA := buildSCAK8sCacheKey(profile, "AWS", "role", "a.example.com", "uuid-a", "", "sid-1")
+	userB := buildSCAK8sCacheKey(profile, "AWS", "role", "b.example.com", "uuid-b", "", "sid-1")
+	otherProfile := buildSCAK8sCacheKey("other", "AWS", "role", "c.example.com", "uuid-a", "", "sid-1")
+	storeCachedExecCredentialForTest(t, primary, userA, validCachedExecCredential(time.Now().Add(15*time.Minute)))
+	storeCachedExecCredentialForTest(t, primary, userB, validCachedExecCredential(time.Now().Add(15*time.Minute)))
+	storeCachedExecCredentialForTest(t, primary, otherProfile, validCachedExecCredential(time.Now().Add(15*time.Minute)))
+
+	purgeUserCacheEntries(profile, "")
+
+	if _, ok := loadCachedExecCredentialForTest(t, primary, userA); ok {
+		t.Fatal("expected profile user A purged when uuid unavailable")
+	}
+	if _, ok := loadCachedExecCredentialForTest(t, primary, userB); ok {
+		t.Fatal("expected profile user B purged when uuid unavailable")
+	}
+	if _, ok := loadCachedExecCredentialForTest(t, primary, otherProfile); !ok {
+		t.Fatal("expected other profile entry kept")
+	}
+}
+
+func TestExecCredTTLCandidates_NoIDTokenLifetime(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	cred := k8sservice.BuildProxyExecCredential("CERT", "KEY", now.Add(30*time.Minute))
+
+	cands := execCredTTLCandidates(execCredFlowAWSProxy, cred, time.Time{}, "")
+	if len(cands) != 1 || cands[0].name != "cert" {
+		t.Fatalf("AWS-proxy candidates = %+v, want only cert", cands)
+	}
+	for _, c := range cands {
+		if c.name == "idtokenlifetime" {
+			t.Fatal("idtokenlifetime must not be a TTL candidate")
+		}
+	}
 }

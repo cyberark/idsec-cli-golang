@@ -20,7 +20,7 @@ Use the `exec` command to run commands on available services (the available serv
 
 The following SIA commands are supported:
 
-- `idsec exec sia`: Root command for the SIA service (aliases: dpa)
+- `idsec sia`: Root command for the SIA service (aliases: dpa)
     - `sso` - SSO end-user operations
     - `k8s` - Kubernetes service
     - `db` - DB service
@@ -35,27 +35,27 @@ The following SIA commands are supported:
     - `shortened-connection-string` - Shortened connection string service
     - `settings` - Settings service
     - `certificates` - Certificates service
-- `idsec exec cmgr`: Root command for the CMGR service (aliases: connectormanager,cm)
-- `idsec exec pcloud`: Root command for PCloud service (aliases: privilegecloud,pc)
+- `idsec cmgr`: Root command for the CMGR service (aliases: connectormanager,cm)
+- `idsec pcloud`: Root command for PCloud service (aliases: privilegecloud,pc)
     - `accounts` - Accounts management
     - `safes` - Safes management
     - `platforms` - Platforms management
     - `applications` - Applications management
-- `idsec exec identity`: Root command for the Identity service (aliases: idaptive,id)
+- `idsec identity`: Root command for the Identity service (aliases: idaptive,id)
     - `directories` - Directories management
     - `users` - Users management
     - `roles` - Roles management
     - `auth-profiles` - Auth profiles management
     - `policies` - Policies management
--  `idsec exec sechub`: Root command for the Secrets Hub Service (aliases: secretshub,sh)
+-  `idsec sechub`: Root command for the Secrets Hub Service (aliases: secretshub,sh)
     - `configuration` - Configuration management
     - `service-info` - Service Info management
     - `secrets` - Secrets management
     - `scans` - Scans management
     - `secret-stores` - Secret Stores management
     - `sync-policies` - Sync Policies management
-- `idsec exec sm`: Root command for the SM service (aliases: sessionmonitoring)
-- `idsec exec policy`: Root command for the Policy service (aliases: accesspolicies, acp)
+- `idsec sm`: Root command for the SM service (aliases: sessionmonitoring)
+- `idsec policy`: Root command for the Policy service (aliases: accesspolicies, acp)
     - `cloud-access` - Cloud Console management
     - `db` - SIA DB management
     - `vm` - SIA VM management

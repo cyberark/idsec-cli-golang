@@ -6,10 +6,14 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/cyberark/idsec-cli-golang/pkg/actions/testutils"
+	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
+	"github.com/cyberark/idsec-sdk-golang/pkg/models"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	k8sservice "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s"
 	k8smodels "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s/models"
@@ -109,7 +113,7 @@ func TestIdsecKubectlLoginAction_DefineAction(t *testing.T) {
 					"role-id",
 					"fqdn",
 					"organization-id",
-					"namespace-id",
+					"namespace",
 				}
 				for _, flag := range expectedFlags {
 					if cmd.Flags().Lookup(flag) == nil {
@@ -134,6 +138,7 @@ func TestIdsecKubectlLoginAction_DefineAction(t *testing.T) {
 					"roleId",
 					"organizationId",
 					"namespaceId",
+					"namespace-id",
 					"target-id",
 					"workspace-id",
 					"tenant-id",
@@ -314,16 +319,30 @@ func TestFindNestedCommand(t *testing.T) {
 }
 
 func TestFindMatchingEvalResult(t *testing.T) {
-	fqdn := "cluster.example.com"
-	otherFQDN := "other.example.com"
+	fqdn := "https://cluster.example.com"
+	otherFQDN := "https://other.example.com"
+	readerRole := "/providers/Microsoft.Authorization/roleDefinitions/7f6c6a51-bcf8-42ba-9220-52d62157d7db"
+	nsResourceID := "/subscriptions/x/managedClusters/c/namespaces/roie-managed-namespace"
+	nsName := "roie-managed-namespace"
 	results := []k8smodels.IdsecSCAK8sEvaluateResult{
 		{
-			Role:   k8smodels.IdsecSCAk8sListClustersRole{ID: "role-1"},
-			Target: k8smodels.IdsecSCAk8sListClustersTarget{FQDN: &fqdn},
+			Role:             k8smodels.IdsecSCAk8sListClustersRole{ID: "role-1"},
+			Target:           k8smodels.IdsecSCAk8sListClustersTarget{FQDN: &fqdn},
+			ConnectionMethod: "proxy",
 		},
 		{
-			Role:   k8smodels.IdsecSCAk8sListClustersRole{ID: "role-2"},
-			Target: k8smodels.IdsecSCAk8sListClustersTarget{FQDN: &fqdn},
+			Role:             k8smodels.IdsecSCAk8sListClustersRole{ID: readerRole},
+			Target:           k8smodels.IdsecSCAk8sListClustersTarget{FQDN: &fqdn, Scope: "cluster"},
+			ConnectionMethod: "direct",
+		},
+		{
+			Role: k8smodels.IdsecSCAk8sListClustersRole{ID: readerRole},
+			Target: k8smodels.IdsecSCAk8sListClustersTarget{
+				FQDN:        &fqdn,
+				Scope:       "namespace",
+				NamespaceID: &nsResourceID,
+			},
+			ConnectionMethod: "proxy",
 		},
 		{
 			Role:   k8smodels.IdsecSCAk8sListClustersRole{ID: "role-3"},
@@ -332,17 +351,43 @@ func TestFindMatchingEvalResult(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		fqdn     string
-		roleID   string
-		wantRole string
-		wantNil  bool
+		name                 string
+		fqdn                 string
+		roleID               string
+		namespace            string
+		wantRole             string
+		wantConnectionMethod string
+		wantNil              bool
 	}{
 		{
-			name:     "matches_fqdn_and_role_id",
-			fqdn:     fqdn,
-			roleID:   "role-2",
-			wantRole: "role-2",
+			name:                 "matches_fqdn_and_role_id_without_namespace",
+			fqdn:                 fqdn,
+			roleID:               readerRole,
+			wantRole:             readerRole,
+			wantConnectionMethod: "direct",
+		},
+		{
+			name:                 "matches_namespace_scoped_entry_when_namespace_set",
+			fqdn:                 fqdn,
+			roleID:               readerRole,
+			namespace:            nsName,
+			wantRole:             readerRole,
+			wantConnectionMethod: "proxy",
+		},
+		{
+			name:                 "matches_namespace_resource_id_input",
+			fqdn:                 fqdn,
+			roleID:               readerRole,
+			namespace:            nsResourceID,
+			wantRole:             readerRole,
+			wantConnectionMethod: "proxy",
+		},
+		{
+			name:      "returns_nil_when_namespace_does_not_match",
+			fqdn:      fqdn,
+			roleID:    readerRole,
+			namespace: "other-namespace",
+			wantNil:   true,
 		},
 		{
 			name:    "returns_nil_when_role_id_empty",
@@ -370,7 +415,7 @@ func TestFindMatchingEvalResult(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := findMatchingEvalResult(results, tt.fqdn, tt.roleID)
+			got := findMatchingEvalResult(results, tt.fqdn, tt.roleID, tt.namespace)
 			if tt.wantNil {
 				if got != nil {
 					t.Fatalf("expected nil, got role %q", got.Role.ID)
@@ -382,6 +427,9 @@ func TestFindMatchingEvalResult(t *testing.T) {
 			}
 			if got.Role.ID != tt.wantRole {
 				t.Errorf("expected role %q, got %q", tt.wantRole, got.Role.ID)
+			}
+			if tt.wantConnectionMethod != "" && got.ConnectionMethod != tt.wantConnectionMethod {
+				t.Errorf("expected connectionMethod %q, got %q", tt.wantConnectionMethod, got.ConnectionMethod)
 			}
 		})
 	}
@@ -400,7 +448,7 @@ func TestAddElevateFlags(t *testing.T) {
 					"role-id",
 					"fqdn",
 					"organization-id",
-					"namespace-id",
+					"namespace",
 				}
 				for _, flag := range expectedFlags {
 					if cmd.Flags().Lookup(flag) == nil {
@@ -425,7 +473,7 @@ func TestAddElevateFlags(t *testing.T) {
 					"role-id",
 					"fqdn",
 					"organization-id",
-					"namespace-id",
+					"namespace",
 				}
 				for _, name := range flagsWithEmptyDefault {
 					flag := cmd.Flags().Lookup(name)
@@ -612,7 +660,7 @@ func TestServeFromUnifiedCache_EmptySessionEarlyReturns(t *testing.T) {
 
 	stderr := captureKubectlLoginStderr(t, func() {
 		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", kubectlLoginSession{
-			ispUsername: "alice@example.com",
+			userUUID: "91ff5db2-24c9-4a2b-b414-ec416dfbd43f",
 		})
 		if served := a.serveFromUnifiedCache(cmd, req); served {
 			t.Fatalf("expected served=false for empty sessionID")
@@ -641,7 +689,7 @@ func TestSaveUnifiedExecCredential_EmptySessionNoOp(t *testing.T) {
 
 	stderr := captureKubectlLoginStderr(t, func() {
 		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", kubectlLoginSession{
-			ispUsername: "alice@example.com",
+			userUUID: "91ff5db2-24c9-4a2b-b414-ec416dfbd43f",
 		})
 		a.saveUnifiedExecCredential(cmd, req, "direct", cred)
 	})
@@ -670,8 +718,8 @@ func TestSaveUnifiedExecCredential_NoExpirationSkipsSave(t *testing.T) {
 
 	stderr := captureKubectlLoginStderr(t, func() {
 		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", kubectlLoginSession{
-			ispUsername: "alice@example.com",
-			sessionID:   "sid-not-empty",
+			userUUID:  "91ff5db2-24c9-4a2b-b414-ec416dfbd43f",
+			sessionID: "sid-not-empty",
 		})
 		a.saveUnifiedExecCredential(cmd, req, "direct", cred)
 	})
@@ -698,4 +746,37 @@ func captureKubectlLoginStderr(t *testing.T, fn func()) []byte {
 	_, _ = io.Copy(&buf, r)
 	_ = r.Close()
 	return buf.Bytes()
+}
+
+func TestLoadISPAuthTokenForKubectlLogin_NoSessionReturnsImmediately(t *testing.T) {
+	t.Setenv("IDSEC_BASIC_KEYRING", "true")
+	t.Setenv("IDSEC_KEYRING_FOLDER", t.TempDir())
+
+	ispAuth := auth.NewIdsecISPAuth(true)
+	profile := &models.IdsecProfile{
+		ProfileName: "kubectl-login-no-session-test",
+		AuthProfiles: map[string]*authmodels.IdsecAuthProfile{
+			"isp": {
+				Username:   "nobody@cyberark.cloud.1234",
+				AuthMethod: authmodels.Identity,
+				AuthMethodSettings: &authmodels.IdentityIdsecAuthMethodSettings{
+					IdentityMFAInteractive: false,
+				},
+			},
+		},
+	}
+
+	startedAt := time.Now()
+	token, _, err := loadISPAuthTokenForKubectlLogin(ispAuth, profile, profile.ProfileName)
+	elapsed := time.Since(startedAt)
+
+	if token != nil {
+		t.Fatal("expected nil token when no session is cached")
+	}
+	if err == nil {
+		t.Fatal("expected error when no session is cached")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("expected immediate failure without session, took %s (likely attempted interactive/silent refresh)", elapsed)
+	}
 }

@@ -1,0 +1,3258 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Idsec CLI for CyberArk's Identity Security Platform">
+      
+      
+        <meta name="author" content="CyberArk">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../media/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Design: Agent Mode for idsec-cli-golang - Idsec CLI</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Ubuntu:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Ubuntu";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="dark-blue" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#design-agent-mode-for-idsec-cli-golang" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Idsec CLI" class="md-header__button md-logo" aria-label="Idsec CLI" data-md-component="logo">
+      
+  <img src="../../media/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Idsec CLI
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Design: Agent Mode for idsec-cli-golang
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="dark-blue" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 6H7c-3.31 0-6 2.69-6 6s2.69 6 6 6h10c3.31 0 6-2.69 6-6s-2.69-6-6-6m0 10H7c-2.21 0-4-1.79-4-4s1.79-4 4-4h10c2.21 0 4 1.79 4 4s-1.79 4-4 4M7 9c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 7H7a5 5 0 0 0-5 5 5 5 0 0 0 5 5h10a5 5 0 0 0 5-5 5 5 0 0 0-5-5m0 8a3 3 0 0 1-3-3 3 3 0 0 1 3-3 3 3 0 0 1 3 3 3 3 0 0 1-3 3"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/cyberark/idsec-cli-golang" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Idsec CLI" class="md-nav__button md-logo" aria-label="Idsec CLI" data-md-component="logo">
+      
+  <img src="../../media/logo.svg" alt="logo">
+
+    </a>
+    Idsec CLI
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/cyberark/idsec-cli-golang" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How to guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How to guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/prerequisites/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/working_with_profiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Work with profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/working_with_idsec_cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Work with Idsec cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/upgrade_to_the_latest_version/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrade to the latest version
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/refreshing_authentication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Refresh authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/simple_commands_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Simple commands workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user workflows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    End-user workflows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/enduser_databases_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user database workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/enduser_databases_with_short_connstring_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user database with short connstring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/enduser_databases_psql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user psql workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/enduser_kubernetes_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user Kubernetes workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/enduser_ssh_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user SSH workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/enduser_rdp_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user RDP workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/install_sia_connectors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install SIA connectors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/onboard_pcloud_account/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Onboard pCloud account
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/edit_sia_settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Edit SIA Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/add_sia_certificate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add SIA Certificate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/create_identity_policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Create Identity Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/create_identity_service_user_with_attributes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Create Identity Service User With Attributes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/create_pcloud_application/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Create pCloud Application
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_15" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_15" id="__nav_4_15_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Policy
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_15_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_15">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Policy
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/policy/db_policy_cli_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DB Policy CLI workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/policy/vm_policy_cli_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VM Policy CLI workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/policy/cloud_access_policy_cli_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloud Access Policy CLI workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/commands_examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI commands
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    CLI commands
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/configure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/login/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Login
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/exec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/profiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/version/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Version
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Config
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/environment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/telemetry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Telemetry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/proxy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-overview-goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Overview &amp; Goals
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Overview &amp; Goals">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#motivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Motivation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#non-goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Non-goals
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-current-state-analysis-verified-in-repo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Current-State Analysis (verified in-repo)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-detection-activation-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Detection &amp; Activation Design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Detection &amp; Activation Design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-new-package-pkgagentmode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 New package: pkg/agentmode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-detection-registry-env-var-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Detection registry (env-var table)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-precedence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Precedence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-wiring-into-commonactionsexecution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 Wiring into CommonActionsExecution
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-behavioral-spec-behavior-human-vs-agent-filefunction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Behavioral Spec (behavior → human vs agent → file/function)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Behavioral Spec (behavior → human vs agent → file/function)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-non-interactive-auto-approve-behavior-5-13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Non-interactive / auto-approve (behavior #5, #13)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-structured-output-interception-behavior-1-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Structured output interception (behavior #1, #2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-stdoutstderr-discipline-behavior-4-11-call-out-as-a-fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 stdout/stderr discipline (behavior #4, #11) — call out as a fix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-config-surface-decision-sdk-vs-cli-rationale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Config Surface Decision (SDK vs CLI) + Rationale
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-response-error-envelope-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Response / Error Envelope Schema
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Response / Error Envelope Schema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#json-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-idsec-schema-machine-readable-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. idsec schema — Machine-Readable Discovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-backward-compatibility-risks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Backward Compatibility &amp; Risks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Backward Compatibility &amp; Risks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#guarantees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Guarantees
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#risks-mitigations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Risks &amp; mitigations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-phased-implementation-plan-ordered-file-level" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Phased Implementation Plan (ordered, file-level)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Phased Implementation Plan (ordered, file-level)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-flag-detection-config-state-foundation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — Flag, detection, config state (foundation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-non-interactive-auto-approve-fail-fast-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — Non-interactive / auto-approve + fail-fast errors
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-json-envelope-for-exec-output-error-path-stdoutstderr-fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — JSON envelope for exec output + error path + stdout/stderr fix
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-idsec-schema-command-json-help-hint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — idsec schema command + JSON help hint
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-5-docs-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5 — Docs + tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-testing-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Testing Strategy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-docs-plan-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Docs Plan (README)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Open Questions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="design-agent-mode-for-idsec-cli-golang">Design: Agent Mode for <code>idsec-cli-golang</code><a class="headerlink" href="#design-agent-mode-for-idsec-cli-golang" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Status: Proposal / Design (no code changes yet). All Go snippets are illustrative.</p>
+</blockquote>
+<h2 id="1-overview-goals">1. Overview &amp; Goals<a class="headerlink" href="#1-overview-goals" title="Permanent link">&para;</a></h2>
+<h3 id="motivation">Motivation<a class="headerlink" href="#motivation" title="Permanent link">&para;</a></h3>
+<p><code>idsec</code> (the CyberArk Idira Identity Security CLI) is a Go/Cobra binary designed
+around a <em>human</em> operator: it prompts interactively with <code>survey</code>, prints colored
+success/failure lines, shows an upgrade nag, and gates most output on
+"interactive OR allow-output". When driven by an AI coding agent (Claude Code,
+Cursor, Codex, etc.) this is actively harmful: prompts hang on a closed stdin,
+prose output is hard to parse, and errors are emitted to <strong>stdout</strong> as free text.</p>
+<p>We want an <strong>agent mode</strong> — modeled on Datadog's <a href="https://docs.datadoghq.com/cli/"><code>pup</code></a>
+CLI — that is <em>auto-detected</em> when running under a known agent and adjusts
+behavior so the CLI is safe and ergonomic for machine consumption.</p>
+<h3 id="goals">Goals<a class="headerlink" href="#goals" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Zero behavior change for humans.</strong> Default (no agent detected, no flag)
+   output is byte-for-byte identical to today.</li>
+<li><strong>Never hang.</strong> In agent mode, no code path may block on stdin. Missing
+   required input → fail fast with a structured error.</li>
+<li><strong>Structured, parseable output.</strong> Success payloads, generic messages, and
+   errors are emitted as a single stable JSON envelope on stdout.</li>
+<li><strong>Machine-readable discovery.</strong> A dedicated <code>idsec schema</code> command serializes
+   the registry + struct-tag metadata to JSON so an agent can discover
+   services/resources/actions/flags without scraping <code>--help</code> prose.</li>
+<li><strong>stdout/stderr discipline.</strong> Machine data → stdout; diagnostics, warnings,
+   logs → stderr.</li>
+<li><strong>Idiomatic to idsec.</strong> Follow <code>Idsec&lt;Domain&gt;&lt;Entity&gt;</code> naming, <code>IDSEC_&lt;FEATURE&gt;</code>
+   env vars, full struct-tag set, interface-satisfaction checks, table-driven
+   tests, and the existing <code>flags &gt; env &gt; config &gt; default</code> precedence.</li>
+</ol>
+<h3 id="non-goals">Non-goals<a class="headerlink" href="#non-goals" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Rewriting the reflection/<code>sflags</code> exec engine.</li>
+<li>Changing the SDK's public <code>config</code> API surface for TF-provider consumers.</li>
+<li>Adding new network behavior. Agent mode only changes <em>presentation</em> and
+  <em>interactivity</em>, not <em>what</em> the CLI calls.</li>
+</ul>
+<h2 id="2-current-state-analysis-verified-in-repo">2. Current-State Analysis (verified in-repo)<a class="headerlink" href="#2-current-state-analysis-verified-in-repo" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Where it lives today</th>
+<th>Relevant behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Entry / error handling</td>
+<td><code>cmd/idsec/idsec.go</code> → <code>handleCommandExecution</code></td>
+<td>Errors printed with <code>fmt.Println(err)</code> to <strong>stdout</strong>, then <code>os.Exit(1)</code>. Unknown first-arg routed to <code>exec</code>. Custom help appends "Available services".</td>
+</tr>
+<tr>
+<td>Common flags</td>
+<td><code>pkg/actions/idsec_action.go</code> → <code>CommonActionsConfiguration(cmd)</code></td>
+<td>Registers persistent flags: <code>raw</code>, <code>silent</code>, <code>allow-output</code>, <code>verbose</code>, etc. <strong>Natural home for <code>--agent</code>/<code>--no-agent</code>.</strong></td>
+</tr>
+<tr>
+<td>Flag→state resolution</td>
+<td><code>pkg/actions/idsec_action.go</code> → <code>CommonActionsExecution(cmd,args,printUpgrade)</code></td>
+<td>Sets SDK config defaults then flips toggles per flag; also prints the upgrade nag (gated on <code>IsInteractive()</code>). <strong>Natural home to resolve agent mode + flip toggles.</strong></td>
+</tr>
+<tr>
+<td>Global runtime state</td>
+<td>SDK <code>github.com/cyberark/idsec-sdk-golang/pkg/config</code></td>
+<td>Package-level vars + getters/setters: <code>IsColoring</code>, <code>IsInteractive</code>, <code>IsAllowingOutput</code>, telemetry, proxy, trusted cert, <code>SetIdsecToolInUse</code>. <strong>Shared with the Terraform provider.</strong> No agent concept.</td>
+</tr>
+<tr>
+<td>CLI-local config</td>
+<td>CLI <code>pkg/config/config_file.go</code></td>
+<td>Loads <code>~/.idsec/config.yaml</code> → sets <code>IDSEC_*</code> env vars if not already set. <code>envVarPrefix = "IDSEC_"</code>.</td>
+</tr>
+<tr>
+<td>Output primitives</td>
+<td>CLI <code>pkg/common/args/idsec_args_formatter.go</code></td>
+<td><code>PrintColored/Success/Failure/Warning/Normal</code> all gate on <code>config.IsInteractive() || config.IsAllowingOutput()</code> and write to <strong>stdout</strong>.</td>
+</tr>
+<tr>
+<td>Interactive prompts</td>
+<td>CLI <code>pkg/common/args/idsec_args_formatter.go</code></td>
+<td><code>GetArg/GetBoolArg/GetSwitchArg/GetCheckboxArgs</code> call <code>survey.AskOne</code> — <strong>block on stdin</strong>, no TTY guard.</td>
+</tr>
+<tr>
+<td>Exec output</td>
+<td>CLI <code>pkg/actions/idsec_service_exec_action.go</code> → <code>serializeAndPrintOutput</code></td>
+<td>Structs/maps/slices/channels → <code>json.MarshalIndent</code> via <code>args.PrintSuccess</code>. Generic <code>"&lt;Action&gt; finished successfully"</code> plain string. <code>pageItems</code> pages only when <code>args.IsStdoutTTY()</code>, else writes a JSON array.</td>
+</tr>
+<tr>
+<td>Exec failure path</td>
+<td>CLI <code>pkg/actions/idsec_exec_action.go</code> → <code>runExecAction</code></td>
+<td>Failures via <code>args.PrintFailure(...)</code> (stdout). "Not all authenticators are logged in" gated on <code>IsInteractive()</code>.</td>
+</tr>
+<tr>
+<td>Schema model</td>
+<td>SDK <code>pkg/models/actions/...</code> + CLI <code>pkg/registry/{registry,init}.go</code></td>
+<td><code>TopLevelCLIActions()</code> returns a tree of <code>*IdsecServiceCLIActionDefinition{ ActionName, ActionAliases, ActionDescription, Schemas map[string]interface{}, Subactions, Deprecation }</code>. <code>Schemas</code> values unwrap via <code>actions.UnwrapSchema</code>. Struct tags: <code>flag</code>, <code>desc</code>, <code>default</code>, <code>validate:"required"</code>, <code>choices</code>, <code>mapstructure</code>, <code>json</code>.</td>
+</tr>
+<tr>
+<td>TTY helper</td>
+<td>CLI <code>pkg/common/args/pager.go</code> → <code>IsStdoutTTY</code> (overridable var)</td>
+<td>Already used for paging decisions.</td>
+</tr>
+<tr>
+<td>Machine-output precedent</td>
+<td>CLI <code>pkg/actions/idsec_version_action.go</code></td>
+<td><code>idsec version --silent</code> prints bare version; suppresses the upgrade hint for scriptability.</td>
+</tr>
+<tr>
+<td>File logging</td>
+<td>SDK config env vars (<code>IDSEC_FILE_LOG_PATH</code>, <code>.idsec/logs</code>)</td>
+<td>Credential-sanitized, independent of stdout. Already agent-safe.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Key architectural takeaway:</strong> almost every human-only behavior is already gated
+on the SDK config trio <code>IsColoring / IsInteractive / IsAllowingOutput</code>. Agent mode
+can be implemented largely by <em>setting those toggles correctly</em> plus a small
+CLI-local "am I in agent mode?" flag that the CLI's <code>args</code> and exec code consult
+to switch on the JSON envelope. <strong>No SDK change is required.</strong></p>
+<h2 id="3-detection-activation-design">3. Detection &amp; Activation Design<a class="headerlink" href="#3-detection-activation-design" title="Permanent link">&para;</a></h2>
+<h3 id="31-new-package-pkgagentmode">3.1 New package: <code>pkg/agentmode</code><a class="headerlink" href="#31-new-package-pkgagentmode" title="Permanent link">&para;</a></h3>
+<p>Create a <strong>CLI-local leaf package</strong> <code>github.com/cyberark/idsec-cli-golang/pkg/agentmode</code>.
+It holds:</p>
+<ul>
+<li>the detection registry (env-var → agent name),</li>
+<li>the resolution/precedence logic,</li>
+<li>the resolved global state (<code>Enable</code>, <code>IsEnabled</code>, <code>DetectedAgent</code>).</li>
+</ul>
+<p>It depends only on <code>os</code> (and optionally the SDK <code>common</code> logger), so both
+<code>pkg/actions</code> and <code>pkg/common/args</code> can import it without an import cycle
+(<code>args</code> already imports SDK <code>config</code>; <code>agentmode</code> will not import <code>args</code>).</p>
+<blockquote>
+<p>Naming note: <code>pkg/agentmode</code> (short, discoverable) is recommended over
+<code>pkg/common/agentmode</code>. It is a top-level cross-cutting concern like
+<code>pkg/config</code>, not a <code>common</code> utility. Exported types stay idsec-idiomatic
+(e.g. <code>agentmode.KnownAgent</code>).</p>
+</blockquote>
+<h3 id="32-detection-registry-env-var-table">3.2 Detection registry (env-var table)<a class="headerlink" href="#32-detection-registry-env-var-table" title="Permanent link">&para;</a></h3>
+<p>Third-party detection variables are kept <strong>exactly as the tools set them</strong> (they
+are not idsec's to rename). Only idsec's own override/mode vars carry the
+<code>IDSEC_</code> prefix.</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span>
+<span class="normal">12</span>
+<span class="normal">13</span>
+<span class="normal">14</span>
+<span class="normal">15</span>
+<span class="normal">16</span>
+<span class="normal">17</span>
+<span class="normal">18</span>
+<span class="normal">19</span>
+<span class="normal">20</span>
+<span class="normal">21</span>
+<span class="normal">22</span>
+<span class="normal">23</span>
+<span class="normal">24</span>
+<span class="normal">25</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="c1">// pkg/agentmode/detect.go (illustrative)</span>
+<span class="kn">package</span><span class="w"> </span><span class="nx">agentmode</span>
+
+<span class="c1">// knownAgents maps a detector to the tool that sets it. Order is stable so the</span>
+<span class="c1">// first matching entry wins for reporting DetectedAgent().</span>
+<span class="kd">var</span><span class="w"> </span><span class="nx">knownAgents</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[]</span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">EnvVar</span><span class="w"> </span><span class="kt">string</span>
+<span class="w">    </span><span class="nx">Name</span><span class="w">   </span><span class="kt">string</span>
+<span class="p">}{</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;CLAUDECODE&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;claude-code&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;CLAUDE_CODE&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;claude-code&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;CURSOR_AGENT&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;cursor&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;CODEX&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;codex&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;OPENAI_CODEX&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;codex&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;AIDER&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;aider&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;CLINE&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;cline&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;WINDSURF_AGENT&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;windsurf&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;GITHUB_COPILOT&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;github-copilot&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;AMAZON_Q&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;amazon-q&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;AWS_Q_DEVELOPER&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;amazon-q&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;GEMINI_CODE_ASSIST&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;gemini-code-assist&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;SRC_CODY&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;sourcegraph-cody&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;PI_CODING_AGENT&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;pi&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="s">&quot;AGENT&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;generic&quot;</span><span class="p">},</span><span class="w"> </span><span class="c1">// generic opt-in; lowest-priority detector</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<table>
+<thead>
+<tr>
+<th>Env var(s)</th>
+<th>Agent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CLAUDECODE</code>, <code>CLAUDE_CODE</code></td>
+<td>Claude Code</td>
+</tr>
+<tr>
+<td><code>CURSOR_AGENT</code></td>
+<td>Cursor</td>
+</tr>
+<tr>
+<td><code>CODEX</code>, <code>OPENAI_CODEX</code></td>
+<td>OpenAI Codex</td>
+</tr>
+<tr>
+<td><code>AIDER</code></td>
+<td>Aider</td>
+</tr>
+<tr>
+<td><code>CLINE</code></td>
+<td>Cline</td>
+</tr>
+<tr>
+<td><code>WINDSURF_AGENT</code></td>
+<td>Windsurf</td>
+</tr>
+<tr>
+<td><code>GITHUB_COPILOT</code></td>
+<td>GitHub Copilot</td>
+</tr>
+<tr>
+<td><code>AMAZON_Q</code>, <code>AWS_Q_DEVELOPER</code></td>
+<td>Amazon Q Developer</td>
+</tr>
+<tr>
+<td><code>GEMINI_CODE_ASSIST</code></td>
+<td>Gemini Code Assist</td>
+</tr>
+<tr>
+<td><code>SRC_CODY</code></td>
+<td>Sourcegraph Cody</td>
+</tr>
+<tr>
+<td><code>PI_CODING_AGENT</code></td>
+<td>Pi</td>
+</tr>
+<tr>
+<td><code>AGENT</code></td>
+<td>Generic (explicit opt-in)</td>
+</tr>
+<tr>
+<td><strong>idsec overrides</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><code>IDSEC_AGENT_MODE</code> (<code>1/true/on</code> → force on, <code>0/false/off</code> → force off)</td>
+<td>idsec explicit control via env</td>
+</tr>
+<tr>
+<td><code>IDSEC_FORCE_AGENT_MODE=1</code></td>
+<td>idsec hard force-on (alias, matches <code>pup</code>'s <code>FORCE_AGENT_MODE</code>)</td>
+</tr>
+<tr>
+<td><code>--agent</code> / <code>--no-agent</code></td>
+<td>idsec explicit control via flag</td>
+</tr>
+</tbody>
+</table>
+<p>A detector counts as "set" when the env var is present <strong>and non-empty</strong>
+(matching how <code>pup</code> and idsec treat env presence, and avoiding surprises from
+<code>AGENT=</code>).</p>
+<h3 id="33-precedence">3.3 Precedence<a class="headerlink" href="#33-precedence" title="Permanent link">&para;</a></h3>
+<p>Consistent with the README's documented <code>flags &gt; env &gt; config &gt; default</code> order,
+resolved <strong>once</strong> inside <code>CommonActionsExecution</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1</span>
+<span class="normal">2</span>
+<span class="normal">3</span>
+<span class="normal">4</span></pre></div></td><td class="code"><div><pre><span></span><code>1. Explicit flag         --agent  → ON        --no-agent → OFF   (highest)
+2. idsec env override     IDSEC_AGENT_MODE (parse bool),  or IDSEC_FORCE_AGENT_MODE=1 → ON
+3. Auto-detection         any knownAgents env var set → ON  (records DetectedAgent)
+4. Default                human mode (OFF)
+</code></pre></div></td></tr></table></div>
+<ul>
+<li><code>--agent</code> and <code>--no-agent</code> are mutually exclusive; if both are supplied, that
+  is a startup usage error.</li>
+<li><code>IDSEC_AGENT_MODE</code> can <em>disable</em> even under auto-detect (<code>IDSEC_AGENT_MODE=0</code>),
+  giving env-level parity with <code>--no-agent</code>. <code>IDSEC_FORCE_AGENT_MODE</code> is
+  force-on only (kept for <code>pup</code> familiarity).</li>
+<li>Because the config file (<code>config.yaml</code>) sets <code>IDSEC_*</code> env vars during
+  <code>LoadConfigFile</code>, a user can persist <code>IDSEC_AGENT_MODE: true</code> there and it
+  participates at the env layer automatically — no extra code.</li>
+</ul>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span>
+<span class="normal">12</span>
+<span class="normal">13</span>
+<span class="normal">14</span>
+<span class="normal">15</span>
+<span class="normal">16</span>
+<span class="normal">17</span>
+<span class="normal">18</span>
+<span class="normal">19</span>
+<span class="normal">20</span>
+<span class="normal">21</span>
+<span class="normal">22</span>
+<span class="normal">23</span>
+<span class="normal">24</span>
+<span class="normal">25</span>
+<span class="normal">26</span>
+<span class="normal">27</span>
+<span class="normal">28</span>
+<span class="normal">29</span>
+<span class="normal">30</span>
+<span class="normal">31</span>
+<span class="normal">32</span>
+<span class="normal">33</span>
+<span class="normal">34</span>
+<span class="normal">35</span>
+<span class="normal">36</span>
+<span class="normal">37</span>
+<span class="normal">38</span>
+<span class="normal">39</span>
+<span class="normal">40</span>
+<span class="normal">41</span>
+<span class="normal">42</span>
+<span class="normal">43</span>
+<span class="normal">44</span>
+<span class="normal">45</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="c1">// pkg/agentmode/agentmode.go (illustrative)</span>
+<span class="kn">package</span><span class="w"> </span><span class="nx">agentmode</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="s">&quot;os&quot;</span>
+<span class="w">    </span><span class="s">&quot;strconv&quot;</span>
+<span class="p">)</span>
+
+<span class="kd">type</span><span class="w"> </span><span class="nx">Resolution</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">Enabled</span><span class="w">   </span><span class="kt">bool</span>
+<span class="w">    </span><span class="nx">Source</span><span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="c1">// &quot;flag&quot;, &quot;env&quot;, &quot;auto-detect&quot;, &quot;default&quot;</span>
+<span class="w">    </span><span class="nx">AgentName</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="c1">// populated when Source == &quot;auto-detect&quot;</span>
+<span class="p">}</span>
+
+<span class="c1">// Resolve computes agent-mode state. flagAgent/flagNoAgent come from the parsed</span>
+<span class="c1">// cobra flags.</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">Resolve</span><span class="p">(</span><span class="nx">flagAgent</span><span class="p">,</span><span class="w"> </span><span class="nx">flagNoAgent</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="nx">Resolution</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">switch</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="nx">flagNoAgent</span><span class="p">:</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">Resolution</span><span class="p">{</span><span class="nx">Enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="nx">Source</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;flag&quot;</span><span class="p">}</span>
+<span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="nx">flagAgent</span><span class="p">:</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">Resolution</span><span class="p">{</span><span class="nx">Enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nx">Source</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;flag&quot;</span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">v</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">os</span><span class="p">.</span><span class="nx">Getenv</span><span class="p">(</span><span class="s">&quot;IDSEC_AGENT_MODE&quot;</span><span class="p">);</span><span class="w"> </span><span class="nx">v</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">on</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">strconv</span><span class="p">.</span><span class="nx">ParseBool</span><span class="p">(</span><span class="nx">v</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="nx">Resolution</span><span class="p">{</span><span class="nx">Enabled</span><span class="p">:</span><span class="w"> </span><span class="nx">on</span><span class="p">,</span><span class="w"> </span><span class="nx">Source</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;env&quot;</span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">os</span><span class="p">.</span><span class="nx">Getenv</span><span class="p">(</span><span class="s">&quot;IDSEC_FORCE_AGENT_MODE&quot;</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;1&quot;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">Resolution</span><span class="p">{</span><span class="nx">Enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nx">Source</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;env&quot;</span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">name</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">detect</span><span class="p">();</span><span class="w"> </span><span class="nx">name</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">Resolution</span><span class="p">{</span><span class="nx">Enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nx">Source</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;auto-detect&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">AgentName</span><span class="p">:</span><span class="w"> </span><span class="nx">name</span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">Resolution</span><span class="p">{</span><span class="nx">Enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="nx">Source</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;default&quot;</span><span class="p">}</span>
+<span class="p">}</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="nx">detect</span><span class="p">()</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">a</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">knownAgents</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">os</span><span class="p">.</span><span class="nx">Getenv</span><span class="p">(</span><span class="nx">a</span><span class="p">.</span><span class="nx">EnvVar</span><span class="p">)</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="nx">a</span><span class="p">.</span><span class="nx">Name</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p>State is stored in a package-level bool (mirroring how SDK <code>config</code> stores
+<code>isInteractive</code>), set once and read everywhere:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1</span>
+<span class="normal">2</span>
+<span class="normal">3</span>
+<span class="normal">4</span>
+<span class="normal">5</span>
+<span class="normal">6</span>
+<span class="normal">7</span>
+<span class="normal">8</span>
+<span class="normal">9</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="kd">var</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="nx">enabled</span><span class="w">       </span><span class="kt">bool</span>
+<span class="w">    </span><span class="nx">detectedAgent</span><span class="w"> </span><span class="kt">string</span>
+<span class="p">)</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="nx">Enable</span><span class="p">(</span><span class="nx">agent</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w">   </span><span class="p">{</span><span class="w"> </span><span class="nx">enabled</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w"> </span><span class="nx">detectedAgent</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">agent</span><span class="w"> </span><span class="p">}</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">Disable</span><span class="p">()</span><span class="w">              </span><span class="p">{</span><span class="w"> </span><span class="nx">enabled</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w"> </span><span class="nx">detectedAgent</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">IsEnabled</span><span class="p">()</span><span class="w"> </span><span class="kt">bool</span><span class="w">       </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">enabled</span><span class="w"> </span><span class="p">}</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">DetectedAgent</span><span class="p">()</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">detectedAgent</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="34-wiring-into-commonactionsexecution">3.4 Wiring into <code>CommonActionsExecution</code><a class="headerlink" href="#34-wiring-into-commonactionsexecution" title="Permanent link">&para;</a></h3>
+<p>Add the flags in <code>CommonActionsConfiguration</code> and resolve in
+<code>CommonActionsExecution</code> (both in <code>pkg/actions/idsec_action.go</code>). Resolution must
+run <strong>before</strong> the upgrade-nag block so the nag can be suppressed.</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span>
+<span class="normal">12</span>
+<span class="normal">13</span>
+<span class="normal">14</span>
+<span class="normal">15</span>
+<span class="normal">16</span>
+<span class="normal">17</span>
+<span class="normal">18</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="c1">// CommonActionsConfiguration (add)</span>
+<span class="nx">cmd</span><span class="p">.</span><span class="nx">PersistentFlags</span><span class="p">().</span><span class="nx">Bool</span><span class="p">(</span><span class="s">&quot;agent&quot;</span><span class="p">,</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;Force agent mode: structured JSON output, non-interactive, machine-friendly&quot;</span><span class="p">)</span>
+<span class="nx">cmd</span><span class="p">.</span><span class="nx">PersistentFlags</span><span class="p">().</span><span class="nx">Bool</span><span class="p">(</span><span class="s">&quot;no-agent&quot;</span><span class="p">,</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;Force human mode even when an AI agent is auto-detected&quot;</span><span class="p">)</span>
+
+<span class="c1">// CommonActionsExecution (near the top, after the default toggles)</span>
+<span class="nx">flagAgent</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w">   </span><span class="o">:=</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Flags</span><span class="p">().</span><span class="nx">GetBool</span><span class="p">(</span><span class="s">&quot;agent&quot;</span><span class="p">)</span>
+<span class="nx">flagNoAgent</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Flags</span><span class="p">().</span><span class="nx">GetBool</span><span class="p">(</span><span class="s">&quot;no-agent&quot;</span><span class="p">)</span>
+<span class="nx">res</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">agentmode</span><span class="p">.</span><span class="nx">Resolve</span><span class="p">(</span><span class="nx">flagAgent</span><span class="p">,</span><span class="w"> </span><span class="nx">flagNoAgent</span><span class="p">)</span>
+<span class="k">if</span><span class="w"> </span><span class="nx">res</span><span class="p">.</span><span class="nx">Enabled</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">agentmode</span><span class="p">.</span><span class="nx">Enable</span><span class="p">(</span><span class="nx">res</span><span class="p">.</span><span class="nx">AgentName</span><span class="p">)</span>
+<span class="w">    </span><span class="c1">// Flip existing SDK toggles so all currently-gated human noise is suppressed</span>
+<span class="w">    </span><span class="c1">// while structured stdout still flows (see §4).</span>
+<span class="w">    </span><span class="nx">config</span><span class="p">.</span><span class="nx">DisableColor</span><span class="p">()</span>
+<span class="w">    </span><span class="nx">config</span><span class="p">.</span><span class="nx">DisableInteractive</span><span class="p">()</span>
+<span class="w">    </span><span class="nx">config</span><span class="p">.</span><span class="nx">AllowOutput</span><span class="p">()</span><span class="w">      </span><span class="c1">// so args.Print* still writes the JSON envelope to stdout</span>
+<span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">agentmode</span><span class="p">.</span><span class="nx">Disable</span><span class="p">()</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p>Why set <code>AllowOutput()</code> <strong>and</strong> <code>DisableInteractive()</code>? The <code>args.Print*</code> helpers
+gate on <code>IsInteractive() || IsAllowingOutput()</code>. Disabling interactive (kills
+prompts) while allowing output (keeps the JSON envelope on stdout) is exactly the
+combination agent mode needs. Color is disabled so envelopes are never
+ANSI-polluted.</p>
+<h2 id="4-behavioral-spec-behavior-human-vs-agent-filefunction">4. Behavioral Spec (behavior → human vs agent → file/function)<a class="headerlink" href="#4-behavioral-spec-behavior-human-vs-agent-filefunction" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Behavior</th>
+<th>Human (today, unchanged)</th>
+<th>Agent mode</th>
+<th>File / function to change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Success payload (struct/map/slice/channel)</td>
+<td>Pretty <code>json.MarshalIndent</code> via <code>PrintSuccess</code></td>
+<td>Wrapped in envelope: <code>{status, data, count, truncated, ...}</code></td>
+<td><code>pkg/actions/idsec_service_exec_action.go</code> → <code>serializeAndPrintOutput</code>, <code>pageItems</code>, <code>writeJSONArray</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Generic success (<code>"X finished successfully"</code>)</td>
+<td>Plain green line</td>
+<td><code>{status:"success", data:null, message:"..."}</code> envelope</td>
+<td><code>serializeAndPrintOutput</code> (tail branch)</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Action/runtime error</td>
+<td><code>args.PrintFailure(...)</code> to stdout</td>
+<td><code>{status:"error", error:{code,message,details}, hints:[...]}</code> envelope to <strong>stdout</strong> (data channel)</td>
+<td><code>pkg/actions/idsec_exec_action.go</code> → <code>runExecAction</code>; envelope built in <code>agentmode</code>/<code>args</code> helper</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Top-level CLI error (bad command/flag)</td>
+<td><code>fmt.Println(err)</code> to stdout + help</td>
+<td>Structured error envelope to stdout; <strong>no</strong> prose help dump</td>
+<td><code>cmd/idsec/idsec.go</code> → <code>handleCommandExecution</code>, <code>setupDefaultRouting</code>, <code>validateCommandPathBeforeExecution</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>Interactive prompt (<code>GetArg</code> etc.)</td>
+<td><code>survey.AskOne</code> blocks for input</td>
+<td><strong>Never prompt.</strong> Return fail-fast error naming the missing flag</td>
+<td><code>pkg/common/args/idsec_args_formatter.go</code> → all four <code>Get*Arg</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>login</code>/<code>configure</code> missing creds</td>
+<td>Prompts interactively</td>
+<td>Structured error: which <code>--&lt;auth&gt;-secret</code>/profile is required</td>
+<td><code>pkg/actions/idsec_login_action.go</code>, <code>idsec_configure_action.go</code> (already branch on <code>IsInteractive()</code>; verify all paths)</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Upgrade nag</td>
+<td>Yellow warning (12h cached)</td>
+<td>Suppressed</td>
+<td><code>pkg/actions/idsec_action.go</code> → <code>CommonActionsExecution</code> (already gated on <code>IsInteractive()</code>; agent mode disables interactive → auto-suppressed)</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Color / spinners</td>
+<td>ANSI colors</td>
+<td>Disabled</td>
+<td>SDK <code>config.DisableColor()</code> set in <code>CommonActionsExecution</code> (existing <code>IsColoring()</code> gate covers <code>args.ColorText</code>)</td>
+</tr>
+<tr>
+<td>9</td>
+<td>"Not all authenticators logged in"</td>
+<td>Printed (gated on <code>IsInteractive()</code>)</td>
+<td>Suppressed from stdout; may appear as a <code>warnings[]</code> entry in the envelope</td>
+<td><code>pkg/actions/idsec_exec_action.go</code> → <code>runExecAction</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>--help</code></td>
+<td>Cobra prose usage + services list</td>
+<td>Prose still available; <strong>preferred path is <code>idsec schema</code></strong> (JSON). Optionally, in agent mode <code>--help</code> emits a pointer envelope suggesting <code>idsec schema</code></td>
+<td><code>cmd/idsec/idsec.go</code> → <code>setupCustomHelp</code>; new <code>idsec schema</code> command</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Diagnostics / logs</td>
+<td>stderr already (file logger)</td>
+<td>Ensure all non-data writes go to <strong>stderr</strong></td>
+<td>audit <code>fmt.Println</code>/<code>Print*</code> call sites (see §4.3)</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Interactive pager (<code>--page-size</code>)</td>
+<td>Pages on TTY</td>
+<td>Non-TTY path already writes JSON array; agent mode forces the non-interactive path regardless of TTY</td>
+<td><code>pkg/actions/idsec_service_exec_action.go</code> → <code>pageItems</code></td>
+</tr>
+<tr>
+<td>13</td>
+<td>Confirmation prompts (<code>GetBoolArg</code> "Yes/No")</td>
+<td>Prompts</td>
+<td>Auto-approve to the safe default (or the flag value if provided); never block</td>
+<td><code>pkg/common/args/idsec_args_formatter.go</code> → <code>GetBoolArg</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="41-non-interactive-auto-approve-behavior-5-13">4.1 Non-interactive / auto-approve (behavior #5, #13)<a class="headerlink" href="#41-non-interactive-auto-approve-behavior-5-13" title="Permanent link">&para;</a></h3>
+<p>The four <code>Get*Arg</code> helpers are the only blocking surfaces. Add an agent-mode
+guard at the top of each:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="c1">// pkg/common/args/idsec_args_formatter.go (illustrative, GetArg)</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">GetArg</span><span class="p">(</span><span class="nx">cmd</span><span class="w"> </span><span class="o">*</span><span class="nx">cobra</span><span class="p">.</span><span class="nx">Command</span><span class="p">,</span><span class="w"> </span><span class="nx">key</span><span class="p">,</span><span class="w"> </span><span class="nx">prompt</span><span class="p">,</span><span class="w"> </span><span class="nx">existingVal</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">hidden</span><span class="p">,</span><span class="w"> </span><span class="nx">prioritizeExistingVal</span><span class="p">,</span><span class="w"> </span><span class="nx">emptyValueAllowed</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">val</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">valueFromFlags</span><span class="p">(</span><span class="nx">cmd</span><span class="p">,</span><span class="w"> </span><span class="nx">key</span><span class="p">,</span><span class="w"> </span><span class="nx">existingVal</span><span class="p">,</span><span class="w"> </span><span class="nx">prioritizeExistingVal</span><span class="p">)</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">agentmode</span><span class="p">.</span><span class="nx">IsEnabled</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">val</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">!</span><span class="nx">emptyValueAllowed</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">agentmode</span><span class="p">.</span><span class="nx">MissingInputError</span><span class="p">(</span><span class="nx">key</span><span class="p">)</span><span class="w"> </span><span class="c1">// fail fast, names the flag</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">val</span><span class="p">,</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="c1">// use flag/existing value, never prompt</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="c1">// ... existing survey.AskOne loop unchanged ...</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<ul>
+<li><code>GetBoolArg</code>: in agent mode, return the resolved flag/existing value (default
+  <code>false</code> / the <code>Default</code> option) without prompting — this is the "auto-approve
+  confirmations" behavior. Because idsec confirmations default to the
+  non-destructive choice, auto-answering the default is safe; destructive actions
+  still require an explicit flag.</li>
+<li><code>GetSwitchArg</code>/<code>GetCheckboxArgs</code>: in agent mode, return the flag/existing
+  selection; if empty and a value is mandatory, <code>MissingInputError</code>.</li>
+<li><code>MissingInputError(flag)</code> returns a typed error that the envelope layer renders
+  as <code>error.code = "missing_required_input"</code> with a <code>hints</code> entry like
+  <code>"provide --&lt;flag&gt; because agent mode does not prompt"</code>.</li>
+</ul>
+<p>This also fixes the closed-stdin hang for <code>login</code>/<code>configure</code>: those already
+branch on <code>config.IsInteractive()</code> (which agent mode turns off), and the
+remaining interactive helpers now fail fast instead of blocking.</p>
+<h3 id="42-structured-output-interception-behavior-1-2">4.2 Structured output interception (behavior #1, #2)<a class="headerlink" href="#42-structured-output-interception-behavior-1-2" title="Permanent link">&para;</a></h3>
+<p><code>serializeAndPrintOutput</code> is the single choke point for exec results. Wrap its
+output in agent mode:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1</span>
+<span class="normal">2</span>
+<span class="normal">3</span>
+<span class="normal">4</span>
+<span class="normal">5</span>
+<span class="normal">6</span>
+<span class="normal">7</span>
+<span class="normal">8</span>
+<span class="normal">9</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="c1">// illustrative shape</span>
+<span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="o">*</span><span class="nx">IdsecServiceExecAction</span><span class="p">)</span><span class="w"> </span><span class="nx">serializeAndPrintOutput</span><span class="p">(</span><span class="nx">result</span><span class="w"> </span><span class="p">[]</span><span class="nx">reflect</span><span class="p">.</span><span class="nx">Value</span><span class="p">,</span><span class="w"> </span><span class="nx">actionName</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">pageSize</span><span class="w"> </span><span class="kt">int</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">agentmode</span><span class="p">.</span><span class="nx">IsEnabled</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">env</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">buildEnvelope</span><span class="p">(</span><span class="nx">result</span><span class="p">,</span><span class="w"> </span><span class="nx">actionName</span><span class="p">)</span><span class="w"> </span><span class="c1">// status/data/count/truncated/warnings</span>
+<span class="w">        </span><span class="nx">args</span><span class="p">.</span><span class="nx">PrintSuccess</span><span class="p">(</span><span class="nx">env</span><span class="p">.</span><span class="nx">JSON</span><span class="p">())</span><span class="w">              </span><span class="c1">// single JSON object to stdout</span>
+<span class="w">        </span><span class="k">return</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="c1">// ... existing human rendering unchanged ...</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<ul>
+<li>For list-shaped results, populate <code>count</code> (items rendered) and <code>truncated</code>
+  (true if a page limit or a broken pipe cut the stream short). Agent mode
+  ignores interactive paging (<code>pageItems</code> already has a non-TTY JSON-array path —
+  reuse it inside <code>data</code>, or stream <code>data</code> as an array and set <code>count</code>).</li>
+<li>Preserve the exact serialized value shape inside <code>data</code> so existing consumers
+  that already parse <code>idsec ...</code> JSON get the <em>same</em> objects, just nested under
+  <code>data</code>.</li>
+</ul>
+<h3 id="43-stdoutstderr-discipline-behavior-4-11-call-out-as-a-fix">4.3 stdout/stderr discipline (behavior #4, #11) — call out as a fix<a class="headerlink" href="#43-stdoutstderr-discipline-behavior-4-11-call-out-as-a-fix" title="Permanent link">&para;</a></h3>
+<p>Today <code>cmd/idsec/idsec.go</code> prints errors with <code>fmt.Println(err)</code> (→ <strong>stdout</strong>)
+in <code>handleCommandExecution</code>, <code>setupDefaultRouting</code>, and the reroute path. This is
+a pre-existing correctness smell for scripting and is <em>incompatible</em> with agent
+mode (an error would corrupt the stdout JSON stream if we're not careful).</p>
+<p><strong>Fix (applies to both modes, low-risk):</strong></p>
+<ul>
+<li>Human mode: route error text to <code>os.Stderr</code> (<code>fmt.Fprintln(os.Stderr, err)</code>).
+  This is a behavior change only in <em>stream</em>, not content; call it out in the PR
+  and README.</li>
+<li>Agent mode: emit the <strong>error envelope to stdout</strong> (agents read the structured
+  result from stdout; a nonzero exit code still signals failure) and keep
+  human-readable diagnostics on stderr. Rationale: for a machine consumer the
+  error <em>is</em> the result payload, so it belongs on the data channel as JSON; the
+  process exit code remains the out-of-band failure signal.</li>
+</ul>
+<p><code>args.Print*</code> continue to write to stdout; in agent mode only the enveloped
+success/error goes through them, and incidental human warnings are either
+suppressed (interactive-gated) or redirected to the <code>warnings[]</code> field.</p>
+<h2 id="5-config-surface-decision-sdk-vs-cli-rationale">5. Config Surface Decision (SDK vs CLI) + Rationale<a class="headerlink" href="#5-config-surface-decision-sdk-vs-cli-rationale" title="Permanent link">&para;</a></h2>
+<p><strong>Decision: keep agent-mode state in a new CLI-local <code>pkg/agentmode</code> package. Do
+NOT add an agent concept to the SDK <code>config</code> package.</strong></p>
+<p>Rationale:</p>
+<ul>
+<li>The SDK <code>config</code> package is <strong>shared with the Terraform provider</strong>
+  (<code>SetIdsecToolInUse</code>, <code>IsInteractive</code>, etc.). "Agent mode" is a CLI-presentation
+  concept with no meaning for a Terraform provider; adding
+  <code>EnableAgentMode()</code>/<code>IsAgentMode()</code> there would leak a CLI-only idea into a
+  shared library and force a coordinated SDK release for a CLI feature.</li>
+<li>Everything agent mode needs from the SDK <strong>already exists</strong> as generic toggles:
+  <code>DisableColor</code>, <code>DisableInteractive</code>, <code>AllowOutput</code>. Agent mode is expressible
+  as "set these three, plus a CLI-local boolean that switches on the envelope."</li>
+<li>The CLI's output/exec code (<code>pkg/common/args</code>, <code>pkg/actions</code>) is where the
+  envelope logic lives, and those packages can freely import a sibling CLI
+  package (<code>pkg/agentmode</code>) with no import cycle.</li>
+<li>Detection env vars are CLI-specific and version with the CLI release cadence,
+  which is faster and independent of SDK releases.</li>
+</ul>
+<p>Interaction with existing CLI config: <code>pkg/config/config_file.go</code> already turns
+<code>IDSEC_*</code> YAML keys into env vars before Cobra parses anything, so
+<code>IDSEC_AGENT_MODE</code>/<code>IDSEC_FORCE_AGENT_MODE</code> set in <code>config.yaml</code> participate at
+the env layer for free. No change needed to <code>config_file.go</code> except a doc note.</p>
+<p>Precedence summary (extends the README table):</p>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>--agent</code> / <code>--no-agent</code> flag</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>IDSEC_AGENT_MODE</code> / <code>IDSEC_FORCE_AGENT_MODE</code> env (settable via <code>config.yaml</code>)</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Auto-detected agent env var (<code>CURSOR_AGENT</code>, <code>CLAUDECODE</code>, …)</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Default: human mode</td>
+</tr>
+</tbody>
+</table>
+<h2 id="6-response-error-envelope-schema">6. Response / Error Envelope Schema<a class="headerlink" href="#6-response-error-envelope-schema" title="Permanent link">&para;</a></h2>
+<p>A single envelope type serves success, generic-message, and error cases (mirrors
+<code>pup</code>'s metadata envelope: count, truncation, warnings, error, hints). Defined in
+<code>pkg/agentmode</code> (or a small <code>pkg/agentmode/envelope.go</code>), with <code>json</code> tags
+following idsec's snake_case convention.</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span>
+<span class="normal">12</span>
+<span class="normal">13</span>
+<span class="normal">14</span>
+<span class="normal">15</span>
+<span class="normal">16</span>
+<span class="normal">17</span>
+<span class="normal">18</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="c1">// pkg/agentmode/envelope.go (illustrative)</span>
+<span class="kd">type</span><span class="w"> </span><span class="nx">Envelope</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">Status</span><span class="w">    </span><span class="kt">string</span><span class="w">         </span><span class="s">`json:&quot;status&quot;`</span><span class="w">              </span><span class="c1">// &quot;success&quot; | &quot;error&quot;</span>
+<span class="w">    </span><span class="nx">Data</span><span class="w">      </span><span class="kt">any</span><span class="w">            </span><span class="s">`json:&quot;data,omitempty&quot;`</span><span class="w">      </span><span class="c1">// the raw result value(s)</span>
+<span class="w">    </span><span class="nx">Message</span><span class="w">   </span><span class="kt">string</span><span class="w">         </span><span class="s">`json:&quot;message,omitempty&quot;`</span><span class="w">   </span><span class="c1">// generic success text</span>
+<span class="w">    </span><span class="nx">Error</span><span class="w">     </span><span class="o">*</span><span class="nx">EnvelopeError</span><span class="w"> </span><span class="s">`json:&quot;error,omitempty&quot;`</span>
+<span class="w">    </span><span class="nx">Count</span><span class="w">     </span><span class="o">*</span><span class="kt">int</span><span class="w">           </span><span class="s">`json:&quot;count,omitempty&quot;`</span><span class="w">     </span><span class="c1">// # items for list results</span>
+<span class="w">    </span><span class="nx">Truncated</span><span class="w"> </span><span class="kt">bool</span><span class="w">           </span><span class="s">`json:&quot;truncated,omitempty&quot;`</span><span class="w"> </span><span class="c1">// stream cut short (page limit / pipe)</span>
+<span class="w">    </span><span class="nx">Warnings</span><span class="w">  </span><span class="p">[]</span><span class="kt">string</span><span class="w">       </span><span class="s">`json:&quot;warnings,omitempty&quot;`</span><span class="w">  </span><span class="c1">// non-fatal (e.g. partial auth)</span>
+<span class="w">    </span><span class="nx">Hints</span><span class="w">     </span><span class="p">[]</span><span class="kt">string</span><span class="w">       </span><span class="s">`json:&quot;hints,omitempty&quot;`</span><span class="w">     </span><span class="c1">// machine-actionable next steps</span>
+<span class="w">    </span><span class="nx">Agent</span><span class="w">     </span><span class="kt">string</span><span class="w">         </span><span class="s">`json:&quot;agent,omitempty&quot;`</span><span class="w">     </span><span class="c1">// detected agent name (diagnostic)</span>
+<span class="p">}</span>
+
+<span class="kd">type</span><span class="w"> </span><span class="nx">EnvelopeError</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">Code</span><span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;code&quot;`</span><span class="w">              </span><span class="c1">// e.g. &quot;missing_required_input&quot;, &quot;action_failed&quot;</span>
+<span class="w">    </span><span class="nx">Message</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;message&quot;`</span>
+<span class="w">    </span><span class="nx">Details</span><span class="w"> </span><span class="kt">any</span><span class="w">    </span><span class="s">`json:&quot;details,omitempty&quot;`</span><span class="w"> </span><span class="c1">// validation errors, field list, etc.</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="json-examples">JSON examples<a class="headerlink" href="#json-examples" title="Permanent link">&para;</a></h3>
+<p>Success (list):</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;success&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;data&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;safeName&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;prod-db&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Production DB creds&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;safeName&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;prod-web&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Web tier creds&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;truncated&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;agent&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cursor&quot;</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p>Generic success (no return payload):</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1</span>
+<span class="normal">2</span>
+<span class="normal">3</span>
+<span class="normal">4</span>
+<span class="normal">5</span>
+<span class="normal">6</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;success&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;data&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Delete Safe finished successfully&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;agent&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;claude-code&quot;</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p>Error (missing required input — the anti-hang case):</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span>
+<span class="normal">12</span>
+<span class="normal">13</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;error&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;missing_required_input&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;required flag --isp-secret was not provided&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;details&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;missing_flags&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;isp-secret&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;hints&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="s2">&quot;agent mode never prompts; pass --isp-secret or set IDSEC_SECRET&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;run `idsec schema` to list required flags for this action&quot;</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;agent&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cursor&quot;</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p>Error (action failure with partial-auth warning):</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1</span>
+<span class="normal">2</span>
+<span class="normal">3</span>
+<span class="normal">4</span>
+<span class="normal">5</span>
+<span class="normal">6</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;error&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;action_failed&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Failed to execute action: 403 Forbidden&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;warnings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;Not all authenticators are logged in; some functionality is disabled&quot;</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;agent&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;codex&quot;</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<h2 id="7-idsec-schema-machine-readable-discovery">7. <code>idsec schema</code> — Machine-Readable Discovery<a class="headerlink" href="#7-idsec-schema-machine-readable-discovery" title="Permanent link">&para;</a></h2>
+<p><strong>Decision: add a dedicated <code>idsec schema</code> command rather than overriding
+<code>--help</code> to emit JSON.</strong> Rationale: it matches <code>pup agent schema</code>, keeps <code>--help</code>
+prose stable for humans, is independently testable, and is explicitly invokable
+regardless of agent detection (agents can call <code>idsec schema</code> deterministically).
+In agent mode, the custom help function may additionally emit a one-line envelope
+hint pointing at <code>idsec schema</code>.</p>
+<p><code>idsec schema</code> walks <code>registry.TopLevelCLIActions()</code> and, for each action's
+<code>Schemas</code> map, reflects over the schema struct's fields (reusing the same
+tag-reading logic already in <code>idsec_service_exec_action.go</code>) to serialize:</p>
+<ul>
+<li>services → resources/subactions (recursively via <code>Subactions</code>)</li>
+<li>per action: name, aliases, description, deprecation</li>
+<li>per flag: <code>flag</code> name, <code>desc</code>, <code>default</code>, <code>required</code> (from
+  <code>validate:"required"</code>), <code>choices</code> (split on <code>,</code>), and inferred type</li>
+</ul>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span>
+<span class="normal">12</span>
+<span class="normal">13</span>
+<span class="normal">14</span>
+<span class="normal">15</span>
+<span class="normal">16</span>
+<span class="normal">17</span>
+<span class="normal">18</span>
+<span class="normal">19</span>
+<span class="normal">20</span>
+<span class="normal">21</span>
+<span class="normal">22</span>
+<span class="normal">23</span>
+<span class="normal">24</span>
+<span class="normal">25</span>
+<span class="normal">26</span></pre></div></td><td class="code"><div><pre><span></span><code>// idsec schema  (shape, abbreviated)
+{
+  &quot;status&quot;: &quot;success&quot;,
+  &quot;data&quot;: {
+    &quot;services&quot;: [
+      {
+        &quot;name&quot;: &quot;pcloud&quot;, &quot;aliases&quot;: [&quot;privilegecloud&quot;, &quot;pc&quot;],
+        &quot;description&quot;: &quot;CyberArk Privilege Cloud ...&quot;,
+        &quot;resources&quot;: [
+          {
+            &quot;name&quot;: &quot;safes&quot;,
+            &quot;actions&quot;: [
+              {
+                &quot;name&quot;: &quot;add-safe&quot;,
+                &quot;flags&quot;: [
+                  { &quot;name&quot;: &quot;safe-name&quot;, &quot;type&quot;: &quot;string&quot;, &quot;required&quot;: true, &quot;description&quot;: &quot;Safe name&quot; },
+                  { &quot;name&quot;: &quot;retention-days&quot;, &quot;type&quot;: &quot;int&quot;, &quot;required&quot;: false, &quot;default&quot;: &quot;7&quot; }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+</code></pre></div></td></tr></table></div>
+<p>Implementation notes:</p>
+<ul>
+<li>Factor the field→flag-metadata extraction out of
+  <code>defineServiceExecAction</code>/<code>fillRemainingSchema</code> into a small reusable
+  <code>schemaFlags(schema any) []FlagMeta</code> helper so both command-building and
+  <code>idsec schema</code> share one source of truth (avoids drift).</li>
+<li><code>idsec schema</code> is always JSON (like <code>version --silent</code>), independent of agent
+  mode; it never prompts and never authenticates.</li>
+<li>Optional <code>idsec schema &lt;service&gt; [&lt;resource&gt;]</code> scoping to limit output size for
+  large registries.</li>
+</ul>
+<h2 id="8-backward-compatibility-risks">8. Backward Compatibility &amp; Risks<a class="headerlink" href="#8-backward-compatibility-risks" title="Permanent link">&para;</a></h2>
+<h3 id="guarantees">Guarantees<a class="headerlink" href="#guarantees" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Default path (no flag, no detector) leaves every existing gate
+  (<code>IsColoring/IsInteractive/IsAllowingOutput</code>) at today's values → <strong>identical
+  human output</strong>.</li>
+<li>The only <em>unconditional</em> change is stdout→stderr for top-level error text
+  (§4.3). This is a deliberate, documented fix; content is unchanged, only the
+  stream differs. If even that is deemed risky, gate it behind agent mode only in
+  Phase 1 and roll the human-mode stderr fix separately.</li>
+</ul>
+<h3 id="risks-mitigations">Risks &amp; mitigations<a class="headerlink" href="#risks-mitigations" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Impact</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Auto-detect fires in the dev's own shell.</strong> Running <code>idsec</code> inside a Cursor/Claude Code terminal (which sets e.g. <code>CURSOR_AGENT</code>) would silently give agent mode.</td>
+<td>Confusing JSON-only output for a human.</td>
+<td><code>--no-agent</code> escape hatch; <code>IDSEC_AGENT_MODE=0</code> persistent opt-out in <code>config.yaml</code>; the envelope includes <code>"agent": "&lt;name&gt;"</code> so it's obvious <em>why</em> mode flipped. Document prominently.</td>
+</tr>
+<tr>
+<td><strong>CI sets <code>AGENT</code></strong> (generic) unrelated to AI agents.</td>
+<td>CI scripts parsing prose break.</td>
+<td>The generic <code>AGENT</code> detector is lowest priority and documented as opt-in; teams that don't want it set <code>IDSEC_AGENT_MODE=0</code>. Consider making the generic <code>AGENT</code> detector opt-in via a build/README note if it proves noisy.</td>
+</tr>
+<tr>
+<td><strong>A script relied on error text on stdout.</strong></td>
+<td>Broken parsing.</td>
+<td>Documented in README/CHANGELOG; nonzero exit code unchanged.</td>
+</tr>
+<tr>
+<td><strong>New envelope nesting</strong> (<code>data:</code>) for agent consumers.</td>
+<td>N/A for humans; agents are new consumers so no back-compat surface.</td>
+<td>Envelope is only emitted in agent mode; version it implicitly via <code>status</code>.</td>
+</tr>
+<tr>
+<td><strong>Import cycle</strong> if <code>agentmode</code> imported <code>args</code>.</td>
+<td>Build break.</td>
+<td><code>agentmode</code> stays a leaf (only <code>os</code>, maybe SDK <code>common</code> logger). <code>args</code>/<code>actions</code> import <code>agentmode</code>, never the reverse.</td>
+</tr>
+<tr>
+<td><strong>Global mutable state</strong> in tests.</td>
+<td>Flaky tests.</td>
+<td>Provide <code>agentmode.Disable()</code> and save/restore in tests, exactly like the version test saves/restores <code>config.IsInteractive()</code>. Detection reads env, so tests use <code>t.Setenv</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="9-phased-implementation-plan-ordered-file-level">9. Phased Implementation Plan (ordered, file-level)<a class="headerlink" href="#9-phased-implementation-plan-ordered-file-level" title="Permanent link">&para;</a></h2>
+<h3 id="phase-1-flag-detection-config-state-foundation">Phase 1 — Flag, detection, config state (foundation)<a class="headerlink" href="#phase-1-flag-detection-config-state-foundation" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>New</strong> <code>pkg/agentmode/agentmode.go</code> — state (<code>Enable/Disable/IsEnabled/DetectedAgent</code>).</li>
+<li><strong>New</strong> <code>pkg/agentmode/detect.go</code> — <code>knownAgents</code> table + <code>detect()</code>.</li>
+<li><strong>New</strong> <code>pkg/agentmode/resolve.go</code> — <code>Resolve(flagAgent, flagNoAgent)</code> precedence.</li>
+<li><strong>Edit</strong> <code>pkg/actions/idsec_action.go</code> — add <code>--agent</code>/<code>--no-agent</code> in
+  <code>CommonActionsConfiguration</code>; resolve + flip SDK toggles in
+  <code>CommonActionsExecution</code> (before the upgrade-nag block).</li>
+<li>Effort: <strong>~0.5–1 day.</strong> Pure state; no output change yet.</li>
+</ul>
+<h3 id="phase-2-non-interactive-auto-approve-fail-fast-errors">Phase 2 — Non-interactive / auto-approve + fail-fast errors<a class="headerlink" href="#phase-2-non-interactive-auto-approve-fail-fast-errors" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>New</strong> <code>pkg/agentmode/envelope.go</code> — <code>Envelope</code>, <code>EnvelopeError</code>,
+  <code>MissingInputError</code>, <code>JSON()</code>.</li>
+<li><strong>Edit</strong> <code>pkg/common/args/idsec_args_formatter.go</code> — agent-mode guards in
+  <code>GetArg/GetBoolArg/GetSwitchArg/GetCheckboxArgs</code> (never call <code>survey</code>; fail fast
+  or use flag value).</li>
+<li><strong>Edit</strong> <code>pkg/actions/idsec_login_action.go</code>, <code>idsec_configure_action.go</code> —
+  verify every interactive branch is <code>IsInteractive()</code>-gated (mostly already
+  true); add structured "required flag" errors where they currently prompt.</li>
+<li>Effort: <strong>~1–1.5 days.</strong></li>
+</ul>
+<h3 id="phase-3-json-envelope-for-exec-output-error-path-stdoutstderr-fix">Phase 3 — JSON envelope for exec output + error path + stdout/stderr fix<a class="headerlink" href="#phase-3-json-envelope-for-exec-output-error-path-stdoutstderr-fix" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Edit</strong> <code>pkg/actions/idsec_service_exec_action.go</code> — wrap
+  <code>serializeAndPrintOutput</code> (and the generic-success tail) in the envelope when
+  <code>agentmode.IsEnabled()</code>; set <code>count</code>/<code>truncated</code>; force non-interactive array
+  path in <code>pageItems</code>.</li>
+<li><strong>Edit</strong> <code>pkg/actions/idsec_exec_action.go</code> — <code>runExecAction</code> failure path
+  emits error envelope; "not all authenticators" → <code>warnings[]</code>.</li>
+<li><strong>Edit</strong> <code>cmd/idsec/idsec.go</code> — <code>handleCommandExecution</code>/<code>setupDefaultRouting</code>/
+  reroute: errors to <code>os.Stderr</code> (human) / error envelope to stdout (agent);
+  suppress prose help dump in agent mode.</li>
+<li>Effort: <strong>~1.5–2 days.</strong></li>
+</ul>
+<h3 id="phase-4-idsec-schema-command-json-help-hint">Phase 4 — <code>idsec schema</code> command + JSON help hint<a class="headerlink" href="#phase-4-idsec-schema-command-json-help-hint" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Refactor</strong> extract <code>schemaFlags(schema any) []FlagMeta</code> from
+  <code>idsec_service_exec_action.go</code>.</li>
+<li><strong>New</strong> <code>pkg/actions/idsec_schema_action.go</code> — <code>IdsecSchemaAction</code> walking
+  <code>registry.TopLevelCLIActions()</code>; register in <code>cmd/idsec/idsec.go</code>
+  <code>registerActions</code>.</li>
+<li><strong>Edit</strong> <code>cmd/idsec/idsec.go</code> <code>setupCustomHelp</code> — in agent mode, append/emit a
+  one-line hint pointing to <code>idsec schema</code>.</li>
+<li>Effort: <strong>~1.5 days.</strong></li>
+</ul>
+<h3 id="phase-5-docs-tests">Phase 5 — Docs + tests<a class="headerlink" href="#phase-5-docs-tests" title="Permanent link">&para;</a></h3>
+<ul>
+<li>README "Agent Mode" section + detection table + precedence update (§11).</li>
+<li>Tests per §10.</li>
+<li>CHANGELOG / version bump per repo convention.</li>
+<li>Effort: <strong>~1–1.5 days.</strong></li>
+</ul>
+<p>Total rough effort: <strong>~6–8 engineering days</strong>, shippable incrementally (Phases
+1–2 are safe no-ops for humans; Phase 3 carries the only cross-mode change).</p>
+<h2 id="10-testing-strategy">10. Testing Strategy<a class="headerlink" href="#10-testing-strategy" title="Permanent link">&para;</a></h2>
+<p>Follow idsec conventions: table-driven, <code>t.Parallel()</code> where no global state is
+mutated, test-case names <code>success_* / error_* / edge_case_*</code>, save/restore global
+toggles (as the version test already does for <code>config.IsInteractive()</code>),
+<code>t.Setenv</code> for detection.</p>
+<ul>
+<li><strong><code>pkg/agentmode/detect_test.go</code></strong> — table-driven detection: each known env var
+  → detected; empty value → not detected; ordering/first-match.</li>
+<li><code>success_detects_cursor_agent</code>, <code>success_detects_claudecode</code>,
+    <code>edge_case_empty_agent_var_not_detected</code>, <code>success_generic_agent_lowest_priority</code>.</li>
+<li><strong><code>pkg/agentmode/resolve_test.go</code></strong> — precedence matrix: flag beats env beats
+  detect beats default; <code>--no-agent</code> overrides detection; <code>IDSEC_AGENT_MODE=0</code>
+  disables under detection; <code>IDSEC_FORCE_AGENT_MODE=1</code> forces on.</li>
+<li><code>success_flag_agent_wins_over_no_env</code>, <code>edge_case_both_flags</code>,
+    <code>success_env_override_disables_autodetect</code>.</li>
+<li><strong><code>pkg/agentmode/envelope_test.go</code></strong> — serialization: success/list (<code>count</code>,
+  <code>truncated</code>), generic message, error with <code>hints</code>/<code>details</code>; stable field
+  ordering/omitempty.</li>
+<li><strong><code>pkg/common/args/idsec_args_formatter_test.go</code></strong> — with agent mode on:
+  <code>Get*Arg</code> never call <code>survey</code> (stub/asserts), return flag value, and
+  <code>MissingInputError</code> when required+empty; with agent mode off, existing behavior
+  preserved. Assert no read on closed stdin.</li>
+<li><strong><code>pkg/actions/idsec_service_exec_action_test.go</code></strong> (extend) —
+  <code>serializeAndPrintOutput</code> in agent mode wraps envelope; non-TTY + agent → JSON
+  array under <code>data</code>; generic-success envelope. Reuse <code>IsStdoutTTY</code> override var.</li>
+<li><strong><code>pkg/actions/idsec_schema_action_test.go</code></strong> — <code>idsec schema</code> output includes
+  a known service/resource/action with correct <code>required</code>/<code>default</code>/<code>choices</code>
+  derived from struct tags; valid JSON; deterministic.</li>
+<li><strong><code>cmd</code>-level / integration</strong> (a <code>scripts/</code> smoke test or Go test invoking the
+  built binary):</li>
+<li><code>idsec pcloud safes list-safes --agent</code> → stdout parses as one JSON envelope
+    with <code>status</code>.</li>
+<li>Prompt-heavy command under <code>--agent</code> with <strong>closed stdin</strong> returns promptly
+    (nonzero exit, error envelope) — asserts no hang (wrap in a timeout).</li>
+<li><code>idsec boguscmd --agent</code> → structured error envelope on stdout, no prose help.</li>
+<li>Human mode unchanged: golden-output test comparing <code>--no-agent</code> (or unset) to
+    current output.</li>
+</ul>
+<h2 id="11-docs-plan-readme">11. Docs Plan (README)<a class="headerlink" href="#11-docs-plan-readme" title="Permanent link">&para;</a></h2>
+<p>Add an <strong>"Agent Mode"</strong> section (modeled on <code>pup</code>'s), placed near the
+"Configuration File / Precedence" section, covering:</p>
+<ol>
+<li><strong>What it is</strong> — one paragraph: structured JSON, never prompts, machine
+   discovery.</li>
+<li><strong>Activation</strong> — <code>--agent</code>/<code>--no-agent</code>, <code>IDSEC_AGENT_MODE</code>,
+   <code>IDSEC_FORCE_AGENT_MODE</code>, and auto-detection; the <strong>detection table</strong> from §3.2.</li>
+<li><strong>Precedence</strong> — extend the existing precedence table with the agent-mode row
+   set (§5), emphasizing <code>--no-agent</code> / <code>IDSEC_AGENT_MODE=0</code> as the escape hatch
+   (call out the "running inside Cursor/Claude Code sets the env var" gotcha
+   explicitly).</li>
+<li><strong>Output contract</strong> — the envelope schema (§6) with the three JSON examples;
+   note stdout=data, stderr=diagnostics, exit code = success/failure.</li>
+<li><strong>Discovery</strong> — document <code>idsec schema</code> (and optional scoped form), with a
+   short example.</li>
+<li><strong>Behavior differences</strong> — a condensed version of the §4 table (human vs
+   agent) so integrators know what changes.</li>
+<li><strong>CHANGELOG</strong> entry + version bump per repo convention.</li>
+</ol>
+<h2 id="12-open-questions">12. Open Questions<a class="headerlink" href="#12-open-questions" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Generic <code>AGENT</code> detector</strong> — include by default (matches <code>pup</code>) or make it
+   opt-in given CI false-positives? Recommendation: include but document loudly;
+   revisit if noisy.</li>
+<li><strong><code>data</code> nesting vs top-level</strong> — should agent success wrap results under
+   <code>data</code>, or keep the current top-level JSON and only add sibling metadata?
+   Recommendation: nest under <code>data</code> for a uniform envelope (success and error
+   share one shape), accepting that agents parse <code>.data</code>.</li>
+<li><strong>Human-mode stdout→stderr error fix</strong> — ship unconditionally (cleaner, but a
+   stream-level behavior change) or gate to agent mode only in Phase 1?
+   Recommendation: ship unconditionally with a clear CHANGELOG note; it's the
+   correct behavior and low-risk.</li>
+<li><strong>Auto-approve semantics for destructive actions</strong> — confirm that all
+   destructive operations already require an explicit flag (so auto-answering
+   <code>GetBoolArg</code>'s default is always safe). Needs a quick audit of destructive
+   commands during Phase 2.</li>
+<li><strong>Envelope versioning</strong> — do we need an explicit <code>schema_version</code> field for
+   future-proofing agent consumers? Recommendation: defer; add only if the shape
+   changes post-GA.</li>
+</ol>
+<h2 id="reference">Reference<a class="headerlink" href="#reference" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Datadog <code>pup</code> CLI — Agent Mode: <a href="https://docs.datadoghq.com/cli/">https://docs.datadoghq.com/cli/</a></li>
+<li>Datadog <code>pup</code> repository: <a href="https://github.com/DataDog/pup">https://github.com/DataDog/pup</a></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2025 CyberArk
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "navigation.instant", "navigation.indexes", "navigation.tracking", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

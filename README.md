@@ -222,6 +222,9 @@ The following services and commands are supported:
   - <b>cloud-access</b> - secure cloud access policies management
   - <b>db</b> - databases access policies management
   - <b>vm</b> - virtual machines access policies management
+- <b>sca</b> - Secure Cloud Access just-in-time elevation
+  - <b>cloud-access</b> - Elevate into AWS or Azure workspaces with a role
+  - <b>group-access</b> - Request just-in-time membership in Microsoft Entra ID groups (Azure only)
 
 Any command has its own subcommands, with respective arguments
 
@@ -688,6 +691,53 @@ Delete a pCloud Application Auth Method
 ```shell
 idsec pcloud applications delete-auth-method --app-id myapp --auth-id 1
 ```
+
+List SCA cloud-access targets across all providers
+```shell
+idsec sca cloud-access list-targets
+```
+
+List SCA cloud-access targets for a single provider
+```shell
+idsec sca cloud-access list-targets --csp aws
+```
+
+Elevate into a single AWS account (omit `--organization-id`)
+```shell
+idsec sca cloud-access elevate --csp aws --workspace-id 123456789012 --roleIds arn:aws:iam::123456789012:role/SCA-ReadOnly
+```
+
+Elevate into an AWS account managed by an AWS organization
+```shell
+idsec sca cloud-access elevate --csp aws --workspace-id 210987654321 --organization-id o-a1b2c3d4e5 --roleIds arn:aws:iam::210987654321:role/SCA-PowerUser
+```
+
+Elevate into an Azure resource scope (subscription, resource group, resource, or management group)
+```shell
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
+```
+
+Elevate into an Azure resource scope with multiple roles (up to 5 per call)
+```shell
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
+```
+
+Elevate into a Microsoft Entra ID directory role (bare-GUID role ID, directory ID for both `--workspace-id` and `--organization-id`)
+```shell
+idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds fe930be7-5e62-47db-91af-98c3a49a38b1
+```
+
+List SCA group-access targets (Azure only)
+```shell
+idsec sca group-access list-targets --csp azure
+```
+
+Elevate into one or more Microsoft Entra ID groups (up to 5 per call)
+```shell
+idsec sca group-access elevate --csp azure --directory-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --groups 9d3b6f41-8c27-4e59-b1a0-5f7e2c84d913,1f8c5a20-4b76-49e3-9d82-6c015be7f4a9
+```
+
+For the full SCA workflow — reading `list-targets` output, per-provider flows, partial-success handling, and elevation limits — see [`docs/howto/sca_native_cli.md`](docs/howto/sca_native_cli.md).
 
 You can view all of the commands via the --help for each respective exec action
 

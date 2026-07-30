@@ -33,6 +33,7 @@ nav:
           - DB Policy CLI workflow: howto/policy/db_policy_cli_workflow.md
           - VM Policy CLI workflow: howto/policy/vm_policy_cli_workflow.md
           - Cloud Access Policy CLI workflow: howto/policy/cloud_access_policy_cli_workflow.md
+      - SCA just-in-time elevation: howto/sca_native_cli.md
   - Examples:
       - Commands examples: examples/commands_examples.md
   - CLI commands:

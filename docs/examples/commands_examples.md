@@ -418,3 +418,64 @@ idsec pcloud applications create-auth-method --app-id myapp --auth-type hash --a
 ```shell linenums="0"
 idsec pcloud applications delete-auth-method --app-id myapp --auth-id 1
 ```
+
+### List SCA cloud-access targets across all providers
+```shell linenums="0"
+idsec sca cloud-access list-targets
+```
+
+### List SCA cloud-access targets for a single provider
+```shell linenums="0"
+idsec sca cloud-access list-targets --csp aws
+```
+
+### Elevate into a single AWS account
+Omit `--organization-id` — it is not relevant for single accounts. AWS accepts exactly one role ID per elevation.
+
+```shell linenums="0"
+idsec sca cloud-access elevate --csp aws --workspace-id 123456789012 --roleIds arn:aws:iam::123456789012:role/SCA-ReadOnly
+```
+
+### Elevate into an AWS account managed by an AWS organization
+Add `--organization-id` with the AWS organization ID. `--workspace-id` remains the member account ID.
+
+```shell linenums="0"
+idsec sca cloud-access elevate --csp aws --workspace-id 210987654321 --organization-id o-a1b2c3d4e5 --roleIds arn:aws:iam::210987654321:role/SCA-PowerUser
+```
+
+### Elevate into an Azure resource scope
+Works for a subscription, resource group, resource, or management group. `--organization-id` is the Entra tenant ID.
+
+```shell linenums="0"
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
+```
+
+### Elevate into an Azure resource scope with multiple roles
+Azure accepts up to five role IDs per call, all applied to the same `--workspace-id`.
+
+```shell linenums="0"
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
+```
+
+### Elevate into a Microsoft Entra ID directory role
+Directory role IDs are bare GUIDs. Pass the Entra directory (tenant) ID as both `--workspace-id` and `--organization-id`.
+
+```shell linenums="0"
+idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds fe930be7-5e62-47db-91af-98c3a49a38b1
+```
+
+### List SCA group-access targets (Azure only)
+```shell linenums="0"
+idsec sca group-access list-targets --csp azure
+```
+
+### Elevate into one or more Microsoft Entra ID groups
+Pass a comma-separated list of group object IDs (not display names), up to 5 per call. All groups must belong to the directory given by `--directory-id`.
+
+```shell linenums="0"
+idsec sca group-access elevate --csp azure --directory-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --groups 9d3b6f41-8c27-4e59-b1a0-5f7e2c84d913,1f8c5a20-4b76-49e3-9d82-6c015be7f4a9
+```
+
+!!! tip "Full SCA workflow"
+
+    For the complete SCA workflow — reading `list-targets` output, per-provider flows, partial-success handling, and elevation limits — see [SCA commands in the idsec CLI](../howto/sca_native_cli.md).

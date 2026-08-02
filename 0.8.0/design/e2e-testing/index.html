@@ -1,0 +1,3620 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Idsec CLI for CyberArk's Identity Security Platform">
+      
+      
+        <meta name="author" content="CyberArk">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../media/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Design: End-to-End (E2E) Testing for idsec-cli-golang - Idsec CLI</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Ubuntu:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Ubuntu";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="dark-blue" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#design-end-to-end-e2e-testing-for-idsec-cli-golang" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Idsec CLI" class="md-header__button md-logo" aria-label="Idsec CLI" data-md-component="logo">
+      
+  <img src="../../media/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Idsec CLI
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Design: End-to-End (E2E) Testing for idsec-cli-golang
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="dark-blue" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 6H7c-3.31 0-6 2.69-6 6s2.69 6 6 6h10c3.31 0 6-2.69 6-6s-2.69-6-6-6m0 10H7c-2.21 0-4-1.79-4-4s1.79-4 4-4h10c2.21 0 4 1.79 4 4s-1.79 4-4 4M7 9c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 7H7a5 5 0 0 0-5 5 5 5 0 0 0 5 5h10a5 5 0 0 0 5-5 5 5 0 0 0-5-5m0 8a3 3 0 0 1-3-3 3 3 0 0 1 3-3 3 3 0 0 1 3 3 3 3 0 0 1-3 3"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/cyberark/idsec-cli-golang" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Idsec CLI" class="md-nav__button md-logo" aria-label="Idsec CLI" data-md-component="logo">
+      
+  <img src="../../media/logo.svg" alt="logo">
+
+    </a>
+    Idsec CLI
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/cyberark/idsec-cli-golang" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How to guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How to guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/prerequisites/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/working_with_profiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Work with profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/working_with_idsec_cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Work with Idsec cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/upgrade_to_the_latest_version/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrade to the latest version
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/refreshing_authentication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Refresh authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/simple_commands_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Simple commands workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user workflows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    End-user workflows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/enduser_databases_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user database workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/enduser_databases_with_short_connstring_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user database with short connstring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/enduser_databases_psql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user psql workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/enduser_kubernetes_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user Kubernetes workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/enduser_ssh_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user SSH workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/enduser_rdp_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-user RDP workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/install_sia_connectors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install SIA connectors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/onboard_pcloud_account/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Onboard pCloud account
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/edit_sia_settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Edit SIA Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/add_sia_certificate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add SIA Certificate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/create_identity_policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Create Identity Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/create_identity_service_user_with_attributes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Create Identity Service User With Attributes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/create_pcloud_application/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Create pCloud Application
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_15" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_15" id="__nav_4_15_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Policy
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_15_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_15">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Policy
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/policy/db_policy_cli_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DB Policy CLI workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/policy/vm_policy_cli_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VM Policy CLI workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/policy/cloud_access_policy_cli_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloud Access Policy CLI workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../howto/sca_native_cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SCA just-in-time elevation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/commands_examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI commands
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    CLI commands
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/configure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/login/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Login
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/exec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/profiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/version/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Version
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Config
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/environment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/telemetry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Telemetry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/proxy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-overview-goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Overview &amp; Goals
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Overview &amp; Goals">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#motivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Motivation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#non-goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Non-goals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-scope-vs-out-of-scope-quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In-scope vs out-of-scope (quick reference)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-current-state-analysis-verified-in-repo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Current-State Analysis (verified in-repo)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-two-tier-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Two-Tier Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Two-Tier Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tier-1-hermetic-offline-e2e-default-runs-on-every-pr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tier 1 — Hermetic / offline E2E (default; runs on every PR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tier-2-live-integration-e2e-opt-in-nightlymanual" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tier 2 — Live / integration E2E (opt-in; nightly/manual)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-framework-choice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Framework Choice
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Framework Choice">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#options-evaluated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options evaluated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recommendation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-directory-file-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Directory &amp; File Layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-binary-build-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Binary / Build Strategy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Binary / Build Strategy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#obtaining-the-binary-under-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Obtaining the binary under test
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#running-against-the-goreleaser-artifact-release-binary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running against the goreleaser artifact / release binary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#docker-image-smoke-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker image smoke test
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cross-os-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-OS considerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-backend-faking-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Backend Faking Strategy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Backend Faking Strategy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-constraint-verified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The constraint (verified)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-we-can-fake-hermetically-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What we can fake hermetically today
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recommended-sdk-enhancement-unblocks-hermetic-service-faking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended SDK enhancement (unblocks hermetic service faking)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#seeding-fixtures-recorded-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Seeding fixtures / recorded responses
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-ci-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. CI Integration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. CI Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#makefile-targets-new" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Makefile targets (new)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build-tags-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build tags (summary)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jenkins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Jenkins
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-test-taxonomy-coverage-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Test Taxonomy &amp; Coverage Matrix
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Test Taxonomy &amp; Coverage Matrix">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#hermetic-tier-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hermetic (Tier 1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#live-tier-2-gated-skip-if-unset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live (Tier 2, gated; skip-if-unset)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Conventions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Conventions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#copyright-headers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Copyright / headers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#naming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Naming
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-normalization-before-every-golden-compare" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output normalization (before every golden compare)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#interpolation-house-convention-ergonomics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interpolation (house-convention ergonomics)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flakiness-avoidance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flakiness avoidance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parallelization-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parallelization safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-illustrative-example-one-hermetic-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Illustrative Example (one hermetic test)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="11. Illustrative Example (one hermetic test)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recommended-go-harness-style" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended: Go harness style
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#for-comparison-txtar-if-testscript-were-chosen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        For comparison: .txtar (if testscript were chosen)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-migration-rollout-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Migration / Rollout Plan
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="12. Migration / Rollout Plan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-harness-one-vertical-slice-foundation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — Harness + one vertical slice (foundation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-broaden-hermetic-coverage-p0-p1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — Broaden hermetic coverage (P0 + P1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-live-tier-gated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — Live tier (gated)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-extended-surface-p2-hardening" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — Extended surface (P2 + hardening)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#risks-mitigations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Risks &amp; mitigations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open questions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="design-end-to-end-e2e-testing-for-idsec-cli-golang">Design: End-to-End (E2E) Testing for <code>idsec-cli-golang</code><a class="headerlink" href="#design-end-to-end-e2e-testing-for-idsec-cli-golang" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Status: Proposal / Design (no code changes yet). All Go snippets, <code>.txtar</code>
+scripts, and YAML are illustrative. This document defines the target
+architecture and decisions; it is intentionally not a full implementation.</p>
+</blockquote>
+<h2 id="1-overview-goals">1. Overview &amp; Goals<a class="headerlink" href="#1-overview-goals" title="Permanent link">&para;</a></h2>
+<h3 id="motivation">Motivation<a class="headerlink" href="#motivation" title="Permanent link">&para;</a></h3>
+<p><code>idsec</code> is a Go/Cobra binary with a large amount of <em>binary-level</em> behavior that
+unit tests cannot exercise: the custom <code>os.Args</code> reroute that turns
+<code>idsec pcloud safes list</code> into <code>idsec exec pcloud safes list</code>, the pre-execution
+path validation, the custom help/services rendering, config-file precedence,
+profile/cache file side effects, exit codes, and stdout/stderr discipline. All
+of this lives in <code>cmd/idsec/idsec.go</code> and the <code>pkg/actions/*</code> command wiring and
+is only ever observable when the <em>compiled binary</em> runs as a subprocess with a
+real argv, environment, working directory, and filesystem.</p>
+<p>Today the repo is <strong>unit-only</strong> (table-driven <code>*_test.go</code>, <code>t.Parallel()</code>,
+<code>success_/error_/edge_case_</code> case names, shared helpers in
+<code>pkg/actions/testutils/</code>). There is no test that builds <code>idsec</code> and runs it.
+Regressions in argv routing, help text, exit codes, or config side effects can
+ship undetected.</p>
+<p>We want an <strong>E2E test suite</strong> that treats the built <code>idsec</code> binary as a black
+box — feed it args/env/stdin, assert on exit code, stdout, stderr, and
+filesystem side effects — split into a <strong>hermetic tier</strong> that runs on every PR
+with no credentials, and a <strong>live tier</strong> that is opt-in and gated behind real
+<code>IDSEC_*</code> credentials.</p>
+<h3 id="goals">Goals<a class="headerlink" href="#goals" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Test the real binary.</strong> Exercise the compiled artifact end to end (argv →
+   exit code + stdout + stderr + files), not Go functions in-process.</li>
+<li><strong>Credential-free by default.</strong> The default CI/PR run needs no secrets, no
+   network to CyberArk, and is fast and deterministic.</li>
+<li><strong>Cover the routing/help/error surface</strong> that unit tests structurally cannot
+   (<code>os.Args</code> mutation, reroute-to-exec, path pre-validation, custom help).</li>
+<li><strong>House-consistent.</strong> Reuse the repo's conventions: copyright/style,
+   <code>success_/error_/edge_case_</code> case names, table-driven Go, and the
+   <code>{{namespace}}</code> / <code>($ENV_VAR)</code> interpolation spirit of the team's Terraform
+   <code>test_cases.yaml</code> acceptance convention where it adds value.</li>
+<li><strong>Deterministic &amp; isolated.</strong> Every test gets its own <code>HOME</code>/config dir, temp
+   CWD, and scoped env; output is normalized before comparison so version,
+   timestamps, durations, and temp paths never cause flakes.</li>
+<li><strong>Live tests never run by accident.</strong> They are behind a build tag <strong>and</strong> an
+   env gate, run nightly/manual only.</li>
+</ol>
+<h3 id="non-goals">Non-goals<a class="headerlink" href="#non-goals" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Replacing or reducing unit-test coverage. E2E complements units; business
+  logic stays unit-tested.</li>
+<li>Testing the CyberArk backend itself, or SDK service correctness (the SDK repo
+  owns its own <code>tests/e2e/</code>). We test the <em>CLI's</em> behavior.</li>
+<li>Contract/mock testing of every service action's HTTP payloads. Hermetic HTTP
+  faking is applied where the CLI surface genuinely needs a backend and where
+  the SDK makes it feasible (see §7), not as a universal mock of every endpoint.</li>
+<li>GUI/interactive <code>survey</code> prompt flows beyond asserting that non-interactive
+  invocations (closed stdin) fail fast rather than hang.</li>
+</ul>
+<h3 id="in-scope-vs-out-of-scope-quick-reference">In-scope vs out-of-scope (quick reference)<a class="headerlink" href="#in-scope-vs-out-of-scope-quick-reference" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>In scope (E2E)</th>
+<th>Out of scope (E2E)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--help</code>, <code>--version</code>, <code>version --silent</code></td>
+<td>Unit-level function behavior</td>
+</tr>
+<tr>
+<td>Arg/flag parsing, unknown-command errors, exit codes</td>
+<td>SDK service HTTP correctness</td>
+</tr>
+<tr>
+<td>Exec reroute (<code>idsec &lt;svc&gt; …</code> → <code>exec &lt;svc&gt; …</code>)</td>
+<td>Real MFA/interactive login UX</td>
+</tr>
+<tr>
+<td><code>configure</code> / <code>profiles</code> / <code>cache</code> local file ops</td>
+<td>Backend data correctness</td>
+</tr>
+<tr>
+<td>Output formats (<code>--json</code>/raw), stdout/stderr split</td>
+<td>Load/perf testing</td>
+</tr>
+<tr>
+<td>Config-file precedence + <code>--config</code></td>
+<td>Keyring OS-secure-store internals</td>
+</tr>
+<tr>
+<td>Docker image smoke (<code>ENTRYPOINT</code>)</td>
+<td>Windows-only GUI concerns</td>
+</tr>
+<tr>
+<td>Live: real <code>login</code> + a few read-only actions (gated)</td>
+<td>Destructive live mutations by default</td>
+</tr>
+</tbody>
+</table>
+<h2 id="2-current-state-analysis-verified-in-repo">2. Current-State Analysis (verified in-repo)<a class="headerlink" href="#2-current-state-analysis-verified-in-repo" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Where it lives today</th>
+<th>Relevance to E2E</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Entry + argv reroute</td>
+<td><code>cmd/idsec/idsec.go</code> → <code>main</code>, <code>setupDefaultRouting</code>, <code>routeToExec</code>, <code>rerouteHelpToExecIfNeeded</code>, <code>validateCommandPathBeforeExecution</code>, <code>handleCommandExecution</code></td>
+<td>Mutates <code>os.Args</code>, prepends <code>exec</code>, re-executes root. Only observable via subprocess. <strong>Prime E2E target.</strong></td>
+</tr>
+<tr>
+<td>Error/exit behavior</td>
+<td><code>handleCommandExecution</code></td>
+<td>Errors printed via <code>fmt.Println(err)</code> (→ <strong>stdout</strong>) then <code>os.Exit(1)</code>. E2E must assert exit code + which stream. (Note: agent-mode design proposes moving these to stderr — E2E goldens should be authored to tolerate/track that.)</td>
+</tr>
+<tr>
+<td>Custom help + services list</td>
+<td><code>setupCustomHelp</code></td>
+<td>Appends "Available services" by walking the <code>exec</code> subcommands. E2E asserts help contains services, normalized.</td>
+</tr>
+<tr>
+<td>Command registration</td>
+<td><code>registerActions</code></td>
+<td><code>profiles</code>, <code>cache</code>, <code>configure</code>, <code>login</code>, <code>exec</code>, <code>upgrade</code>, <code>version</code>, plus k8s <code>kubectl-login</code>/<code>generate-kubeconfig</code>. Fixed top-level surface to enumerate.</td>
+</tr>
+<tr>
+<td>Dynamic service tree</td>
+<td><code>pkg/registry/init.go</code> (<code>RegisterCLIAction</code>)</td>
+<td>Services: <code>sia</code>(<code>dpa</code>), <code>cmgr</code>(<code>cm</code>,<code>connectormanager</code>), <code>pcloud</code>(<code>pc</code>,<code>privilegecloud</code>), <code>identity</code>(<code>id</code>,<code>idaptive</code>), <code>policy</code>(<code>acp</code>,<code>accesspolicies</code>), <code>sca</code>(<code>asca</code>,<code>accesssca</code>), <code>sechub</code>(<code>sh</code>,<code>secretshub</code>), <code>sm</code>(<code>sessionmonitoring</code>). Aliases are E2E routing cases.</td>
+</tr>
+<tr>
+<td>Feature gating</td>
+<td><code>pkg/registry.releasedFeaturesOnly</code> ldflag (build.sh / goreleaser / Dockerfile)</td>
+<td>The visible action set depends on this build flag. E2E must pin it so goldens are stable (recommend <code>RELEASED_FEATURES_ONLY=false</code> for the dev E2E build, matching PR builds).</td>
+</tr>
+<tr>
+<td>CLI config file</td>
+<td><code>pkg/config/config_file.go</code></td>
+<td>Loads <code>~/.idsec/config.yaml</code> early (before Cobra), sets <code>IDSEC_*</code> env vars if unset. Honors <code>--config</code>, <code>IDSEC_CONFIG_FILE</code>. Only <code>IDSEC_*</code> + standard proxy keys accepted; others warn. <strong>Rich hermetic surface</strong> (precedence, warnings).</td>
+</tr>
+<tr>
+<td>Env surface</td>
+<td><code>docs/config/environment.md</code></td>
+<td><code>IDSEC_PROFILE</code>, <code>IDSEC_LOG_LEVEL</code>, <code>IDSEC_DISABLE_CERTIFICATE_VERIFICATION</code>, <code>IDSEC_DISABLE_TELEMETRY_COLLECTION</code>, <code>IDSEC_BASIC_KEYRING</code>, <code>IDSEC_KEYRING_FOLDER</code>, <code>IDSEC_SUPPRESS_UPGRADE_CHECK</code>, proxy vars. Docker sets <code>IDSEC_PROFILES_FOLDER</code>, <code>IDSEC_KEYRING_FOLDER</code>.</td>
+</tr>
+<tr>
+<td>Upgrade check</td>
+<td><code>pkg/common/idsec_upgrader.go</code></td>
+<td>Reads <code>GITHUB_URL</code> env → sets <code>config.EnterpriseBaseURL = https://&lt;GITHUB_URL&gt;/api/v3/</code>. <strong>This is the one clean HTTP override we can point at <code>httptest</code></strong> for a hermetic upgrade test. Also <code>IDSEC_SUPPRESS_UPGRADE_CHECK=true</code> to silence the nag for stable goldens.</td>
+</tr>
+<tr>
+<td>Backend URL resolution</td>
+<td>SDK <code>pkg/common/isp/idsec_isp_service_client.go</code> → <code>resolveServiceURL</code></td>
+<td>Service base URL is derived from JWT claims (<code>subdomain</code>, <code>platform_domain</code>) and the <code>DEPLOY_ENV</code>-selected root domain (<code>pkg/models/common/idsec_env.go</code>). <strong>There is no first-class <code>--base-url</code>/<code>IDSEC_API_BASE_URL</code> override.</strong> This constrains hermetic HTTP faking of <em>service</em> calls (see §7).</td>
+</tr>
+<tr>
+<td>Build</td>
+<td><code>scripts/build.sh</code> (<code>make all</code>), <code>scripts/build_goreleaser.sh</code> (<code>make goreleaser-build</code>), <code>.goreleaser.yaml</code></td>
+<td>Cross-compiles darwin/linux/windows (+ freebsd/arm in goreleaser). ldflags stamp <code>version</code>, <code>buildDate</code>, <code>gitCommit</code>, etc. Binaries land in <code>bin/</code> (build.sh) or <code>dist/</code> (goreleaser).</td>
+</tr>
+<tr>
+<td>Docker</td>
+<td><code>docker/Dockerfile</code></td>
+<td>Multi-stage, distroless-ish alpine, non-root <code>idsec-cli</code>, <code>ENTRYPOINT ["idsec"]</code>, <code>CMD ["--help"]</code>, sets profile/keyring folders. Good target for a container smoke test.</td>
+</tr>
+<tr>
+<td>Unit tests</td>
+<td><code>pkg/**/**_test.go</code>, <code>pkg/actions/testutils/</code></td>
+<td><code>make unit-test</code> = <code>go test … | grep -v -E '(examples|testutil)'</code>. <code>testutils</code> has <code>CaptureOutput</code>, <code>SetEnvVar</code>, <code>MockProfileLoader</code>, profile/command builders. E2E should live <em>outside</em> this filter path.</td>
+</tr>
+<tr>
+<td>CI</td>
+<td><code>Jenkinsfile</code></td>
+<td>Stages: validate-prepare, lint, docker+snyk, unit-test-all, build, release. <code>nimbus-go-agent</code>. <strong>New E2E stage slots after unit tests.</strong></td>
+</tr>
+<tr>
+<td>SDK prior art</td>
+<td>SDK <code>tests/e2e/</code> (+ <code>framework/</code>, <code>tools/gene2e</code>)</td>
+<td>SDK's E2E is <strong>in-process SDK calls</strong> gated by <code>//go:build e2e</code> and <code>IDSEC_E2E_*</code> env (<code>IDSEC_E2E_SKIP</code>, <code>IDSEC_E2E_ISP_*</code>, <code>IDSEC_E2E_AUTH_EXPECT</code>), with a provider registry and <code>MustLoadConfig(t)</code> skip-on-missing pattern. We mirror its <strong>tagging, env-gating, and skip semantics</strong>, but our subject is the <em>binary</em>, not the SDK.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Key takeaways for the design:</strong></p>
+<ol>
+<li>The most valuable, currently-untested surface (argv reroute, path
+   validation, help, exit codes, config side effects) is <strong>entirely hermetic</strong> —
+   no backend needed. This is where E2E pays off immediately.</li>
+<li>The <strong>only</strong> clean HTTP override the CLI exposes today is <code>GITHUB_URL</code> for the
+   upgrade check. Faking <em>service</em> backends at the HTTP layer is not currently
+   supported by a base-URL override; the URL is computed from JWT claims +
+   <code>DEPLOY_ENV</code>. So hermetic HTTP faking is scoped to <code>upgrade</code> (and any future
+   base-URL override), and everything else in the hermetic tier is designed to
+   need <strong>no</strong> network. Real service calls belong in the <strong>live tier</strong>.</li>
+<li>We should reuse the SDK's <code>IDSEC_E2E_*</code> env-gate and <code>//go:build e2e</code>
+   conventions for a familiar developer experience across the two repos.</li>
+</ol>
+<h2 id="3-two-tier-model">3. Two-Tier Model<a class="headerlink" href="#3-two-tier-model" title="Permanent link">&para;</a></h2>
+<p>E2E is split into two clearly separated tiers so PRs stay fast, deterministic,
+and credential-free while real integration coverage still exists.</p>
+<h3 id="tier-1-hermetic-offline-e2e-default-runs-on-every-pr">Tier 1 — Hermetic / offline E2E (default; runs on every PR)<a class="headerlink" href="#tier-1-hermetic-offline-e2e-default-runs-on-every-pr" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Guarantee:</strong> no CyberArk network, no credentials, no reliance on machine
+  state. Fully deterministic and fast (target: whole hermetic suite &lt; ~30s).</li>
+<li><strong>Build tag:</strong> <code>//go:build e2e</code> (see §6/§7 — hermetic tests are the default
+  <code>e2e</code> set; they must not require creds).</li>
+<li><strong>Covers:</strong></li>
+<li><code>--help</code> (root + per-command), <code>--version</code>, <code>version --silent</code>.</li>
+<li>Arg/flag parsing, unknown command/flag → correct message + <strong>exit code 1</strong>.</li>
+<li>Exec reroute: <code>idsec pcloud …</code> behaves like <code>idsec exec pcloud …</code>; aliases
+    (<code>pc</code>, <code>dpa</code>, <code>acp</code>, …) route; <code>--help</code> reroute for service paths.</li>
+<li>Pre-execution path validation (<code>unknown command "x" for "idsec exec …"</code>).</li>
+<li><code>configure</code> / <code>profiles</code> / <code>cache</code> local file operations against a temp
+    <code>HOME</code>/config dir (create, list, show, delete, clear).</li>
+<li>Config-file precedence: <code>--config</code>, <code>IDSEC_CONFIG_FILE</code>, <code>~/.idsec/config.yaml</code>;
+    env-over-config; ignored-key warnings.</li>
+<li>Output discipline: which stream (stdout vs stderr), exit codes, <code>--json</code>/raw
+    shapes where a command can render without a backend.</li>
+<li><code>upgrade</code> behavior with a local <code>httptest</code> server via <code>GITHUB_URL</code> (the one
+    supported HTTP override), plus <code>IDSEC_SUPPRESS_UPGRADE_CHECK</code> behavior.</li>
+<li><strong>Backend:</strong> none, except the <code>httptest</code>-backed upgrade case. Commands that
+  <em>require</em> a live backend are <strong>not</strong> in this tier.</li>
+</ul>
+<h3 id="tier-2-live-integration-e2e-opt-in-nightlymanual">Tier 2 — Live / integration E2E (opt-in; nightly/manual)<a class="headerlink" href="#tier-2-live-integration-e2e-opt-in-nightlymanual" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Guarantee:</strong> never runs by default. Requires <strong>both</strong> a build tag and an env
+  gate to execute.</li>
+<li><strong>Build tag:</strong> <code>//go:build e2e_live</code> (a strict superset gate distinct from
+  hermetic <code>e2e</code>), <strong>and</strong> honors the SDK-style <code>IDSEC_E2E_*</code> env with
+  skip-on-missing (<code>framework</code>-style <code>MustLoad…(t)</code> → <code>t.Skip</code>).</li>
+<li><strong>Covers (small, mostly read-only set):</strong></li>
+<li>Real <code>idsec login</code> against a real tenant (ISP identity) using
+    <code>IDSEC_E2E_*</code> creds → assert success, profile/token side effects.</li>
+<li>A handful of <strong>read-only</strong> service actions end to end through the binary,
+    e.g. <code>idsec sca cloud-access list-targets --json</code>, <code>idsec pcloud safes list --json</code>
+    → assert exit 0 and JSON parses to the expected shape.</li>
+<li>Optional: one create→read→delete round-trip on a safe resource, guarded by
+    an explicit <code>IDSEC_E2E_ALLOW_MUTATION=true</code> and <code>{{namespace}}</code>-scoped names
+    with best-effort cleanup (mirroring SDK <code>TrackResource</code>/cleanup pattern).</li>
+<li><strong>Credentials:</strong> via <code>IDSEC_E2E_*</code> env only, never committed. Reuse the SDK's
+  variable names where sensible (<code>IDSEC_E2E_ISP_USERNAME</code>, <code>IDSEC_E2E_ISP_SECRET</code>,
+  <code>IDSEC_E2E_ISP_IDENTITY_URL</code>, <code>IDSEC_E2E_ISP_IDENTITY_TENANT_SUBDOMAIN</code>,
+  <code>IDSEC_E2E_SKIP</code>, <code>IDSEC_E2E_AUTH_EXPECT</code>).</li>
+</ul>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1</span>
+<span class="normal">2</span>
+<span class="normal">3</span>
+<span class="normal">4</span>
+<span class="normal">5</span>
+<span class="normal">6</span></pre></div></td><td class="code"><div><pre><span></span><code>                         go test -tags=e2e ./tests/e2e/...        (PRs, default)
+   HERMETIC  ─────────►  no creds · no CyberArk net · deterministic · fast
+                         (help/version/routing/config/cache/errors/httptest-upgrade)
+
+                         go test -tags=e2e_live ./tests/e2e/... + IDSEC_E2E_* creds
+   LIVE      ─────────►  real login + read-only actions · nightly/manual · skip-if-unset
+</code></pre></div></td></tr></table></div>
+<h2 id="4-framework-choice">4. Framework Choice<a class="headerlink" href="#4-framework-choice" title="Permanent link">&para;</a></h2>
+<h3 id="options-evaluated">Options evaluated<a class="headerlink" href="#options-evaluated" title="Permanent link">&para;</a></h3>
+<p><strong>(a) <code>os/exec</code> + a Go golden-file harness (in-repo helper package).</strong>
+Build the binary once, run it with <code>exec.Command</code>, capture <code>stdout</code>/<code>stderr</code>/exit
+code, normalize, and compare to <code>testdata/*.golden</code> with a <code>-update</code> flag. Tests
+are ordinary table-driven Go (<code>success_/error_/edge_case_</code>), so they slot
+directly into the existing convention and tooling (<code>go test</code>, coverage-free but
+familiar), and Go code can assert on filesystem side effects, spin up <code>httptest</code>
+servers, and set per-test <code>HOME</code>/env trivially.</p>
+<ul>
+<li><strong>Pros:</strong> zero new deps; maximal control (side effects, <code>httptest</code>, stdin,
+  timeouts to prove no-hang); identical style to current unit tests; trivial to
+  gate by build tag; easy cross-repo mental model with SDK's Go E2E.</li>
+<li><strong>Cons:</strong> we write a small harness (~150 LOC) and golden-diff plumbing
+  ourselves; scenarios are more verbose than a script DSL.</li>
+</ul>
+<p><strong>(b) <code>rogpeppe/go-internal/testscript</code> (<code>.txtar</code> scripts).</strong>
+The de-facto CLI-testing tool in the Go/cobra ecosystem (used by Go itself, goreleaser, etc.). You register the <code>idsec</code> binary as a command and write
+<code>.txtar</code> scripts: run a command, assert <code>stdout</code>/<code>stderr</code>/exit via
+<code>!</code>/<code>cmp</code>/<code>stdout &lt;re&gt;</code>, with a fresh <code>$WORK</code> dir and env per script, plus
+built-in <code>env</code>, <code>exec</code>, <code>cp</code>, <code>exists</code>, <code>grep</code> primitives and testdata archives.</p>
+<ul>
+<li><strong>Pros:</strong> purpose-built for CLIs; extremely concise per-scenario; per-script
+  isolation (<code>$WORK</code>, <code>$HOME</code>) is built in; golden files embed in the archive;
+  battle-tested; great fit for the routing/help/exit-code matrix.</li>
+<li><strong>Cons:</strong> new dependency and a second DSL to learn; asserting rich JSON shapes
+  or standing up an <code>httptest</code> server mid-script requires custom <code>Cmds</code>/<code>Setup</code>
+  Go glue anyway; less natural for the live tier (auth, cleanup, SDK types);
+  normalization of dynamic output needs custom conditions/regex.</li>
+</ul>
+<p><strong>(c) YAML-driven runner mirroring the TF <code>test_cases.yaml</code> convention.</strong>
+A house-style runner reading <code>test_cases.yaml</code> with <code>steps</code>, <code>set_input</code>,
+<code>expect_error</code>, <code>{{namespace}}</code> and <code>($ENV_VAR)</code> interpolation, <code>success_/error_/edge_case_</code> names.</p>
+<ul>
+<li><strong>Pros:</strong> maximal consistency with the team's Terraform acceptance convention;
+  non-Go contributors can add cases; declarative and reviewable.</li>
+<li><strong>Cons:</strong> <strong>we would have to build and maintain the runner</strong> (arg tokenization,
+  env/HOME isolation, stream+exit assertions, normalization, <code>httptest</code> hooks,
+  golden updates) — non-trivial and now a bespoke test framework to own; the TF
+  convention is modeled on <em>provider CRUD steps</em>, not <em>process stdout/exit</em>, so
+  the mapping is loose; slower to get value than (a)/(b).</li>
+</ul>
+<h3 id="recommendation">Recommendation<a class="headerlink" href="#recommendation" title="Permanent link">&para;</a></h3>
+<p><strong>Adopt (a) — a thin in-repo <code>os/exec</code> golden-file harness in Go — as the
+primary framework, and borrow the <em>ergonomics</em> of (c) without building a runner:
+support <code>{{namespace}}</code> and <code>($ENV_VAR)</code>-style interpolation inside the harness
+and keep <code>success_/error_/edge_case_</code> case names.</strong> Revisit <code>testscript</code> (b) as
+an <em>optional</em> add-on later for the pure routing/help matrix if the golden tables
+become verbose.</p>
+<p>Rationale:</p>
+<ul>
+<li><strong>Consistency now, lowest cost.</strong> (a) is idiomatic to this repo's existing
+  Go table-driven style; contributors need to learn nothing new, and it drops
+  straight into <code>go test</code> + build tags + the Jenkins stage.</li>
+<li><strong>Both tiers, one tool.</strong> The same harness serves hermetic <em>and</em> live tests
+  (the live tier needs Go anyway for auth setup, SDK types, and cleanup).
+  A YAML runner or <code>testscript</code> would still require Go glue for the live tier,
+  so we'd end up maintaining two things.</li>
+<li><strong>Control where it matters.</strong> Proving "no hang on closed stdin" (a timeout
+  around the subprocess), spinning <code>httptest</code> for <code>upgrade</code>, and asserting
+  filesystem side effects are all first-class in Go and awkward in a pure DSL.</li>
+<li><strong>House-convention fit without a bespoke framework.</strong> We get the <em>feel</em> of the
+  TF <code>test_cases.yaml</code> convention (namespaces, env interpolation, snake_case
+  case names) as harness features, without owning a YAML engine. If a
+  declarative surface is later desired, the harness can grow a thin YAML loader
+  that feeds the same runner — an additive step, not a rewrite.</li>
+</ul>
+<p>Trade-off accepted: we hand-write a small harness and golden plumbing instead of
+getting <code>testscript</code>'s conciseness for free. Given the need for <code>httptest</code>,
+side-effect assertions, and a shared hermetic+live tool, that control is worth
+more than the DSL brevity.</p>
+<h2 id="5-directory-file-layout">5. Directory &amp; File Layout<a class="headerlink" href="#5-directory-file-layout" title="Permanent link">&para;</a></h2>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span>
+<span class="normal">12</span>
+<span class="normal">13</span>
+<span class="normal">14</span>
+<span class="normal">15</span>
+<span class="normal">16</span>
+<span class="normal">17</span>
+<span class="normal">18</span>
+<span class="normal">19</span>
+<span class="normal">20</span>
+<span class="normal">21</span>
+<span class="normal">22</span>
+<span class="normal">23</span>
+<span class="normal">24</span>
+<span class="normal">25</span>
+<span class="normal">26</span>
+<span class="normal">27</span>
+<span class="normal">28</span>
+<span class="normal">29</span></pre></div></td><td class="code"><div><pre><span></span><code>tests/
+  e2e/
+    README.md                  # how to run, add cases, update goldens, live gate
+    harness/                   # the shared Go harness (build-tag-free lib)
+      binary.go                # locate/build binary-under-test (once per run)
+      run.go                   # Run(t, RunSpec) -&gt; Result{Stdout,Stderr,Exit}
+      isolate.go               # temp HOME/config/CWD, scoped env, RRunSpec builder
+      golden.go                # golden compare + -update flag
+      normalize.go             # output normalization rules (see §9)
+      interpolate.go           # {{namespace}} + ($ENV_VAR) expansion
+      httpfake.go              # httptest helpers (e.g. fake GitHub for upgrade)
+    hermetic/                  # //go:build e2e
+      help_test.go             # success_root_help_lists_services, ...
+      version_test.go          # success_version_semver, success_version_silent_bare
+      routing_test.go          # success_service_reroutes_to_exec, error_unknown_command_exit1
+      configure_test.go        # success_configure_writes_config_file, ...
+      profiles_test.go         # success_profiles_add_list_delete, ...
+      cache_test.go            # success_cache_clear_empties_dir, ...
+      config_file_test.go      # success_config_flag_overrides_home, edge_case_unknown_key_warns
+      upgrade_test.go          # success_upgrade_check_hits_fake_github (httptest)
+      testdata/
+        golden/                # *.golden files (normalized expected output)
+        config/                # sample config.yaml fixtures
+    live/                      # //go:build e2e_live
+      login_test.go            # success_login_isp_writes_profile (gated, skip-if-unset)
+      sca_list_targets_test.go # success_sca_cloud_access_list_targets_json
+      pcloud_safes_test.go     # success_pcloud_safes_list_json
+      framework.go             # IDSEC_E2E_* loader + MustLoad(t)/Skip (SDK-style)
+    main_test.go               # TestMain: build binary once; honor IDSEC_E2E_SKIP
+</code></pre></div></td></tr></table></div>
+<p>Conventions:</p>
+<ul>
+<li><strong>Location:</strong> top-level <code>tests/e2e/</code> (mirrors the SDK repo's <code>tests/e2e/</code>),
+  <em>outside</em> the <code>pkg/**</code> tree so <code>make unit-test</code>'s <code>grep -v -E '(examples|testutil)'</code>
+  filter and coverage remain unaffected, and so the <code>e2e</code>/<code>e2e_live</code> build tags
+  keep these files out of normal <code>go build</code>/<code>go test</code> and <code>make lint</code>
+  (<code>--tests=false</code> already excludes test files).</li>
+<li><strong>Package names:</strong> <code>hermetic</code>, <code>live</code> (or a shared <code>e2e</code> package per dir).
+  Files end <code>_test.go</code>; case (subtest) names are snake_case
+  <code>success_* / error_* / edge_case_*</code> exactly as unit tests do.</li>
+<li><strong>Golden files:</strong> <code>tests/e2e/hermetic/testdata/golden/&lt;test&gt;_&lt;case&gt;.golden</code>,
+  containing <strong>normalized</strong> expected stdout (and a parallel <code>.stderr.golden</code>
+  where stderr matters). Updated via <code>go test -tags=e2e ./tests/e2e/hermetic/ -update</code>.</li>
+<li><strong>Per-test isolation</strong> (harness-provided, see §9): unique temp <code>HOME</code> and
+  <code>IDSEC_CONFIG_FILE</code>/profiles/keyring dirs, temp CWD, a <strong>scoped env</strong> that
+  starts from an allowlist (never the ambient shell), and a per-test
+  <code>{{namespace}}</code> = short unique id (e.g. <code>e2e-&lt;test&gt;-&lt;rand&gt;</code>), so parallel
+  tests never collide on files or resource names.</li>
+</ul>
+<h2 id="6-binary-build-strategy">6. Binary / Build Strategy<a class="headerlink" href="#6-binary-build-strategy" title="Permanent link">&para;</a></h2>
+<h3 id="obtaining-the-binary-under-test">Obtaining the binary under test<a class="headerlink" href="#obtaining-the-binary-under-test" title="Permanent link">&para;</a></h3>
+<p><strong>Decision: build the binary once per <code>go test</code> invocation in <code>TestMain</code>, via
+<code>go build</code> with the repo's ldflags stubbed to deterministic values, and hand its
+path to every test.</strong> Rebuilding per test is too slow; <code>go run</code> per test
+recompiles each time and muddies timing.</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span>
+<span class="normal">12</span>
+<span class="normal">13</span>
+<span class="normal">14</span>
+<span class="normal">15</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="c1">// tests/e2e/harness/binary.go (illustrative)</span>
+<span class="c1">// Build once; stamp deterministic version info so goldens are stable.</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">Build</span><span class="p">(</span><span class="nx">t</span><span class="w"> </span><span class="o">*</span><span class="nx">testing</span><span class="p">.</span><span class="nx">T</span><span class="p">)</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">bin</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">filepath</span><span class="p">.</span><span class="nx">Join</span><span class="p">(</span><span class="nx">t</span><span class="p">.</span><span class="nx">TempDir</span><span class="p">(),</span><span class="w"> </span><span class="s">&quot;idsec&quot;</span><span class="o">+</span><span class="nx">exeSuffix</span><span class="p">())</span>
+<span class="w">    </span><span class="nx">ld</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">strings</span><span class="p">.</span><span class="nx">Join</span><span class="p">([]</span><span class="kt">string</span><span class="p">{</span>
+<span class="w">        </span><span class="s">&quot;-X &#39;github.com/cyberark/idsec-sdk-golang/pkg/config.version=e2e-test&#39;&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s">&quot;-X &#39;github.com/cyberark/idsec-sdk-golang/pkg/config.buildNumber=0&#39;&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s">&quot;-X &#39;github.com/cyberark/idsec-sdk-golang/pkg/config.buildDate=1970-01-01&#39;&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s">&quot;-X &#39;github.com/cyberark/idsec-sdk-golang/pkg/config.gitCommit=0000000&#39;&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s">&quot;-X &#39;github.com/cyberark/idsec-cli-golang/pkg/registry.releasedFeaturesOnly=false&#39;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="p">},</span><span class="w"> </span><span class="s">&quot; &quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">cmd</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">exec</span><span class="p">.</span><span class="nx">Command</span><span class="p">(</span><span class="s">&quot;go&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;build&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;-ldflags&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">ld</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;-o&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">bin</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;./cmd/idsec&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="c1">// ... run, fail test on error ...</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">bin</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<ul>
+<li><strong>Deterministic version stamping.</strong> Stamping <code>version=e2e-test</code> (plus fixed
+  build date/commit) means <code>idsec --version</code> output is stable across machines,
+  so its golden never drifts. (Alternatively, normalize the version out — see
+  §9 — but a fixed stamp is simpler and also stabilizes the upgrade-check
+  comparison logic.)</li>
+<li><strong>Pin <code>releasedFeaturesOnly=false</code></strong> so the visible service/action set matches
+  PR builds and the help/services golden is stable regardless of release branch.</li>
+<li><strong>Env override to reuse a prebuilt binary.</strong> Honor <code>IDSEC_E2E_BINARY=/path/to/idsec</code>
+  to skip building and test a <strong>specific artifact</strong> (e.g. the goreleaser
+  snapshot or the release binary) — this lets the same tests validate the exact
+  shipped binary in a release pipeline.</li>
+</ul>
+<h3 id="running-against-the-goreleaser-artifact-release-binary">Running against the goreleaser artifact / release binary<a class="headerlink" href="#running-against-the-goreleaser-artifact-release-binary" title="Permanent link">&para;</a></h3>
+<p>For a release-gate run, set <code>IDSEC_E2E_BINARY</code> to the goreleaser snapshot
+(<code>make goreleaser-build</code> → <code>dist/…/idsec-&lt;os&gt;</code>) so E2E asserts the <em>actual</em>
+artifact (correct ldflags, real <code>--version</code>) rather than a fresh <code>go build</code>. In
+that mode, version-sensitive goldens are compared after normalization (§9).</p>
+<h3 id="docker-image-smoke-test">Docker image smoke test<a class="headerlink" href="#docker-image-smoke-test" title="Permanent link">&para;</a></h3>
+<p>Add one hermetic-ish container smoke test (opt-in via <code>IDSEC_E2E_DOCKER=true</code>,
+skipped when Docker is unavailable) that runs the built image and asserts the
+<code>ENTRYPOINT</code>/<code>CMD</code> contract:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1</span>
+<span class="normal">2</span>
+<span class="normal">3</span></pre></div></td><td class="code"><div><pre><span></span><code>docker run --rm &lt;image&gt; --version        # exit 0, prints version
+docker run --rm &lt;image&gt;                   # default CMD [&quot;--help&quot;], exit 0, lists services
+docker run --rm &lt;image&gt; profiles list     # exits cleanly with empty profiles dir
+</code></pre></div></td></tr></table></div>
+<p>This validates the <code>docker/Dockerfile</code> wiring (non-root user, <code>idsec</code> on PATH,
+<code>IDSEC_PROFILES_FOLDER</code>/<code>IDSEC_KEYRING_FOLDER</code>). It stays out of the default PR
+gate (Docker may be unavailable on some agents) and runs where Docker exists.</p>
+<h3 id="cross-os-considerations">Cross-OS considerations<a class="headerlink" href="#cross-os-considerations" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Path/config dirs:</strong> never hard-code <code>/home/...</code>; derive from the per-test
+  temp dir and pass via <code>HOME</code> (POSIX) and the profiles/keyring/config env vars.
+  On Windows the CLI resolves <code>os.UserHomeDir()</code>; the harness sets <code>USERPROFILE</code>
+  and <code>HOME</code> and points <code>IDSEC_CONFIG_FILE</code>/<code>IDSEC_PROFILES_FOLDER</code>/
+  <code>IDSEC_KEYRING_FOLDER</code> explicitly to sidestep OS differences.</li>
+<li><strong>Line endings:</strong> normalize <code>\r\n</code> → <code>\n</code> before golden comparison (§9) so
+  Windows runs match the same goldens.</li>
+<li><strong>Exe suffix:</strong> harness appends <code>.exe</code> on <code>GOOS=windows</code>.</li>
+<li><strong>Primary CI matrix:</strong> Linux <code>amd64</code> on <code>nimbus-go-agent</code> for the PR gate;
+  optionally add macOS/Windows in the nightly matrix. Goldens are authored on
+  Linux and must pass on all three purely via normalization.</li>
+</ul>
+<h2 id="7-backend-faking-strategy">7. Backend Faking Strategy<a class="headerlink" href="#7-backend-faking-strategy" title="Permanent link">&para;</a></h2>
+<h3 id="the-constraint-verified">The constraint (verified)<a class="headerlink" href="#the-constraint-verified" title="Permanent link">&para;</a></h3>
+<p>The SDK computes each service's base URL inside <code>resolveServiceURL</code>
+(<code>pkg/common/isp/idsec_isp_service_client.go</code>) from the JWT's <code>subdomain</code> /
+<code>platform_domain</code> claims and the <code>DEPLOY_ENV</code>-selected <code>RootDomain</code>
+(<code>pkg/models/common/idsec_env.go</code>), producing
+<code>https://&lt;subdomain&gt;-&lt;service&gt;.&lt;platformDomain&gt;</code>. <strong>There is no
+<code>--base-url</code>/<code>IDSEC_API_BASE_URL</code> override.</strong> So we cannot simply point service
+calls at <code>http://127.0.0.1:&lt;port&gt;</code> today. This is <em>the</em> reason the hermetic tier
+avoids real service HTTP and pushes real service calls into the live tier.</p>
+<h3 id="what-we-can-fake-hermetically-today">What we <em>can</em> fake hermetically today<a class="headerlink" href="#what-we-can-fake-hermetically-today" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Upgrade check → <code>httptest</code>.</strong> <code>idsec_upgrader.go</code> reads <code>GITHUB_URL</code> and
+   sets <code>config.EnterpriseBaseURL = https://&lt;GITHUB_URL&gt;/api/v3/</code>. Point it at a
+   local <code>httptest.Server</code> and serve a canned releases payload:</li>
+</ol>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1</span>
+<span class="normal">2</span>
+<span class="normal">3</span>
+<span class="normal">4</span>
+<span class="normal">5</span>
+<span class="normal">6</span>
+<span class="normal">7</span>
+<span class="normal">8</span>
+<span class="normal">9</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="c1">// tests/e2e/harness/httpfake.go (illustrative)</span>
+<span class="nx">srv</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">httptest</span><span class="p">.</span><span class="nx">NewServer</span><span class="p">(</span><span class="nx">http</span><span class="p">.</span><span class="nx">HandlerFunc</span><span class="p">(</span><span class="kd">func</span><span class="p">(</span><span class="nx">w</span><span class="w"> </span><span class="nx">http</span><span class="p">.</span><span class="nx">ResponseWriter</span><span class="p">,</span><span class="w"> </span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">http</span><span class="p">.</span><span class="nx">Request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// emulate GitHub Enterprise releases API used by the upgrader</span>
+<span class="w">    </span><span class="nx">_</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">json</span><span class="p">.</span><span class="nx">NewEncoder</span><span class="p">(</span><span class="nx">w</span><span class="p">).</span><span class="nx">Encode</span><span class="p">(</span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">any</span><span class="p">{</span><span class="s">&quot;tag_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;v99.0.0&quot;</span><span class="p">})</span>
+<span class="p">}))</span>
+<span class="c1">// GITHUB_URL is host[:port] (upgrader builds https://&lt;GITHUB_URL&gt;/api/v3/)</span>
+<span class="c1">// For plain-HTTP httptest, pair with IDSEC_DISABLE_CERTIFICATE_VERIFICATION and,</span>
+<span class="c1">// if needed, a host rewrite; otherwise use httptest.NewTLSServer + trusted cert.</span>
+<span class="nx">env</span><span class="p">[</span><span class="s">&quot;GITHUB_URL&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">strings</span><span class="p">.</span><span class="nx">TrimPrefix</span><span class="p">(</span><span class="nx">srv</span><span class="p">.</span><span class="nx">URL</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;http://&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p>This yields real hermetic coverage of the "newer version available" nag and
+   the <code>IDSEC_SUPPRESS_UPGRADE_CHECK=true</code> suppression path.</p>
+<ol>
+<li><strong>Everything that needs no backend.</strong> Help, version, routing, path
+   validation, config-file precedence, <code>configure</code>/<code>profiles</code>/<code>cache</code> file ops,
+   and all argv/exit-code/error-message cases are faked implicitly — they never
+   open a socket. This is the bulk of the hermetic value.</li>
+</ol>
+<h3 id="recommended-sdk-enhancement-unblocks-hermetic-service-faking">Recommended SDK enhancement (unblocks hermetic service faking)<a class="headerlink" href="#recommended-sdk-enhancement-unblocks-hermetic-service-faking" title="Permanent link">&para;</a></h3>
+<p>To make <strong>service-action</strong> HTTP hermetically fakeable (a big future win), the
+SDK should grow a <em>test-only</em> base-URL override honored by <code>resolveServiceURL</code> /
+<code>NewIdsecISPServiceClient</code>, e.g.:</p>
+<ul>
+<li><code>IDSEC_API_BASE_URL</code> (or per-service <code>IDSEC_&lt;SVC&gt;_BASE_URL</code>): when set, short-
+  circuit URL resolution and use it verbatim (<code>http://127.0.0.1:&lt;port&gt;/...</code>),
+  and skip the JWT-derived host. Combined with <code>IDSEC_DISABLE_CERTIFICATE_VERIFICATION</code>
+  for plain-HTTP <code>httptest</code>, and a way to inject a fake/pre-seeded token so
+  <code>login</code> can be bypassed (e.g. a test auth profile whose token is a locally
+  minted JWT with <code>subdomain</code>/<code>platform_domain</code> claims).</li>
+</ul>
+<p>This is called out as a <strong>dependency/opportunity</strong>, not a prerequisite: the
+hermetic tier delivers value without it; when it lands, <code>tests/e2e/hermetic/</code>
+can add <code>httptest</code>-backed service-action cases (e.g. <code>pcloud safes list</code> against
+a fake API) using the same harness (<code>httpfake.go</code>).</p>
+<h3 id="seeding-fixtures-recorded-responses">Seeding fixtures / recorded responses<a class="headerlink" href="#seeding-fixtures-recorded-responses" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Canned JSON responses live in <code>tests/e2e/hermetic/testdata/http/&lt;name&gt;.json</code>
+  and are served by small <code>http.HandlerFunc</code>s (route → fixture) — no live
+  recording needed initially.</li>
+<li>If richer fidelity is wanted later, record real responses once (in the live
+  tier) and replay via <code>go-vcr</code>-style cassettes; deferred until the SDK base-URL
+  override exists.</li>
+<li>Never commit tokens/secrets in fixtures; fake JWTs are locally minted at test
+  time with non-sensitive claims.</li>
+</ul>
+<h2 id="8-ci-integration">8. CI Integration<a class="headerlink" href="#8-ci-integration" title="Permanent link">&para;</a></h2>
+<h3 id="makefile-targets-new">Makefile targets (new)<a class="headerlink" href="#makefile-targets-new" title="Permanent link">&para;</a></h3>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span>
+<span class="normal">12</span>
+<span class="normal">13</span>
+<span class="normal">14</span>
+<span class="normal">15</span>
+<span class="normal">16</span>
+<span class="normal">17</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="c"># Hermetic E2E: build tag e2e; no creds; PR gate.</span>
+<span class="nf">e2e</span><span class="o">:</span>
+<span class="w">    </span>@echo<span class="w"> </span><span class="s2">&quot;Running hermetic E2E tests...&quot;</span>
+<span class="w">    </span>@go<span class="w"> </span><span class="nb">test</span><span class="w"> </span>-tags<span class="o">=</span>e2e<span class="w"> </span>-count<span class="o">=</span><span class="m">1</span><span class="w"> </span>./tests/e2e/hermetic/...<span class="w"> </span>
+
+<span class="c"># Update golden files for hermetic E2E.</span>
+<span class="nf">e2e-update</span><span class="o">:</span>
+<span class="w">    </span>@go<span class="w"> </span><span class="nb">test</span><span class="w"> </span>-tags<span class="o">=</span>e2e<span class="w"> </span>-count<span class="o">=</span><span class="m">1</span><span class="w"> </span>./tests/e2e/hermetic/...<span class="w"> </span>-update
+
+<span class="c"># Live E2E: build tag e2e_live; requires IDSEC_E2E_* creds; nightly/manual.</span>
+<span class="nf">e2e-live</span><span class="o">:</span>
+<span class="w">    </span>@echo<span class="w"> </span><span class="s2">&quot;Running live E2E tests (requires IDSEC_E2E_* credentials)...&quot;</span>
+<span class="w">    </span>@go<span class="w"> </span><span class="nb">test</span><span class="w"> </span>-tags<span class="o">=</span>e2e_live<span class="w"> </span>-count<span class="o">=</span><span class="m">1</span><span class="w"> </span>-timeout<span class="o">=</span>20m<span class="w"> </span>./tests/e2e/live/...
+
+<span class="c"># Optional container smoke (requires Docker + built image).</span>
+<span class="nf">e2e-docker</span><span class="o">:</span>
+<span class="w">    </span>@IDSEC_E2E_DOCKER<span class="o">=</span><span class="nb">true</span><span class="w"> </span>go<span class="w"> </span><span class="nb">test</span><span class="w"> </span>-tags<span class="o">=</span>e2e<span class="w"> </span>-count<span class="o">=</span><span class="m">1</span><span class="w"> </span>-run<span class="w"> </span>Docker<span class="w"> </span>./tests/e2e/hermetic/...
+</code></pre></div></td></tr></table></div>
+<ul>
+<li><code>-count=1</code> disables test caching so E2E always actually runs the binary.</li>
+<li>Hermetic uses <code>-tags=e2e</code>; live uses <code>-tags=e2e_live</code> (a distinct tag so
+  <code>make e2e</code> can <strong>never</strong> pick up live tests, even accidentally).</li>
+<li>Files carry <code>//go:build e2e</code> (hermetic) or <code>//go:build e2e_live</code> (live); the
+  shared <code>harness/</code> package has <strong>no</strong> build tag so it compiles for both.</li>
+</ul>
+<h3 id="build-tags-summary">Build tags (summary)<a class="headerlink" href="#build-tags-summary" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tag</th>
+<th>Files</th>
+<th>Runs when</th>
+<th>Needs creds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>e2e</code></td>
+<td><code>tests/e2e/hermetic/**</code></td>
+<td><code>make e2e</code> (PR gate)</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>e2e_live</code></td>
+<td><code>tests/e2e/live/**</code></td>
+<td><code>make e2e-live</code> (nightly/manual)</td>
+<td>Yes (<code>IDSEC_E2E_*</code>)</td>
+</tr>
+<tr>
+<td><em>(none)</em></td>
+<td><code>tests/e2e/harness/**</code></td>
+<td>compiled by both</td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+<h3 id="jenkins">Jenkins<a class="headerlink" href="#jenkins" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>PR / all branches:</strong> add a <strong>"Hermetic E2E"</strong> stage right after
+  <code>Unit Tests</code>, running <code>make e2e</code>. It's credential-free and fast, so it belongs
+  on every build. Archive golden diffs on failure for triage.</li>
+</ul>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1</span>
+<span class="normal">2</span>
+<span class="normal">3</span>
+<span class="normal">4</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="n">stage</span><span class="o">(</span><span class="s2">&quot;Hermetic E2E&quot;</span><span class="o">)</span><span class="w"> </span><span class="o">{</span>
+<span class="w">    </span><span class="n">steps</span><span class="w"> </span><span class="o">{</span><span class="w"> </span><span class="n">sh</span><span class="w"> </span><span class="s2">&quot;make e2e&quot;</span><span class="w"> </span><span class="o">}</span>
+<span class="w">    </span><span class="n">post</span><span class="w"> </span><span class="o">{</span><span class="w"> </span><span class="n">always</span><span class="w"> </span><span class="o">{</span><span class="w"> </span><span class="n">archiveArtifacts</span><span class="w"> </span><span class="nl">artifacts:</span><span class="w"> </span><span class="s1">&#39;tests/e2e/**/testdata/golden/**&#39;</span><span class="o">,</span><span class="w"> </span><span class="nl">allowEmptyArchive:</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="o">}</span><span class="w"> </span><span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></td></tr></table></div>
+<ul>
+<li><strong>Live E2E:</strong> a <strong>separate scheduled/nightly</strong> pipeline (or a manual
+  <code>parameters</code> toggle like the existing <code>SKIP_SNYK</code>), running <code>make e2e-live</code>
+  with <code>IDSEC_E2E_*</code> injected from Conjur (as the SDK live tests already do). It
+  must <strong>not</strong> run on PRs. Use <code>IDSEC_E2E_SKIP=true</code> as the safety default so a
+  misconfigured job skips rather than fails.</li>
+<li><strong>Docker smoke:</strong> optionally run <code>make e2e-docker</code> in the existing
+  Docker-build stage context where an image/daemon is available.</li>
+</ul>
+<p>Keeping the PR gate to hermetic-only preserves current PR speed and the
+no-credentials guarantee, while live coverage runs on a cadence.</p>
+<h2 id="9-test-taxonomy-coverage-matrix">9. Test Taxonomy &amp; Coverage Matrix<a class="headerlink" href="#9-test-taxonomy-coverage-matrix" title="Permanent link">&para;</a></h2>
+<p>Case names follow <code>success_*</code>, <code>error_*</code>, <code>edge_case_*</code>. Prioritized P0
+(foundational, implement first), P1 (broad coverage), P2 (nice-to-have / needs
+SDK support or live tenant).</p>
+<h3 id="hermetic-tier-1">Hermetic (Tier 1)<a class="headerlink" href="#hermetic-tier-1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Command / area</th>
+<th>Case (subtest)</th>
+<th>Asserts</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P0</td>
+<td>version</td>
+<td><code>success_version_prints_semver</code></td>
+<td>stdout matches version line; exit 0</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>version</td>
+<td><code>success_version_silent_prints_bare</code></td>
+<td><code>version --silent</code> bare version, no upgrade hint; exit 0</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>help</td>
+<td><code>success_root_help_lists_services</code></td>
+<td><code>--help</code> shows commands + "Available services" (all registry services, normalized); exit 0</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>help</td>
+<td><code>success_service_help_reroutes_to_exec</code></td>
+<td><code>idsec pcloud --help</code> shows exec/service help; exit 0</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>routing</td>
+<td><code>success_service_reroutes_to_exec</code></td>
+<td><code>idsec pcloud safes list</code> == <code>idsec exec pcloud safes list</code> (same normalized behavior)</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>routing</td>
+<td><code>success_alias_routes</code></td>
+<td><code>idsec pc …</code>, <code>idsec dpa …</code>, <code>idsec acp …</code> resolve like canonical names</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>errors</td>
+<td><code>error_unknown_command_exit1</code></td>
+<td><code>idsec bogus</code> → "unknown command" message; <strong>exit 1</strong></td>
+</tr>
+<tr>
+<td>P0</td>
+<td>errors</td>
+<td><code>error_unknown_subcommand_under_service</code></td>
+<td><code>idsec pcloud bogus</code> → <code>unknown command "bogus" for "idsec exec pcloud"</code>; exit 1</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>errors</td>
+<td><code>error_unknown_flag_exit1</code></td>
+<td><code>idsec --bogus</code> → unknown-flag error + help/services; exit 1</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>no-args</td>
+<td><code>success_no_args_shows_help</code></td>
+<td>bare <code>idsec</code> prints help; exit 0</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>configure</td>
+<td><code>success_configure_writes_config_file</code></td>
+<td>writes <code>config.yaml</code> in temp config dir with expected keys</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>configure</td>
+<td><code>edge_case_configure_respects_config_flag</code></td>
+<td><code>--config &lt;tmp&gt;</code> writes there, not <code>$HOME/.idsec</code></td>
+</tr>
+<tr>
+<td>P1</td>
+<td>profiles</td>
+<td><code>success_profiles_add_list_delete</code></td>
+<td>add → list shows it → delete removes it; files reflect state</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>profiles</td>
+<td><code>error_profiles_show_missing_exit1</code></td>
+<td>show nonexistent profile → error; exit 1</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>cache</td>
+<td><code>success_cache_clear_empties_dir</code></td>
+<td>cache clear removes cache files; exit 0</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>config file</td>
+<td><code>success_config_flag_overrides_home</code></td>
+<td><code>--config</code> beats <code>IDSEC_CONFIG_FILE</code> beats <code>~/.idsec/config.yaml</code></td>
+</tr>
+<tr>
+<td>P1</td>
+<td>config file</td>
+<td><code>success_env_overrides_config_value</code></td>
+<td>ambient <code>IDSEC_*</code> wins over config-file value (precedence)</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>config file</td>
+<td><code>edge_case_unknown_key_warns_not_fatal</code></td>
+<td>non-<code>IDSEC_</code> key → warning on stderr, exit 0</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>upgrade</td>
+<td><code>success_upgrade_check_hits_fake_github</code></td>
+<td>with <code>GITHUB_URL</code>→httptest serving newer tag, nag appears; exit 0</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>upgrade</td>
+<td><code>success_suppress_upgrade_check_silences_nag</code></td>
+<td><code>IDSEC_SUPPRESS_UPGRADE_CHECK=true</code> → no nag</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>streams</td>
+<td><code>success_errors_go_to_expected_stream</code></td>
+<td>error text stream + exit code (track stdout/stderr per current/agent-mode behavior)</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>no-hang</td>
+<td><code>edge_case_prompted_command_closed_stdin_no_hang</code></td>
+<td>a prompt-requiring exec with closed stdin returns within timeout, nonzero exit (proves no hang)</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>output</td>
+<td><code>success_json_flag_shapes_output</code></td>
+<td><code>--json</code>/raw for a command renderable without backend produces valid JSON</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>docker</td>
+<td><code>success_docker_entrypoint_help</code></td>
+<td>(opt-in) <code>docker run &lt;img&gt;</code> → help + services; <code>--version</code> exit 0</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>service (needs SDK base-url override)</td>
+<td><code>success_pcloud_safes_list_httptest</code></td>
+<td>fake API via <code>IDSEC_API_BASE_URL</code> → JSON list; exit 0</td>
+</tr>
+</tbody>
+</table>
+<h3 id="live-tier-2-gated-skip-if-unset">Live (Tier 2, gated; skip-if-unset)<a class="headerlink" href="#live-tier-2-gated-skip-if-unset" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Command / area</th>
+<th>Case</th>
+<th>Asserts</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P0</td>
+<td>login</td>
+<td><code>success_login_isp_writes_profile</code></td>
+<td>real ISP login with <code>IDSEC_E2E_ISP_*</code> → profile/token side effects; exit 0</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>sca</td>
+<td><code>success_sca_cloud_access_list_targets_json</code></td>
+<td><code>idsec sca cloud-access list-targets --json</code> → exit 0, JSON parses</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>pcloud</td>
+<td><code>success_pcloud_safes_list_json</code></td>
+<td><code>idsec pcloud safes list --json</code> → exit 0, JSON array</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>auth</td>
+<td><code>error_action_without_login_exit1</code></td>
+<td>run a service action with no/expired auth → clear error; exit 1</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>round-trip</td>
+<td><code>success_pcloud_safe_create_get_delete</code></td>
+<td>guarded by <code>IDSEC_E2E_ALLOW_MUTATION</code>; <code>{{namespace}}</code>-scoped safe; best-effort cleanup</td>
+</tr>
+</tbody>
+</table>
+<h2 id="10-conventions">10. Conventions<a class="headerlink" href="#10-conventions" title="Permanent link">&para;</a></h2>
+<h3 id="copyright-headers">Copyright / headers<a class="headerlink" href="#copyright-headers" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Every new <code>*.go</code> file starts with a <code>//go:build</code> tag line (for <code>hermetic</code>/<code>live</code>)
+  followed by the same license/copyright header block used elsewhere in the repo
+  (match an existing <code>pkg/**</code> file header exactly). Harness files omit the build
+  tag but keep the header.</li>
+</ul>
+<h3 id="naming">Naming<a class="headerlink" href="#naming" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Test functions: <code>TestE2E_&lt;Area&gt;</code> (e.g. <code>TestE2E_Routing</code>). Subtests
+  (table rows) use snake_case <code>success_* / error_* / edge_case_*</code>, matching unit
+  tests, so <code>go test -run 'TestE2E_Routing/success_alias_routes'</code> reads naturally.</li>
+<li>Golden files named <code>&lt;area&gt;_&lt;case&gt;.golden</code> (and <code>.stderr.golden</code> when needed).</li>
+</ul>
+<h3 id="output-normalization-before-every-golden-compare">Output normalization (before every golden compare)<a class="headerlink" href="#output-normalization-before-every-golden-compare" title="Permanent link">&para;</a></h3>
+<p>The harness applies, in order, a documented, ordered set of substitutions so
+dynamic content never causes flakes:</p>
+<ol>
+<li><code>\r\n</code> → <code>\n</code> (Windows line endings).</li>
+<li>Trailing whitespace per line stripped; final newline normalized.</li>
+<li><strong>Version/build info</strong> → <code>&lt;VERSION&gt;</code> (matches the stamped <code>e2e-test</code> or a
+   semver regex), so <code>--version</code> and upgrade text are stable.</li>
+<li><strong>Timestamps/dates/durations</strong> (RFC3339, <code>... in 1.23s</code>, build dates) → <code>&lt;TIME&gt;</code> / <code>&lt;DURATION&gt;</code>.</li>
+<li><strong>Temp paths</strong> → <code>&lt;TMP&gt;</code> (replace the per-test <code>HOME</code>/config/CWD roots).</li>
+<li><strong>Absolute binary path</strong> → <code>&lt;IDSEC&gt;</code>.</li>
+<li>ANSI color codes stripped (color is off in non-TTY, but strip defensively).</li>
+<li><strong>Namespace ids</strong> (<code>{{namespace}}</code> values) → <code>&lt;NS&gt;</code>.</li>
+</ol>
+<p>Normalization rules live in one place (<code>harness/normalize.go</code>) and are listed in
+<code>tests/e2e/README.md</code> so golden authors know exactly what is canonicalized.</p>
+<h3 id="interpolation-house-convention-ergonomics">Interpolation (house-convention ergonomics)<a class="headerlink" href="#interpolation-house-convention-ergonomics" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>{{namespace}}</code> in a spec expands to the per-test unique id (isolation +
+  deterministic-after-normalization resource names).</li>
+<li><code>($ENV_VAR)</code> expands from the scoped test env (live tier: <code>($IDSEC_E2E_ISP_USERNAME)</code>),
+  mirroring the TF <code>test_cases.yaml</code> convention so the two suites feel related.</li>
+</ul>
+<h3 id="flakiness-avoidance">Flakiness avoidance<a class="headerlink" href="#flakiness-avoidance" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>No real network in hermetic</strong> (except localhost <code>httptest</code>); a stray real
+  request should fail fast — set <code>HTTP(S)_PROXY</code> to an unreachable sink or assert
+  no external host is contacted.</li>
+<li><strong>Always bound subprocess time</strong> with a per-run timeout (context) so a hang
+  fails as a test error, never a stuck CI job — this is also how the no-hang
+  case is asserted.</li>
+<li><strong>Suppress the upgrade nag</strong> (<code>IDSEC_SUPPRESS_UPGRADE_CHECK=true</code>) in every
+  test except the upgrade-specific cases, so unrelated goldens don't depend on
+  release state.</li>
+<li>Stamp deterministic version/build info (§6) rather than relying solely on
+  normalization for the version.</li>
+</ul>
+<h3 id="parallelization-safety">Parallelization safety<a class="headerlink" href="#parallelization-safety" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Every test calls <code>t.Parallel()</code>; isolation (unique temp <code>HOME</code>/config/keyring,
+  temp CWD, scoped env, unique namespace) guarantees no shared mutable state, so
+  parallel runs are safe — the same discipline the unit suite already follows.</li>
+<li>The binary is built once (read-only afterward) and shared; <code>httptest</code> servers
+  are per-test and closed via <code>t.Cleanup</code>.</li>
+<li>The scoped env is constructed from an allowlist (<code>PATH</code>, <code>HOME</code>/<code>USERPROFILE</code>,
+  the test's <code>IDSEC_*</code>, <code>GOCACHE</code>, etc.) — never inherited wholesale — so the
+  developer's ambient <code>IDSEC_*</code>/<code>CURSOR_AGENT</code>/etc. can't leak into results.</li>
+</ul>
+<h2 id="11-illustrative-example-one-hermetic-test">11. Illustrative Example (one hermetic test)<a class="headerlink" href="#11-illustrative-example-one-hermetic-test" title="Permanent link">&para;</a></h2>
+<p>A concrete P0 case: <code>idsec &lt;service&gt;</code> must route through the exec engine exactly
+like <code>idsec exec &lt;service&gt;</code>. Two equivalent expressions are shown — the
+recommended Go harness style, and (for comparison) a <code>.txtar</code> sketch had we
+chosen <code>testscript</code>.</p>
+<h3 id="recommended-go-harness-style">Recommended: Go harness style<a class="headerlink" href="#recommended-go-harness-style" title="Permanent link">&para;</a></h3>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span>
+<span class="normal">12</span>
+<span class="normal">13</span>
+<span class="normal">14</span>
+<span class="normal">15</span>
+<span class="normal">16</span>
+<span class="normal">17</span>
+<span class="normal">18</span>
+<span class="normal">19</span>
+<span class="normal">20</span>
+<span class="normal">21</span>
+<span class="normal">22</span>
+<span class="normal">23</span>
+<span class="normal">24</span>
+<span class="normal">25</span>
+<span class="normal">26</span>
+<span class="normal">27</span>
+<span class="normal">28</span>
+<span class="normal">29</span>
+<span class="normal">30</span>
+<span class="normal">31</span>
+<span class="normal">32</span>
+<span class="normal">33</span>
+<span class="normal">34</span>
+<span class="normal">35</span>
+<span class="normal">36</span>
+<span class="normal">37</span>
+<span class="normal">38</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="c1">//go:build e2e</span>
+
+<span class="kn">package</span><span class="w"> </span><span class="nx">hermetic</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="s">&quot;testing&quot;</span>
+
+<span class="w">    </span><span class="s">&quot;github.com/cyberark/idsec-cli-golang/tests/e2e/harness&quot;</span>
+<span class="p">)</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="nx">TestE2E_Routing</span><span class="p">(</span><span class="nx">t</span><span class="w"> </span><span class="o">*</span><span class="nx">testing</span><span class="p">.</span><span class="nx">T</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">t</span><span class="p">.</span><span class="nx">Parallel</span><span class="p">()</span>
+<span class="w">    </span><span class="nx">bin</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">harness</span><span class="p">.</span><span class="nx">SharedBinary</span><span class="p">(</span><span class="nx">t</span><span class="p">)</span><span class="w"> </span><span class="c1">// built once in TestMain</span>
+
+<span class="w">    </span><span class="nx">t</span><span class="p">.</span><span class="nx">Run</span><span class="p">(</span><span class="s">&quot;success_service_reroutes_to_exec&quot;</span><span class="p">,</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">t</span><span class="w"> </span><span class="o">*</span><span class="nx">testing</span><span class="p">.</span><span class="nx">T</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">t</span><span class="p">.</span><span class="nx">Parallel</span><span class="p">()</span>
+<span class="w">        </span><span class="nx">iso</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">harness</span><span class="p">.</span><span class="nx">NewIsolation</span><span class="p">(</span><span class="nx">t</span><span class="p">)</span><span class="w"> </span><span class="c1">// temp HOME/config/CWD + scoped env + namespace</span>
+
+<span class="w">        </span><span class="c1">// Same normalized behavior whether or not &quot;exec&quot; is explicit.</span>
+<span class="w">        </span><span class="nx">direct</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">harness</span><span class="p">.</span><span class="nx">Run</span><span class="p">(</span><span class="nx">t</span><span class="p">,</span><span class="w"> </span><span class="nx">bin</span><span class="p">,</span><span class="w"> </span><span class="nx">iso</span><span class="p">,</span><span class="w"> </span><span class="nx">harness</span><span class="p">.</span><span class="nx">Spec</span><span class="p">{</span><span class="nx">Args</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span><span class="p">{</span><span class="s">&quot;pcloud&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;safes&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;--help&quot;</span><span class="p">}})</span>
+<span class="w">        </span><span class="nx">viaExec</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">harness</span><span class="p">.</span><span class="nx">Run</span><span class="p">(</span><span class="nx">t</span><span class="p">,</span><span class="w"> </span><span class="nx">bin</span><span class="p">,</span><span class="w"> </span><span class="nx">iso</span><span class="p">,</span><span class="w"> </span><span class="nx">harness</span><span class="p">.</span><span class="nx">Spec</span><span class="p">{</span><span class="nx">Args</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span><span class="p">{</span><span class="s">&quot;exec&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;pcloud&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;safes&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;--help&quot;</span><span class="p">}})</span>
+
+<span class="w">        </span><span class="nx">harness</span><span class="p">.</span><span class="nx">RequireExit</span><span class="p">(</span><span class="nx">t</span><span class="p">,</span><span class="w"> </span><span class="nx">direct</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span>
+<span class="w">        </span><span class="nx">harness</span><span class="p">.</span><span class="nx">RequireExit</span><span class="p">(</span><span class="nx">t</span><span class="p">,</span><span class="w"> </span><span class="nx">viaExec</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span>
+<span class="w">        </span><span class="nx">harness</span><span class="p">.</span><span class="nx">RequireEqualNormalized</span><span class="p">(</span><span class="nx">t</span><span class="p">,</span><span class="w"> </span><span class="nx">direct</span><span class="p">.</span><span class="nx">Stdout</span><span class="p">,</span><span class="w"> </span><span class="nx">viaExec</span><span class="p">.</span><span class="nx">Stdout</span><span class="p">)</span>
+<span class="w">    </span><span class="p">})</span>
+
+<span class="w">    </span><span class="nx">t</span><span class="p">.</span><span class="nx">Run</span><span class="p">(</span><span class="s">&quot;error_unknown_subcommand_under_service&quot;</span><span class="p">,</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">t</span><span class="w"> </span><span class="o">*</span><span class="nx">testing</span><span class="p">.</span><span class="nx">T</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">t</span><span class="p">.</span><span class="nx">Parallel</span><span class="p">()</span>
+<span class="w">        </span><span class="nx">iso</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">harness</span><span class="p">.</span><span class="nx">NewIsolation</span><span class="p">(</span><span class="nx">t</span><span class="p">)</span>
+
+<span class="w">        </span><span class="nx">res</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">harness</span><span class="p">.</span><span class="nx">Run</span><span class="p">(</span><span class="nx">t</span><span class="p">,</span><span class="w"> </span><span class="nx">bin</span><span class="p">,</span><span class="w"> </span><span class="nx">iso</span><span class="p">,</span><span class="w"> </span><span class="nx">harness</span><span class="p">.</span><span class="nx">Spec</span><span class="p">{</span><span class="nx">Args</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span><span class="p">{</span><span class="s">&quot;pcloud&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;bogus&quot;</span><span class="p">}})</span>
+
+<span class="w">        </span><span class="nx">harness</span><span class="p">.</span><span class="nx">RequireExit</span><span class="p">(</span><span class="nx">t</span><span class="p">,</span><span class="w"> </span><span class="nx">res</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="c1">// handleCommandExecution -&gt; os.Exit(1)</span>
+<span class="w">        </span><span class="nx">harness</span><span class="p">.</span><span class="nx">RequireGolden</span><span class="p">(</span><span class="nx">t</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;routing_error_unknown_subcommand&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">res</span><span class="p">.</span><span class="nx">Stdout</span><span class="p">)</span>
+<span class="w">        </span><span class="c1">// golden (normalized): unknown command &quot;bogus&quot; for &quot;idsec exec pcloud&quot;</span>
+<span class="w">    </span><span class="p">})</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span>
+<span class="normal">12</span>
+<span class="normal">13</span>
+<span class="normal">14</span>
+<span class="normal">15</span>
+<span class="normal">16</span>
+<span class="normal">17</span>
+<span class="normal">18</span>
+<span class="normal">19</span>
+<span class="normal">20</span>
+<span class="normal">21</span>
+<span class="normal">22</span>
+<span class="normal">23</span>
+<span class="normal">24</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="c1">// tests/e2e/harness/run.go (illustrative core)</span>
+<span class="kd">type</span><span class="w"> </span><span class="nx">Spec</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">Args</span><span class="w">  </span><span class="p">[]</span><span class="kt">string</span>
+<span class="w">    </span><span class="nx">Stdin</span><span class="w"> </span><span class="kt">string</span>
+<span class="w">    </span><span class="nx">Env</span><span class="w">   </span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">string</span><span class="w"> </span><span class="c1">// merged over the isolation&#39;s scoped env</span>
+<span class="p">}</span>
+<span class="kd">type</span><span class="w"> </span><span class="nx">Result</span><span class="w"> </span><span class="kd">struct</span><span class="p">{</span><span class="w"> </span><span class="nx">Stdout</span><span class="p">,</span><span class="w"> </span><span class="nx">Stderr</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="nx">Exit</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="p">}</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="nx">Run</span><span class="p">(</span><span class="nx">t</span><span class="w"> </span><span class="o">*</span><span class="nx">testing</span><span class="p">.</span><span class="nx">T</span><span class="p">,</span><span class="w"> </span><span class="nx">bin</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">iso</span><span class="w"> </span><span class="o">*</span><span class="nx">Isolation</span><span class="p">,</span><span class="w"> </span><span class="nx">s</span><span class="w"> </span><span class="nx">Spec</span><span class="p">)</span><span class="w"> </span><span class="nx">Result</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">t</span><span class="p">.</span><span class="nx">Helper</span><span class="p">()</span>
+<span class="w">    </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">cancel</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">WithTimeout</span><span class="p">(</span><span class="nx">context</span><span class="p">.</span><span class="nx">Background</span><span class="p">(),</span><span class="w"> </span><span class="mi">30</span><span class="o">*</span><span class="nx">time</span><span class="p">.</span><span class="nx">Second</span><span class="p">)</span><span class="w"> </span><span class="c1">// no-hang guard</span>
+<span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">cancel</span><span class="p">()</span>
+<span class="w">    </span><span class="nx">cmd</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">exec</span><span class="p">.</span><span class="nx">CommandContext</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">bin</span><span class="p">,</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">Args</span><span class="o">...</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Dir</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">iso</span><span class="p">.</span><span class="nx">CWD</span>
+<span class="w">    </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Env</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">iso</span><span class="p">.</span><span class="nx">EnvWith</span><span class="p">(</span><span class="nx">s</span><span class="p">.</span><span class="nx">Env</span><span class="p">)</span><span class="w">               </span><span class="c1">// scoped allowlist + IDSEC_SUPPRESS_UPGRADE_CHECK=true</span>
+<span class="w">    </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Stdin</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">strings</span><span class="p">.</span><span class="nx">NewReader</span><span class="p">(</span><span class="nx">s</span><span class="p">.</span><span class="nx">Stdin</span><span class="p">)</span><span class="w">     </span><span class="c1">// closed/empty stdin by default -&gt; proves no prompt hang</span>
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">out</span><span class="p">,</span><span class="w"> </span><span class="nx">errb</span><span class="w"> </span><span class="nx">bytes</span><span class="p">.</span><span class="nx">Buffer</span>
+<span class="w">    </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Stdout</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Stderr</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">out</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">errb</span>
+<span class="w">    </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Run</span><span class="p">()</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">Err</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">DeadlineExceeded</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">t</span><span class="p">.</span><span class="nx">Fatalf</span><span class="p">(</span><span class="s">&quot;command hung: %v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">Args</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">Result</span><span class="p">{</span><span class="nx">Stdout</span><span class="p">:</span><span class="w"> </span><span class="nx">out</span><span class="p">.</span><span class="nx">String</span><span class="p">(),</span><span class="w"> </span><span class="nx">Stderr</span><span class="p">:</span><span class="w"> </span><span class="nx">errb</span><span class="p">.</span><span class="nx">String</span><span class="p">(),</span><span class="w"> </span><span class="nx">Exit</span><span class="p">:</span><span class="w"> </span><span class="nx">exitCode</span><span class="p">(</span><span class="nx">err</span><span class="p">)}</span>
+<span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="for-comparison-txtar-if-testscript-were-chosen">For comparison: <code>.txtar</code> (if <code>testscript</code> were chosen)<a class="headerlink" href="#for-comparison-txtar-if-testscript-were-chosen" title="Permanent link">&para;</a></h3>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span></pre></div></td><td class="code"><div><pre><span></span><code># tests/e2e/hermetic/testdata/routing.txtar  (illustrative, NOT the chosen approach)
+# idsec &lt;service&gt; routes like idsec exec &lt;service&gt;
+exec idsec pcloud safes --help
+cp stdout direct.txt
+exec idsec exec pcloud safes --help
+cmp stdout direct.txt
+
+# unknown subcommand under a service -&gt; exit 1 with a specific message
+! exec idsec pcloud bogus
+stdout &#39;unknown command &quot;bogus&quot; for &quot;idsec exec pcloud&quot;&#39;
+</code></pre></div></td></tr></table></div>
+<p>The Go version is chosen because it also carries the no-hang timeout, scoped-env
+isolation, and (in other cases) <code>httptest</code>/filesystem assertions in one place.</p>
+<h2 id="12-migration-rollout-plan">12. Migration / Rollout Plan<a class="headerlink" href="#12-migration-rollout-plan" title="Permanent link">&para;</a></h2>
+<h3 id="phase-0-harness-one-vertical-slice-foundation">Phase 0 — Harness + one vertical slice (foundation)<a class="headerlink" href="#phase-0-harness-one-vertical-slice-foundation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add <code>tests/e2e/harness/**</code> (build binary once, run+capture, isolation,
+  normalize, golden <code>-update</code>, interpolation).</li>
+<li>Add <code>tests/e2e/main_test.go</code> (<code>TestMain</code> builds binary; honors <code>IDSEC_E2E_SKIP</code>).</li>
+<li>Land P0 <code>version</code>, <code>help</code>, and <code>routing</code> cases in <code>tests/e2e/hermetic/</code>.</li>
+<li>Add <code>make e2e</code> / <code>make e2e-update</code>; wire the <strong>Hermetic E2E</strong> Jenkins stage.</li>
+<li>Effort: ~2–3 days. Outcome: green PR gate proving the model works.</li>
+</ul>
+<h3 id="phase-1-broaden-hermetic-coverage-p0-p1">Phase 1 — Broaden hermetic coverage (P0 + P1)<a class="headerlink" href="#phase-1-broaden-hermetic-coverage-p0-p1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Complete P0 error/exit/no-args cases; add <code>configure</code>/<code>profiles</code>/<code>cache</code>,
+  config-file precedence, and the <code>httptest</code>-backed <code>upgrade</code> cases.</li>
+<li>Write <code>tests/e2e/README.md</code> (run, add cases, update goldens, normalization
+  list, live gate).</li>
+<li>Effort: ~3–4 days.</li>
+</ul>
+<h3 id="phase-2-live-tier-gated">Phase 2 — Live tier (gated)<a class="headerlink" href="#phase-2-live-tier-gated" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add <code>tests/e2e/live/**</code> with the SDK-style <code>IDSEC_E2E_*</code> loader + skip-if-unset,
+  <code>e2e_live</code> tag, <code>make e2e-live</code>, and a nightly/manual Jenkins pipeline pulling
+  creds from Conjur. Land <code>login</code> + read-only <code>sca</code>/<code>pcloud</code> list cases.</li>
+<li>Effort: ~3–4 days (plus tenant/creds setup).</li>
+</ul>
+<h3 id="phase-3-extended-surface-p2-hardening">Phase 3 — Extended surface (P2 + hardening)<a class="headerlink" href="#phase-3-extended-surface-p2-hardening" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Docker smoke (<code>make e2e-docker</code>), cross-OS matrix (macOS/Windows nightly),
+  no-hang closed-stdin case, <code>--json</code> shape cases.</li>
+<li><strong>SDK dependency:</strong> pursue the <code>IDSEC_API_BASE_URL</code> override (§7); once it
+  lands, add <code>httptest</code>-backed hermetic service-action cases.</li>
+<li>Optional: evaluate adding <code>testscript</code> for the pure routing/help matrix if
+  golden tables get verbose.</li>
+<li>Effort: ~3–5 days, partly gated on SDK work.</li>
+</ul>
+<h3 id="risks-mitigations">Risks &amp; mitigations<a class="headerlink" href="#risks-mitigations" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Impact</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Goldens drift on version/date/paths</td>
+<td>Flaky PRs</td>
+<td>Deterministic version stamping (§6) + strict normalization (§9); <code>-update</code> workflow documented</td>
+</tr>
+<tr>
+<td>No SDK base-URL override</td>
+<td>Service actions can't be faked hermetically</td>
+<td>Scope hermetic to no-backend surface + <code>httptest</code> upgrade; push service calls to live tier; request SDK override (§7)</td>
+</tr>
+<tr>
+<td>Live tests run on PRs by accident</td>
+<td>Secrets/flakiness on PRs</td>
+<td>Separate <code>e2e_live</code> tag <strong>and</strong> env gate; <code>IDSEC_E2E_SKIP=true</code> default; distinct pipeline</td>
+</tr>
+<tr>
+<td><code>releasedFeaturesOnly</code> changes visible actions</td>
+<td>Help/services golden mismatch</td>
+<td>Pin <code>releasedFeaturesOnly=false</code> in the E2E build (§6)</td>
+</tr>
+<tr>
+<td>Error stream may move stdout→stderr (agent-mode design)</td>
+<td>Golden churn</td>
+<td>Assert exit code primarily; keep stream-specific goldens small and update alongside that change</td>
+</tr>
+<tr>
+<td>Windows path/HOME differences</td>
+<td>Cross-OS failures</td>
+<td>Explicit <code>HOME</code>/<code>USERPROFILE</code> + <code>IDSEC_*</code> folder env; line-ending + path normalization; Windows in nightly only</td>
+</tr>
+<tr>
+<td>Ambient dev env leaks (<code>IDSEC_*</code>, <code>CURSOR_AGENT</code>)</td>
+<td>Non-deterministic local runs</td>
+<td>Scoped allowlist env, never inherit wholesale (§10)</td>
+</tr>
+<tr>
+<td>Binary build slows the suite</td>
+<td>Slower CI</td>
+<td>Build once in <code>TestMain</code>; support <code>IDSEC_E2E_BINARY</code> to reuse an artifact</td>
+</tr>
+</tbody>
+</table>
+<h3 id="open-questions">Open questions<a class="headerlink" href="#open-questions" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Adopt <code>testscript</code> later?</strong> Keep the Go harness as primary; revisit
+   <code>testscript</code> only if the routing/help golden tables become unwieldy.
+   Recommendation: defer.</li>
+<li><strong>Error stream contract.</strong> Should E2E encode today's <code>fmt.Println(err)</code> (→
+   stdout) behavior, or wait for the agent-mode stdout→stderr fix and encode
+   that? Recommendation: assert <strong>exit codes</strong> now and keep stream goldens
+   minimal until that change lands, then update in the same PR.</li>
+<li><strong>SDK base-URL override ownership.</strong> Who lands <code>IDSEC_API_BASE_URL</code> in the
+   SDK, and on what timeline? Determines when hermetic service-action tests are
+   possible.</li>
+<li><strong>Live mutation policy.</strong> Do we allow any create/delete round-trips in the
+   live tier (guarded by <code>IDSEC_E2E_ALLOW_MUTATION</code> + namespacing + cleanup), or
+   keep it strictly read-only? Recommendation: read-only first; add one guarded
+   round-trip in Phase 3.</li>
+<li><strong>Cross-OS scope.</strong> Is Linux-only sufficient for the PR gate with
+   macOS/Windows nightly, or do we need all three on PRs? Recommendation:
+   Linux PR gate, tri-OS nightly.</li>
+</ol>
+<h2 id="reference">Reference<a class="headerlink" href="#reference" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Existing design style: <code>docs/design/agent-mode.md</code>.</li>
+<li>SDK E2E prior art: <code>idsec-sdk-golang/tests/e2e/</code> (framework, env gating) and
+  <code>idsec-sdk-golang/tools/gene2e</code>.</li>
+<li><code>rogpeppe/go-internal/testscript</code>: <a href="https://pkg.go.dev/github.com/rogpeppe/go-internal/testscript">https://pkg.go.dev/github.com/rogpeppe/go-internal/testscript</a></li>
+<li>Team Terraform acceptance convention: <code>test_cases.yaml</code> (<code>steps</code>, <code>set_input</code>,
+  <code>expect_error</code>, <code>{{namespace}}</code>, <code>($ENV_VAR)</code>, <code>success_/error_/edge_case_</code>).</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2025 CyberArk
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "navigation.instant", "navigation.indexes", "navigation.tracking", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

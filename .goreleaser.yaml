@@ -64,6 +64,7 @@ binary_signs:
     cmd: ./filesigner/filesigner-linux
     args:
       - "sign"
+      - "/csp"
       - "/same-dir"
       - "${artifact}"
     artifacts: binary

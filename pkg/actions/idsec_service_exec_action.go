@@ -1001,6 +1001,10 @@ func (s *IdsecServiceExecAction) resolveActionArgs(cmd *cobra.Command, execCmd *
 		return nil, err
 	}
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		// Prevent overwriting an existing error from a previously parsed flag.
+		if err != nil {
+			return
+		}
 		err = s.parseFlag(f, cmd, flags, actionSchema)
 	})
 	if err != nil {

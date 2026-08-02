@@ -26,6 +26,12 @@ git config --global url."https://<username>:<token>@github.com".insteadOf "https
 go install github.com/cyberark/idsec-cli-golang/cmd/idsec@latest
 ```
 
+Make sure that the PATH environment variable points to the go binary path, for example:
+
+```shell linenums="0"
+export PATH=$PATH:$(go env GOPATH)/bin
+```
+
 Homebrew
 --------
 

@@ -329,11 +329,13 @@ func TestFindMatchingEvalResult(t *testing.T) {
 			Role:             k8smodels.IdsecSCAk8sListClustersRole{ID: "role-1"},
 			Target:           k8smodels.IdsecSCAk8sListClustersTarget{FQDN: &fqdn},
 			ConnectionMethod: "proxy",
+			CertificateData:  "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tClBST1hZCg==",
 		},
 		{
 			Role:             k8smodels.IdsecSCAk8sListClustersRole{ID: readerRole},
 			Target:           k8smodels.IdsecSCAk8sListClustersTarget{FQDN: &fqdn, Scope: "cluster"},
 			ConnectionMethod: "direct",
+			CertificateData:  "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCkRJUkVDVAo=",
 		},
 		{
 			Role: k8smodels.IdsecSCAk8sListClustersRole{ID: readerRole},
@@ -343,6 +345,7 @@ func TestFindMatchingEvalResult(t *testing.T) {
 				NamespaceID: &nsResourceID,
 			},
 			ConnectionMethod: "proxy",
+			CertificateData:  "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk5TCg==",
 		},
 		{
 			Role:   k8smodels.IdsecSCAk8sListClustersRole{ID: "role-3"},

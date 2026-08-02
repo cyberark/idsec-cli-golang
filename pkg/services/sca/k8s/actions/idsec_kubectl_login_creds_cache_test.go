@@ -266,112 +266,108 @@ func TestParseSessionExpTime(t *testing.T) {
 	}
 }
 
-func TestIsCachedElevateStillValid_AzureSessionExpTime(t *testing.T) {
+func TestIsCachedElevateStillValid_SessionExpTime(t *testing.T) {
 	now := time.Date(2026, 5, 21, 9, 0, 0, 0, time.UTC)
 	result := &k8smodels.IdsecSCAK8sElevateResult{
 		SessionID:      "sess-1",
 		SessionExpTime: "2026-05-21T10:21:07.240104+00:00",
 	}
 
-	valid, _ := isCachedElevateStillValid("AZURE", result, now.Add(-time.Hour), time.Hour, now)
+	valid, _ := isCachedElevateStillValid(result, now)
 	if !valid {
 		t.Fatal("expected valid when sessionExpTime is >5m in the future")
 	}
 
-	valid, _ = isCachedElevateStillValid("AZURE", result, now.Add(-time.Hour), time.Hour,
-		time.Date(2026, 5, 21, 10, 21, 8, 0, time.UTC))
+	valid, _ = isCachedElevateStillValid(result, time.Date(2026, 5, 21, 10, 21, 8, 0, time.UTC))
 	if valid {
 		t.Fatal("expected invalid after sessionExpTime")
 	}
 }
 
-func TestIsCachedElevateStillValid_AzureShortSession(t *testing.T) {
-	// Mirrors production: sessionExpTime ~20–40s after elevate.
+func TestIsCachedElevateStillValid_ShortSession(t *testing.T) {
 	now := time.Date(2026, 5, 21, 12, 46, 0, 0, time.UTC)
 	result := &k8smodels.IdsecSCAK8sElevateResult{
 		SessionID:      "sess-short",
 		SessionExpTime: "2026-05-21T12:46:30+00:00",
 	}
 
-	valid, reason := isCachedElevateStillValid("AZURE", result, now, time.Hour, now.Add(5*time.Second))
+	valid, reason := isCachedElevateStillValid(result, now.Add(5*time.Second))
 	if !valid {
 		t.Fatalf("expected cache hit 5s into a 30s session, got invalid: %s", reason)
 	}
 
-	valid, _ = isCachedElevateStillValid("AZURE", result, now, time.Hour, now.Add(31*time.Second))
+	valid, _ = isCachedElevateStillValid(result, now.Add(31*time.Second))
 	if valid {
 		t.Fatal("expected invalid after sessionExpTime passed")
 	}
 }
 
-func TestIsCachedElevateStillValid_AWSFallbackTTL(t *testing.T) {
+func TestIsCachedElevateStillValid_MissingSessionExpTime(t *testing.T) {
 	now := time.Now()
 	result := &k8smodels.IdsecSCAK8sElevateResult{SessionID: "sess-1"}
-	savedAt := now.Add(-30 * time.Minute)
 
-	valid, _ := isCachedElevateStillValid("AWS", result, savedAt, time.Hour, now)
-	if !valid {
-		t.Fatal("expected valid within 1h SavedAt TTL")
+	valid, reason := isCachedElevateStillValid(result, now)
+	if valid {
+		t.Fatal("expected invalid when sessionExpTime is missing")
+	}
+	if !strings.Contains(reason, "missing sessionExpTime") {
+		t.Fatalf("expected reason to mention missing sessionExpTime, got %q", reason)
+	}
+}
+
+func TestIsCachedElevateStillValid_AWSIAMSessionExpTime(t *testing.T) {
+	now := time.Date(2026, 7, 20, 9, 0, 0, 0, time.UTC)
+	result := &k8smodels.IdsecSCAK8sElevateResult{
+		SessionID:      "sess-aws-iam",
+		SessionExpTime: "2026-07-20T10:00:00+00:00",
 	}
 
-	valid, _ = isCachedElevateStillValid("AWS", result, savedAt.Add(-2*time.Hour), time.Hour, now)
+	valid, reason := isCachedElevateStillValid(result, now)
+	if !valid {
+		t.Fatalf("expected valid when sessionExpTime is >5m in the future; reason=%s", reason)
+	}
+	if !strings.Contains(reason, "sessionExpTime") {
+		t.Fatalf("expected reason to reference sessionExpTime, got %q", reason)
+	}
+
+	valid, _ = isCachedElevateStillValid(result, time.Date(2026, 7, 20, 10, 0, 1, 0, time.UTC))
 	if valid {
-		t.Fatal("expected expired after 1h SavedAt TTL")
+		t.Fatal("expected invalid after sessionExpTime for AWS IAM")
+	}
+}
+
+func TestIsCachedElevateStillValid_AWSIAMSessionExpTimeExpired(t *testing.T) {
+	result := &k8smodels.IdsecSCAK8sElevateResult{
+		SessionID:      "sess-aws-iam",
+		SessionExpTime: "2026-07-20T10:00:00+00:00",
+	}
+
+	valid, reason := isCachedElevateStillValid(result, time.Date(2026, 7, 20, 10, 0, 1, 0, time.UTC))
+	if valid {
+		t.Fatalf("expected invalid after sessionExpTime for AWS IAM; reason=%s", reason)
+	}
+	if !strings.Contains(reason, "expired") {
+		t.Fatalf("expected reason to mention expired, got %q", reason)
 	}
 }
 
 func TestLoadCachedElevateKeyring(t *testing.T) {
 	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
-	tests := []struct {
-		name        string
-		csp         string
-		roleKey     string
-		fqdn        string
-		ttl         time.Duration
-		expectNil   bool
-		expectError bool
-	}{
-		{
-			name:        "ttl_zero_returns_nil_without_keyring_access_aws",
-			csp:         "AWS",
-			roleKey:     "arn:aws:iam::123:role/k8s-role",
-			fqdn:        "745445889F087548523CF96B3D365FF0.gr7.us-east-1.eks.amazonaws.com",
-			ttl:         0,
-			expectNil:   true,
-			expectError: false,
-		},
-		{
-			name:        "ttl_zero_for_azure_returns_nil",
-			csp:         "AZURE",
-			roleKey:     "azure-role",
-			fqdn:        "mycluster.eastus.azmk8s.io",
-			ttl:         0,
-			expectNil:   true,
-			expectError: false,
-		},
-	}
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			result, _, _, _, err := LoadCachedElevateKeyringWithReason("prod", tt.csp, tt.roleKey, tt.fqdn, testUUID, "", "sid-1", tt.ttl)
-
-			if tt.expectError && err == nil {
-				t.Error("expected error but got nil")
-			}
-			if !tt.expectError && err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-			if tt.expectNil && result != nil {
-				t.Errorf("expected nil result but got %+v", result)
-			}
-			if !tt.expectNil && result == nil {
-				t.Error("expected non-nil result but got nil")
-			}
-		})
-	}
+	t.Run("empty_keyring_returns_nil", func(t *testing.T) {
+		t.Parallel()
+		result, _, _, err := LoadCachedElevateKeyringWithReason(
+			"prod", "AWS", "arn:aws:iam::123:role/k8s-role",
+			"745445889F087548523CF96B3D365FF0.gr7.us-east-1.eks.amazonaws.com",
+			testUUID, "", "sid-1",
+		)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if result != nil {
+			t.Errorf("expected nil result but got %+v", result)
+		}
+	})
 }
 
 func TestBuildProxyExecCredential(t *testing.T) {
@@ -1189,14 +1185,14 @@ func TestLoadCachedElevateKeyringWithReason_EmptySessionDisablesCache(t *testing
 
 	t.Run("empty_session_id", func(t *testing.T) {
 		t.Parallel()
-		result, savedAt, hitReason, missReason, err := LoadCachedElevateKeyringWithReason(
-			"prod", "AWS", "arn:aws:iam::123:role/foo", "cluster.eks.amazonaws.com", testUUID, "", "", time.Hour,
+		result, hitReason, missReason, err := LoadCachedElevateKeyringWithReason(
+			"prod", "AWS", "arn:aws:iam::123:role/foo", "cluster.eks.amazonaws.com", testUUID, "", "",
 		)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if result != nil || !savedAt.IsZero() || hitReason != "" {
-			t.Fatalf("expected empty result on disabled cache; got result=%v savedAt=%v hitReason=%q", result, savedAt, hitReason)
+		if result != nil || hitReason != "" {
+			t.Fatalf("expected empty result on disabled cache; got result=%v hitReason=%q", result, hitReason)
 		}
 		if !strings.Contains(missReason, "sessionID") {
 			t.Errorf("missReason = %q, want mention of sessionID", missReason)
@@ -1205,14 +1201,14 @@ func TestLoadCachedElevateKeyringWithReason_EmptySessionDisablesCache(t *testing
 
 	t.Run("empty_user_uuid", func(t *testing.T) {
 		t.Parallel()
-		result, savedAt, hitReason, missReason, err := LoadCachedElevateKeyringWithReason(
-			"prod", "AWS", "arn:aws:iam::123:role/foo", "cluster.eks.amazonaws.com", "", "", "sid-1", time.Hour,
+		result, hitReason, missReason, err := LoadCachedElevateKeyringWithReason(
+			"prod", "AWS", "arn:aws:iam::123:role/foo", "cluster.eks.amazonaws.com", "", "", "sid-1",
 		)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if result != nil || !savedAt.IsZero() || hitReason != "" {
-			t.Fatalf("expected empty result when userUUID is empty; got result=%v savedAt=%v hitReason=%q", result, savedAt, hitReason)
+		if result != nil || hitReason != "" {
+			t.Fatalf("expected empty result when userUUID is empty; got result=%v hitReason=%q", result, hitReason)
 		}
 		if !strings.Contains(missReason, "userUUID") {
 			t.Errorf("missReason = %q, want mention of userUUID", missReason)
@@ -1248,16 +1244,50 @@ func TestSaveElevateCreds_EmptyClaimsReturnsError(t *testing.T) {
 	})
 }
 
-func TestDeriveElevateExpiry_UnparseableSessionExpTimeFallsBack(t *testing.T) {
+func TestDeriveElevateExpiry_UnparseableSessionExpTimeErrors(t *testing.T) {
 	t.Parallel()
-	base := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
 	result := &k8smodels.IdsecSCAK8sElevateResult{SessionExpTime: "not-a-time"}
-	exp, source := deriveElevateExpiry(result, base, time.Hour, false)
-	if !exp.Equal(base.Add(time.Hour)) {
-		t.Errorf("expected fallbackTTL expiry, got %s", exp.UTC().Format(time.RFC3339))
+	_, err := deriveElevateExpiry(result)
+	if err == nil {
+		t.Fatal("expected error for unparseable sessionExpTime")
 	}
-	if source != "fallbackTTL" {
-		t.Errorf("source = %q, want fallbackTTL", source)
+	if !strings.Contains(err.Error(), "not parseable") {
+		t.Errorf("error = %q, want mention of not parseable", err.Error())
+	}
+}
+
+func TestDeriveElevateExpiry_MissingSessionExpTimeErrors(t *testing.T) {
+	t.Parallel()
+	result := &k8smodels.IdsecSCAK8sElevateResult{SessionID: "sess-1"}
+	_, err := deriveElevateExpiry(result)
+	if err == nil {
+		t.Fatal("expected error for missing sessionExpTime")
+	}
+	if !strings.Contains(err.Error(), "missing sessionExpTime") {
+		t.Errorf("error = %q, want mention of missing sessionExpTime", err.Error())
+	}
+}
+
+func TestDeriveElevateExpiry_ValidSessionExpTime(t *testing.T) {
+	t.Parallel()
+	result := &k8smodels.IdsecSCAK8sElevateResult{
+		SessionExpTime: "2026-07-20T10:00:00+00:00",
+	}
+	exp, err := deriveElevateExpiry(result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC)
+	if !exp.Equal(want) {
+		t.Errorf("expected %s, got %s", want.Format(time.RFC3339), exp.Format(time.RFC3339))
+	}
+}
+
+func TestDeriveElevateExpiry_NilResultErrors(t *testing.T) {
+	t.Parallel()
+	_, err := deriveElevateExpiry(nil)
+	if err == nil {
+		t.Fatal("expected error for nil result")
 	}
 }
 
@@ -1608,6 +1638,35 @@ func TestExecCredTTLCandidates_NoIDTokenLifetime(t *testing.T) {
 	for _, c := range cands {
 		if c.name == "idtokenlifetime" {
 			t.Fatal("idtokenlifetime must not be a TTL candidate")
+		}
+	}
+}
+
+func TestExecCredTTLCandidates_AWSIDCProxy_IncludesCertEKSAndElevate(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	certExpiry := now.Add(30 * time.Minute)
+	elevateExpiry := now.Add(45 * time.Minute)
+	eksExpiry := now.Add(14 * time.Minute)
+
+	cred := k8sservice.BuildProxyExecCredential("CERT", "KEY", certExpiry)
+	eksExpirationTimestamp := eksExpiry.UTC().Format(time.RFC3339)
+
+	cands := execCredTTLCandidates(execCredFlowAWSIDCProxy, cred, elevateExpiry, eksExpirationTimestamp)
+	if len(cands) != 3 {
+		t.Fatalf("AWS IDC proxy candidates = %+v, want 3 (cert, eks, elevate)", cands)
+	}
+
+	wantNames := map[string]bool{"cert": false, "eks": false, "elevate": false}
+	for _, c := range cands {
+		if _, ok := wantNames[c.name]; !ok {
+			t.Errorf("unexpected candidate %q", c.name)
+		}
+		wantNames[c.name] = true
+	}
+	for name, found := range wantNames {
+		if !found {
+			t.Errorf("missing expected candidate %q", name)
 		}
 	}
 }

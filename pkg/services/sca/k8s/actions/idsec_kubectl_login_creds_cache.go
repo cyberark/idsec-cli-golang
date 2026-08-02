@@ -72,7 +72,7 @@ type cachedAWSOIDCAccessToken struct {
 // integrity gates on read; AzureCLIFingerprint is set for both azure-direct
 // and azure-proxy entries (a local `az` identity rotation invalidates the
 // AKS access token used by direct AND the DPA-issued cert whose subject is
-// derived from that token via jwe_extension_value). LastServedParentPID records
+// derived from that token via proxy JWE). LastServedParentPID records
 // the kubectl process that received this credential. If the same kubectl process
 // asks again before expiry, client-go likely retried after a 401.
 type cachedExecCredential struct {
@@ -111,6 +111,7 @@ type execCredFlow string
 const (
 	execCredFlowAWSDirect   execCredFlow = "aws direct"
 	execCredFlowAWSProxy    execCredFlow = "aws proxy"
+	execCredFlowAWSIDCProxy execCredFlow = "aws idc proxy"
 	execCredFlowAzureDirect execCredFlow = "azure direct"
 	execCredFlowAzureProxy  execCredFlow = "azure proxy"
 )
@@ -191,7 +192,7 @@ func execCredTTLCandidates(
 	flow execCredFlow,
 	execCred *k8smodels.IdsecSCAK8sExecCredential,
 	elevateExpiresAt time.Time,
-	aksAccessToken string,
+	k8sAccessToken string,
 ) []ttlCandidate {
 	switch flow {
 	case execCredFlowAWSDirect:
@@ -203,6 +204,12 @@ func execCredTTLCandidates(
 		return []ttlCandidate{
 			execCredentialExpiresAtCandidate("cert", execCred),
 		}
+	case execCredFlowAWSIDCProxy:
+		return []ttlCandidate{
+			execCredentialExpiresAtCandidate("cert", execCred),
+			parseEKSTokenExpirationCandidate(k8sAccessToken),
+			rawTokenTTLCandidate("elevate", elevateExpiresAt),
+		}
 	case execCredFlowAzureDirect:
 		return []ttlCandidate{
 			execCredentialExpiresAtCandidate("aks", execCred),
@@ -211,7 +218,7 @@ func execCredTTLCandidates(
 	case execCredFlowAzureProxy:
 		return []ttlCandidate{
 			execCredentialExpiresAtCandidate("cert", execCred),
-			parseAKSTTLCandidate(aksAccessToken),
+			parseAKSTTLCandidate(k8sAccessToken),
 			rawTokenTTLCandidate("elevate", elevateExpiresAt),
 		}
 	default:
@@ -229,7 +236,7 @@ func rawTokenTTLCandidate(name string, exp time.Time) ttlCandidate {
 }
 
 // parseAKSTTLCandidate extracts the JWT exp from the Azure-proxy AKS access
-// token forwarded as jwe_extension_value and applies the early-refresh buffer.
+// token encrypted into the DPA proxy JWE and applies the early-refresh buffer.
 func parseAKSTTLCandidate(accessToken string) ttlCandidate {
 	exp, err := k8sservice.ParseAccessTokenExpiry(accessToken)
 	if err != nil {
@@ -238,26 +245,36 @@ func parseAKSTTLCandidate(accessToken string) ttlCandidate {
 	return ttlCandidate{name: "aks", when: exp, skew: rawTokenEarlyRefreshBuffer}
 }
 
-// deriveElevateExpiry returns the concrete Elevate session expiry used as a
-// TTL candidate. Prefers sessionExpTime from the API; falls back to
-// base+provider ElevateTTL (from cache SavedAt on hits, or pre-API timestamp
-// on misses) when the API omits sessionExpTime.
-func deriveElevateExpiry(elevateResult *k8smodels.IdsecSCAK8sElevateResult, base time.Time, fallbackTTL time.Duration, verbose bool) (time.Time, string) {
-	if elevateResult != nil {
-		if trimmed := strings.TrimSpace(elevateResult.SessionExpTime); trimmed != "" {
-			if exp, err := parseSessionExpTime(trimmed); err == nil {
-				return exp, "sessionExpTime"
-			} else if verbose {
-				kubectlLoginVerbose("Elevate sessionExpTime %q unparseable, using fallbackTTL: %v", trimmed, err)
-			}
-		}
+// parseEKSTokenExpirationCandidate parses the ExpirationTimestamp (RFC3339) from
+// an intermediate EKS ExecCredential generated during the AWS IDC proxy flow.
+// The timestamp is already buffered by eksExecCredRefreshBuffer at generation time.
+func parseEKSTokenExpirationCandidate(eksExpirationTimestamp string) ttlCandidate {
+	if eksExpirationTimestamp == "" {
+		return ttlCandidate{name: "eks", skipReason: "no EKS token expiration provided"}
 	}
-	// base is intentionally captured before the Elevate API round-trip so
-	// fallbackTTL stays conservative when sessionExpTime is absent.
-	if fallbackTTL > 0 && !base.IsZero() {
-		return base.Add(fallbackTTL), "fallbackTTL"
+	exp, err := time.Parse(time.RFC3339, eksExpirationTimestamp)
+	if err != nil {
+		return ttlCandidate{name: "eks", skipReason: fmt.Sprintf("EKS expirationTimestamp unparseable: %v", err)}
 	}
-	return time.Time{}, ""
+	return ttlCandidate{name: "eks", when: exp, alreadyBuffered: true}
+}
+
+// deriveElevateExpiry parses and returns the Elevate session expiry from
+// sessionExpTime in the API response. Returns an error if sessionExpTime
+// is absent or unparseable — callers must treat this as a hard failure.
+func deriveElevateExpiry(elevateResult *k8smodels.IdsecSCAK8sElevateResult) (time.Time, error) {
+	if elevateResult == nil {
+		return time.Time{}, fmt.Errorf("elevate result is nil")
+	}
+	trimmed := strings.TrimSpace(elevateResult.SessionExpTime)
+	if trimmed == "" {
+		return time.Time{}, fmt.Errorf("elevate API response missing sessionExpTime — cannot determine session expiry")
+	}
+	exp, err := parseSessionExpTime(trimmed)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("elevate API sessionExpTime %q is not parseable: %w", trimmed, err)
+	}
+	return exp, nil
 }
 
 // loadCachedISPSession probes the ISP keyring for a refreshable session and
@@ -562,10 +579,10 @@ func shortRoleKey(roleID string) string {
 	return roleID
 }
 
-// azureElevateRefreshBuffer returns how long before sessionExpTime we should re-elevate.
+// elevateRefreshBuffer returns how long before sessionExpTime we should re-elevate.
 // Long sessions use elevateSessionRefreshBuffer (5m). Short API sessions use a smaller
 // buffer so back-to-back kubectl invocations can reuse the cached Elevate result.
-func azureElevateRefreshBuffer(exp, now time.Time) time.Duration {
+func elevateRefreshBuffer(exp, now time.Time) time.Duration {
 	remaining := exp.Sub(now)
 	if remaining <= 0 {
 		return 0
@@ -580,64 +597,46 @@ func azureElevateRefreshBuffer(exp, now time.Time) time.Duration {
 }
 
 func isCachedElevateStillValid(
-	csp string,
 	result *k8smodels.IdsecSCAK8sElevateResult,
-	savedAt time.Time,
-	fallbackTTL time.Duration,
 	now time.Time,
 ) (valid bool, reason string) {
 	if result == nil {
 		return false, "empty result"
 	}
-	if elevateUsesSessionExpTime(csp, result) && strings.TrimSpace(result.SessionExpTime) != "" {
-		exp, err := parseSessionExpTime(result.SessionExpTime)
-		if err != nil {
-			return false, fmt.Sprintf("invalid sessionExpTime: %v", err)
-		}
-		remaining := exp.Sub(now)
-		if remaining <= 0 {
-			return false, fmt.Sprintf("sessionExpTime %s expired", exp.Format(time.RFC3339))
-		}
-		buffer := azureElevateRefreshBuffer(exp, now)
-		// Very short API sessions (<10s): reuse cache for the whole lifetime (no 5m margin).
-		if buffer == 0 {
-			return true, fmt.Sprintf(
-				"sessionExpTime %s (%s until expiry, short-session cache)",
-				exp.Format(time.RFC3339),
-				remaining.Round(time.Second),
-			)
-		}
-		refreshDeadline := now.Add(buffer)
-		if refreshDeadline.Before(exp) {
-			return true, fmt.Sprintf(
-				"sessionExpTime %s (%s until expiry, refresh buffer %s)",
-				exp.Format(time.RFC3339),
-				remaining.Round(time.Second),
-				buffer,
-			)
-		}
-		return false, fmt.Sprintf(
-			"sessionExpTime %s within %s refresh window (%s until expiry)",
+	if strings.TrimSpace(result.SessionExpTime) == "" {
+		return false, "missing sessionExpTime"
+	}
+	exp, err := parseSessionExpTime(result.SessionExpTime)
+	if err != nil {
+		return false, fmt.Sprintf("invalid sessionExpTime: %v", err)
+	}
+	remaining := exp.Sub(now)
+	if remaining <= 0 {
+		return false, fmt.Sprintf("sessionExpTime %s expired", exp.Format(time.RFC3339))
+	}
+	buffer := elevateRefreshBuffer(exp, now)
+	if buffer == 0 {
+		return true, fmt.Sprintf(
+			"sessionExpTime %s (%s until expiry, short-session cache)",
 			exp.Format(time.RFC3339),
-			buffer,
 			remaining.Round(time.Second),
 		)
 	}
-	if fallbackTTL > 0 && now.Sub(savedAt) < fallbackTTL {
-		return true, fmt.Sprintf("SavedAt+fallbackTTL (%s)", fallbackTTL)
+	refreshDeadline := now.Add(buffer)
+	if refreshDeadline.Before(exp) {
+		return true, fmt.Sprintf(
+			"sessionExpTime %s (%s until expiry, refresh buffer %s)",
+			exp.Format(time.RFC3339),
+			remaining.Round(time.Second),
+			buffer,
+		)
 	}
-	return false, "cache entry expired"
-}
-
-func elevateUsesSessionExpTime(csp string, result *k8smodels.IdsecSCAK8sElevateResult) bool {
-	if result == nil {
-		return false
-	}
-	if strings.ToUpper(strings.TrimSpace(csp)) == k8smodels.CSPAzure {
-		return true
-	}
-	return strings.ToUpper(strings.TrimSpace(csp)) == k8smodels.CSPAWS &&
-		k8sservice.IsAWSIDCPermissionSetRole(result.RoleID)
+	return false, fmt.Sprintf(
+		"sessionExpTime %s within %s refresh window (%s until expiry)",
+		exp.Format(time.RFC3339),
+		buffer,
+		remaining.Round(time.Second),
+	)
 }
 
 func parseSessionExpTime(raw string) (time.Time, error) {
@@ -669,65 +668,41 @@ func parseSessionExpTime(raw string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unrecognized time format %q", raw)
 }
 
-// LoadCachedElevateKeyringWithReason loads cached Elevate JSON from the keyring
-// with SavedAt metadata so callers can derive fallbackTTL-based expiry bounds.
-func LoadCachedElevateKeyringWithReason(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID string, fallbackTTL time.Duration) (result *k8smodels.IdsecSCAK8sElevateResult, savedAt time.Time, hitReason, missReason string, err error) {
+// LoadCachedElevateKeyringWithReason loads cached Elevate JSON from the keyring.
+// Cache validity is determined solely by sessionExpTime from the API response.
+func LoadCachedElevateKeyringWithReason(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID string) (result *k8smodels.IdsecSCAK8sElevateResult, hitReason, missReason string, err error) {
 	if strings.TrimSpace(sessionID) == "" {
-		return nil, time.Time{}, "", "missing sessionID (cache disabled)", nil
+		return nil, "", "missing sessionID (cache disabled)", nil
 	}
 	if strings.TrimSpace(userUUID) == "" {
-		return nil, time.Time{}, "", "missing userUUID (cache disabled)", nil
-	}
-	if fallbackTTL == 0 && strings.ToUpper(strings.TrimSpace(csp)) != k8smodels.CSPAzure {
-		return nil, time.Time{}, "", "", nil
+		return nil, "", "missing userUUID (cache disabled)", nil
 	}
 
 	impl, err := krElevateCreds.get()
 	if err != nil {
-		return nil, time.Time{}, "", "", fmt.Errorf("failed to open credential cache: %w", err)
+		return nil, "", "", fmt.Errorf("failed to open credential cache: %w", err)
 	}
 
 	key := buildSCAK8sCacheKey(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID)
 	data, err := impl.GetPassword(elevateCredsServiceName, key)
 	if err != nil || data == "" {
-		return nil, time.Time{}, "", "no cached entry", nil
+		return nil, "", "no cached entry", nil
 	}
 
 	var cached cachedElevateCreds
 	if err := json.Unmarshal([]byte(data), &cached); err != nil {
 		_ = impl.DeletePassword(elevateCredsServiceName, key)
-		return nil, time.Time{}, "", "corrupt cached entry (removed)", nil
+		return nil, "", "corrupt cached entry (removed)", nil
 	}
 
 	now := time.Now()
-	valid, reason := isCachedElevateStillValid(csp, cached.ElevateResult, cached.SavedAt, fallbackTTL, now)
+	valid, reason := isCachedElevateStillValid(cached.ElevateResult, now)
 	if !valid {
 		_ = impl.DeletePassword(elevateCredsServiceName, key)
-		return nil, time.Time{}, "", reason, nil
+		return nil, "", reason, nil
 	}
 
-	return cached.ElevateResult, cached.SavedAt, reason, "", nil
-}
-
-// describeElevateSessionExpiry returns a log line about sessionExpTime parsing and remaining lifetime.
-func describeElevateSessionExpiry(sessionExpTime string) string {
-	sessionExpTime = strings.TrimSpace(sessionExpTime)
-	if sessionExpTime == "" {
-		return "no sessionExpTime in response (cache falls back to provider ElevateTTL)"
-	}
-	exp, err := parseSessionExpTime(sessionExpTime)
-	if err != nil {
-		return fmt.Sprintf("sessionExpTime %q is not parseable: %v", sessionExpTime, err)
-	}
-	now := time.Now()
-	remaining := exp.Sub(now)
-	buffer := azureElevateRefreshBuffer(exp, now)
-	return fmt.Sprintf(
-		"sessionExpTime=%s (expires in %s; cache refresh buffer %s)",
-		exp.Format(time.RFC3339),
-		remaining.Round(time.Second),
-		buffer,
-	)
+	return cached.ElevateResult, reason, "", nil
 }
 
 func saveUnifiedExecCredentialEntry(impl idseckeyring.IdsecKeyringImpl, key string, cached cachedExecCredential) error {

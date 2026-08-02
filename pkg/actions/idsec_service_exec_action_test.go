@@ -1954,6 +1954,36 @@ func TestIdsecServiceExecAction_resolveActionArgs(t *testing.T) {
 	}
 }
 
+// Regression test: resolveActionArgs must not let a later valid flag overwrite
+// an earlier flag's validation error. pflag visits flags in lexical order, so
+// "choices" (given a value outside its allow-list) is validated before the
+// valid "name" flag.
+func TestIdsecServiceExecAction_resolveActionArgs_preservesFirstFlagError(t *testing.T) {
+	t.Parallel()
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("choices", "", "choices flag")
+	cmd.Flags().String("name", "", "name flag")
+	if err := cmd.Flags().Set("choices", "value_not_in_allow_list"); err != nil {
+		t.Fatalf("failed to set choices flag: %v", err)
+	}
+	if err := cmd.Flags().Set("name", "valid-name"); err != nil {
+		t.Fatalf("failed to set name flag: %v", err)
+	}
+
+	action := NewIdsecServiceExecAction(nil)
+	execCmd := &cobra.Command{}
+	execCmd.PersistentFlags().String("request-file", "", "request file")
+
+	_, err := action.resolveActionArgs(cmd, execCmd, testutils.CreateTestSchema())
+	if err == nil {
+		t.Fatal("expected an error for the invalid choices value, got nil (a later valid flag swallowed it)")
+	}
+	if !strings.Contains(err.Error(), "choices") {
+		t.Fatalf("expected the error to reference the invalid choices flag, got: %v", err)
+	}
+}
+
 // captureStdout redirects os.Stdout for the duration of fn and returns whatever
 // was written. The pager falls back to a direct stdout writer when stdout is
 // not a TTY (as under "go test"), so this captures pageItems' rendered output.

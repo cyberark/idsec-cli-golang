@@ -28,7 +28,7 @@ type kubectlLoginSession struct {
 
 // kubectlLoginRequest bundles flag-derived cluster identity (SDK cluster context)
 // with ISP session state for the kubectl-login cold path. cluster.Region,
-// cluster.ClusterID, and cluster.JWEExtensionValue are populated during flow
+// cluster.ClusterID, and cluster.K8sToken are populated during flow
 // execution; callers must not assume they are set at construction time.
 type kubectlLoginRequest struct {
 	cluster *k8sservice.IdsecSCAK8sClusterContext
@@ -37,7 +37,7 @@ type kubectlLoginRequest struct {
 
 // buildKubectlLoginRequest assembles the per-invocation kubectl-login context
 // from CLI flags and the loaded ISP session. cluster.Region, cluster.ClusterID,
-// and cluster.JWEExtensionValue are filled in later by the active flow.
+// and cluster.K8sToken are filled in later by the active flow.
 func buildKubectlLoginRequest(
 	csp, roleID, fqdn, organizationID, namespace, elevateToken string,
 	session kubectlLoginSession,
@@ -328,6 +328,10 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 	}
 	kubectlLoginVerboseDuration("Evaluate result match", evalMatchStartedAt)
 
+	// Always capture cluster CA from evaluate (direct and proxy). Azure / AWS IDC
+	// proxy flows encrypt it into the DPA JWE as root_ca for proxy→cluster mTLS.
+	req.cluster.RootCA = strings.TrimSpace(evalResult.CertificateData)
+
 	connectionMethod := strings.ToLower(strings.TrimSpace(evalResult.ConnectionMethod))
 	kubectlLoginInfo("eligibility match: connectionMethod=%q", connectionMethod)
 
@@ -488,20 +492,21 @@ func findMatchingEvalResult(results []k8smodels.IdsecSCAK8sEvaluateResult, fqdn,
 	return nil
 }
 
-// resolveElevateResult returns cached Elevate data or calls the API, plus a concrete Elevate expiry bound.
+// resolveElevateResult returns cached Elevate data or calls the API, plus a
+// concrete Elevate expiry bound derived from sessionExpTime. Fails the process
+// if the Elevate API response is missing sessionExpTime.
 func (a *IdsecKubectlLoginAction) resolveElevateResult(
 	cmd *cobra.Command,
 	svc *k8sservice.IdsecSCAK8sService,
 	req *kubectlLoginRequest,
-	fallbackTTL time.Duration,
 ) (*k8smodels.IdsecSCAK8sElevateResult, bool, time.Time) {
-	kubectlLoginVerbose("checking Elevate cache (fallbackTTL=%s)", fallbackTTL)
+	kubectlLoginVerbose("checking Elevate cache")
 
 	cacheStartedAt := time.Now()
 	namespace := req.resolvedNamespace()
-	cached, cachedSavedAt, hitReason, missReason, err := LoadCachedElevateKeyringWithReason(
+	cached, hitReason, missReason, err := LoadCachedElevateKeyringWithReason(
 		req.session.profileName, req.cluster.CSP, req.cluster.RoleID, req.cluster.FQDN,
-		req.session.userUUID, namespace, req.session.sessionID, fallbackTTL,
+		req.session.userUUID, namespace, req.session.sessionID,
 	)
 	if err != nil {
 		kubectlLoginVerbose("failed to read cached Elevate credentials: %v", err)
@@ -526,13 +531,11 @@ func (a *IdsecKubectlLoginAction) resolveElevateResult(
 			"reusing cached Elevate result (sessionId=%q sessionExpTime=%q; %s)",
 			cached.SessionID, cached.SessionExpTime, hitReason,
 		)
-		elevateExp, source := deriveElevateExpiry(cached, cachedSavedAt, fallbackTTL, kubectlLoginDiagnosticsEnabled())
-		if elevateExp.IsZero() {
-			kubectlLoginVerbose("Elevate expiry bound from cache unavailable")
-		} else {
-			kubectlLoginVerbose("Elevate expiry bound from cache: %s source=%s",
-				elevateExp.UTC().Format(time.RFC3339), source)
+		elevateExp, expErr := deriveElevateExpiry(cached)
+		if expErr != nil {
+			exitErr(fmt.Sprintf("cached Elevate result has invalid session expiry: %v", expErr))
 		}
+		kubectlLoginVerbose("Elevate expiry from cache: %s", elevateExp.UTC().Format(time.RFC3339))
 		return cached, true, elevateExp
 	}
 
@@ -540,10 +543,7 @@ func (a *IdsecKubectlLoginAction) resolveElevateResult(
 		missReason = "no cached entry"
 	}
 
-	// elevateStartedAt anchors fallbackTTL when sessionExpTime is absent; keeping
-	// the timestamp from before the API call makes the bound conservative.
 	elevateStartedAt := time.Now()
-
 	kubectlLoginInfo("Elevate cache miss (%s) — calling Elevate API", missReason)
 
 	elevateResp, err := svc.Elevate(&k8smodels.IdsecSCAK8sElevateKubectlRequest{
@@ -572,22 +572,21 @@ func (a *IdsecKubectlLoginAction) resolveElevateResult(
 		elevateResult.TargetID,
 		elevateResult.WorkspaceID,
 	)
-	kubectlLoginVerbose("Elevate session expiry: %s", describeElevateSessionExpiry(elevateResult.SessionExpTime))
-	kubectlLoginVerbose("elevate succeeded — sessionId=%q sessionExpTime=%q targetId=%q",
-		elevateResult.SessionID, elevateResult.SessionExpTime, elevateResult.TargetID)
+
+	elevateExp, expErr := deriveElevateExpiry(elevateResult)
+	if expErr != nil {
+		exitErr(expErr.Error())
+	}
+
+	kubectlLoginVerbose("elevate succeeded — sessionId=%q sessionExpTime=%s targetId=%q",
+		elevateResult.SessionID, elevateExp.UTC().Format(time.RFC3339), elevateResult.TargetID)
+
 	if saveErr := SaveElevateCreds(req.session.profileName, req.cluster.CSP, req.cluster.RoleID, req.cluster.FQDN, req.session.userUUID, namespace, req.session.sessionID, elevateResult); saveErr != nil {
 		kubectlLoginWarning("failed to cache Elevate result (next run will call Elevate API again): %v", saveErr)
 	} else {
 		kubectlLoginVerbose("cached Elevate result")
 	}
 
-	elevateExp, source := deriveElevateExpiry(elevateResult, elevateStartedAt, fallbackTTL, kubectlLoginDiagnosticsEnabled())
-	if elevateExp.IsZero() {
-		kubectlLoginVerbose("Elevate expiry bound from API unavailable")
-	} else {
-		kubectlLoginVerbose("Elevate expiry bound from API: %s source=%s",
-			elevateExp.UTC().Format(time.RFC3339), source)
-	}
 	return elevateResult, false, elevateExp
 }
 
@@ -638,7 +637,7 @@ func (a *IdsecKubectlLoginAction) runDirectFlow(
 }
 
 // runAWSDirectFlow implements the AWS EKS direct path:
-//  1. Cached Elevate (SavedAt + ElevateTTL) or Elevate API
+//  1. Cached Elevate (sessionExpTime-based) or Elevate API
 //  2. Parse EKS ARN from targetId → region + cluster name for STS presign
 //  3. GenerateToken (STS presign) → ExecCredential bearer token
 func (a *IdsecKubectlLoginAction) runAWSDirectFlow(
@@ -647,7 +646,7 @@ func (a *IdsecKubectlLoginAction) runAWSDirectFlow(
 	provider k8sservice.IdsecSCAK8sTokenProvider,
 	req *kubectlLoginRequest,
 ) *k8smodels.IdsecSCAK8sExecCredential {
-	elevateResult, _, elevateExpiresAt := a.resolveElevateResult(cmd, svc, req, provider.ElevateTTL())
+	elevateResult, _, elevateExpiresAt := a.resolveElevateResult(cmd, svc, req)
 
 	if elevateResult.TargetID != "" {
 		region, clusterName, parseErr := k8sservice.ParseEKSARN(elevateResult.TargetID)
@@ -706,7 +705,7 @@ func (a *IdsecKubectlLoginAction) acquireAzureAKSToken(
 	provider k8sservice.IdsecSCAK8sTokenProvider,
 	req *kubectlLoginRequest,
 ) (accessToken string, elevateFromCache bool, elevateExpiresAt time.Time) {
-	elevateResult, elevateFromCache, elevateExpiresAt := a.resolveElevateResult(cmd, svc, req, provider.ElevateTTL())
+	elevateResult, elevateFromCache, elevateExpiresAt := a.resolveElevateResult(cmd, svc, req)
 
 	subscriptionID := k8sservice.AzureSubscriptionFromTargetID(elevateResult.TargetID)
 	kubectlLoginInfo("acquiring AKS token via az (fresh elevate=%v)", !elevateFromCache)
@@ -749,7 +748,7 @@ func (a *IdsecKubectlLoginAction) acquireAWSIDCSTSCredentials(
 	provider k8sservice.IdsecSCAK8sTokenProvider,
 	req *kubectlLoginRequest,
 ) (elevateResult *k8smodels.IdsecSCAK8sElevateResult, elevateFromCache bool, elevateExpiresAt time.Time) {
-	elevateResult, elevateFromCache, elevateExpiresAt = a.resolveElevateResult(cmd, svc, req, provider.ElevateTTL())
+	elevateResult, elevateFromCache, elevateExpiresAt = a.resolveElevateResult(cmd, svc, req)
 
 	if elevateResult.TargetID != "" {
 		region, clusterName, parseErr := k8sservice.ParseEKSARN(elevateResult.TargetID)
@@ -813,13 +812,21 @@ func (a *IdsecKubectlLoginAction) runProxyFlow(
 	}
 }
 
+// requireProxyRootCA ensures evaluate certificateData is present for Azure / AWS IDC
+// proxy JWE paths (SIA proxy needs the cluster CA for mTLS to the API server).
+func requireProxyRootCA(req *kubectlLoginRequest) {
+	if req == nil || strings.TrimSpace(req.cluster.RootCA) == "" {
+		exitErr("evaluate response missing certificateData required for proxy JWE (k8s_token+root_ca)")
+	}
+}
+
 func (a *IdsecKubectlLoginAction) runAWSProxyFlow(
 	cmd *cobra.Command,
 	svc *k8sservice.IdsecSCAK8sService,
 	req *kubectlLoginRequest,
 ) *k8smodels.IdsecSCAK8sExecCredential {
 	if !k8sservice.IsAWSIDCPermissionSetRole(req.cluster.RoleID) {
-		kubectlLoginInfo("AWS flow selected: IAM role (proxy DPA SSO acquire without jwe_extension_value)")
+		kubectlLoginInfo("AWS flow selected: IAM role (proxy DPA SSO acquire without proxy JWE)")
 		kubectlLoginInfo("generating AWS proxy ExecCredential")
 		proxyStartedAt := time.Now()
 		execCred, err := svc.GenerateProxyExecCredential(k8smodels.CSPAWS, req.cluster)
@@ -831,6 +838,7 @@ func (a *IdsecKubectlLoginAction) runAWSProxyFlow(
 		return execCred
 	}
 
+	requireProxyRootCA(req)
 	kubectlLoginInfo("AWS flow selected: IDC permission-set (Elevate → device auth → EKS token → DPA JWE)")
 	kubectlLoginVerbose("aws idc proxy flow: fqdn=%q role=%q userUUID=%q",
 		req.cluster.FQDN, req.cluster.RoleID, req.session.userUUID)
@@ -843,7 +851,7 @@ func (a *IdsecKubectlLoginAction) runAWSProxyFlow(
 	elevateResult, _, elevateExpiresAt := a.acquireAWSIDCSTSCredentials(cmd, svc, provider, req)
 	kubectlLoginInfo("aws idc proxy flow [1/3]: AWS IDC STS credentials acquired")
 
-	kubectlLoginInfo("aws idc proxy flow [2/3]: generating EKS bearer token for jwe_extension_value")
+	kubectlLoginInfo("aws idc proxy flow [2/3]: generating EKS bearer token (K8sToken)")
 	eksExecCred, err := provider.GenerateToken(elevateResult, req.cluster)
 	if err != nil {
 		exitErr(fmt.Sprintf("failed to generate EKS token for AWS IDC proxy: %v", err))
@@ -852,31 +860,34 @@ func (a *IdsecKubectlLoginAction) runAWSProxyFlow(
 	if eksToken == "" {
 		exitErr("EKS token generation returned an empty token")
 	}
-	req.cluster.JWEExtensionValue = eksToken
-	kubectlLoginInfo("aws idc proxy flow [2/3]: EKS token generated (%d bytes) — setting as jwe_extension_value", len(eksToken))
-	kubectlLoginVerbose("EKS token acquired (len=%d) — setting as jwe_extension_value", len(eksToken))
+	req.cluster.K8sToken = eksToken
+	kubectlLoginInfo("aws idc proxy flow [2/3]: EKS token generated (%d bytes)", len(eksToken))
+	kubectlLoginVerbose("EKS token acquired (len=%d) root_ca_len=%d — encrypting as JWE for DPA",
+		len(eksToken), len(req.cluster.RootCA))
 
-	kubectlLoginInfo("aws idc proxy flow [3/3]: calling DPA SSO acquire (DPA-K8S) with jwe_extension_value")
+	kubectlLoginInfo("aws idc proxy flow [3/3]: calling DPA SSO acquire (DPA-K8S) with proxy JWE (k8s_token+root_ca)")
 	proxyStartedAt := time.Now()
 	execCred, err := svc.GenerateProxyExecCredential(k8smodels.CSPAWS, req.cluster)
 	if err != nil {
 		exitErr(fmt.Sprintf("proxy credential generation failed: %v", err))
 	}
-	a.applyFlowExecCredentialTTL(cmd, execCredFlowAWSProxy, execCred, elevateExpiresAt, "")
+	a.applyFlowExecCredentialTTL(cmd, execCredFlowAWSIDCProxy, execCred, elevateExpiresAt, eksExecCred.Status.ExpirationTimestamp)
 	kubectlLoginVerboseDuration("AWS IDC proxy ExecCredential generation", proxyStartedAt)
 	return execCred
 }
 
 // runAzureProxyFlow implements the Azure AKS proxy cold path:
-// acquireAzureAKSToken → set JWEExtensionValue → GenerateProxyExecCredential
-// (DPA SSO acquire) → return cert/key ExecCredential. Caching of the resulting
-// ExecCredential is handled by the unified cache layer in runKubectlLoginAction;
-// nothing is persisted at this level. The AKS JWT itself is never cached.
+// acquireAzureAKSToken → set K8sToken → GenerateProxyExecCredential
+// (DPA SSO acquire with k8s_token+root_ca JWE) → return cert/key ExecCredential.
+// Caching of the resulting ExecCredential is handled by the unified cache layer
+// in runKubectlLoginAction; nothing is persisted at this level. The AKS JWT
+// itself is never cached.
 func (a *IdsecKubectlLoginAction) runAzureProxyFlow(
 	cmd *cobra.Command,
 	svc *k8sservice.IdsecSCAK8sService,
 	req *kubectlLoginRequest,
 ) *k8smodels.IdsecSCAK8sExecCredential {
+	requireProxyRootCA(req)
 	kubectlLoginVerbose("azure proxy flow: fqdn=%q role=%q userUUID=%q",
 		req.cluster.FQDN, req.cluster.RoleID, req.session.userUUID)
 
@@ -887,11 +898,12 @@ func (a *IdsecKubectlLoginAction) runAzureProxyFlow(
 	}
 	accessToken, _, elevateExpiresAt := a.acquireAzureAKSToken(cmd, svc, provider, req)
 	kubectlLoginInfo("azure proxy flow [1/2]: AKS token acquired (%d bytes)", len(accessToken))
-	kubectlLoginVerbose("AKS token acquired (len=%d) — setting as jwe_extension_value", len(accessToken))
+	kubectlLoginVerbose("AKS token acquired (len=%d) root_ca_len=%d — encrypting as JWE for DPA",
+		len(accessToken), len(req.cluster.RootCA))
 
-	req.cluster.JWEExtensionValue = accessToken
-	kubectlLoginInfo("azure proxy flow [2/2]: calling DPA SSO acquire (DPA-K8S) with jwe_extension_value")
-	kubectlLoginVerbose("generating AZURE proxy ExecCredential via DPA SSO acquire (jwe_extension_value set, len=%d)", len(accessToken))
+	req.cluster.K8sToken = accessToken
+	kubectlLoginInfo("azure proxy flow [2/2]: calling DPA SSO acquire (DPA-K8S) with proxy JWE (k8s_token+root_ca)")
+	proxyStartedAt := time.Now()
 	execCred, err := svc.GenerateProxyExecCredential(k8smodels.CSPAzure, req.cluster)
 	if err != nil {
 		exitErr(fmt.Sprintf("proxy credential generation failed: %v", err))
@@ -900,6 +912,7 @@ func (a *IdsecKubectlLoginAction) runAzureProxyFlow(
 		"azure proxy flow [2/2]: DPA SSO acquire returned cert (%d bytes) and key (%d bytes)",
 		len(execCred.Status.ClientCertificateData), len(execCred.Status.ClientKeyData),
 	)
+	kubectlLoginVerboseDuration("Azure proxy ExecCredential generation", proxyStartedAt)
 
 	a.applyFlowExecCredentialTTL(cmd, execCredFlowAzureProxy, execCred, elevateExpiresAt, accessToken)
 

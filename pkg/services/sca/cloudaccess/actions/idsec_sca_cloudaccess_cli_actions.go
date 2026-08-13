@@ -10,7 +10,7 @@ import (
 var CLIAction = &actions.IdsecServiceCLIActionDefinition{
 	IdsecServiceBaseActionDefinition: actions.IdsecServiceBaseActionDefinition{
 		ActionName:        "cloud-access",
-		ActionDescription: "List cloud console targets (AWS, Azure accounts) that the authenticated user is eligible to access via Secure Cloud Access.",
+		ActionDescription: "List cloud console targets (AWS, Azure, GCP accounts) that the authenticated user is eligible to access via Secure Cloud Access.",
 		ActionVersion:     1,
 		Schemas:           sdkactions.ActionToSchemaMap,
 	},

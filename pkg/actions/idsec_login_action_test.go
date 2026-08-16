@@ -494,6 +494,36 @@ func setupConfigureFlowTest() (*IdsecLoginAction, *cobra.Command) {
 	return action, cmd
 }
 
+// TestIdsecLoginAction_loadProfileWithConfigureFlow_ExistingProfile verifies that when a
+// profile already exists under the requested name, it is returned as-is and the configure
+// flow is never triggered (regardless of interactive mode).
+func TestIdsecLoginAction_loadProfileWithConfigureFlow_ExistingProfile(t *testing.T) {
+	configureTriggered := false
+	mockLoader := testutils.NewMockProfileLoader()
+	mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
+		return testutils.CreateTestProfile(name), nil
+	}
+	mockLoader.SaveProfileFunc = func(profile *models.IdsecProfile) error {
+		configureTriggered = true
+		return nil
+	}
+	action := NewIdsecLoginAction(mockLoader.AsProfileLoader())
+	cmd := &cobra.Command{}
+	cmd.Flags().String("profile-name", "existing-profile", "Profile name")
+
+	profile, err := action.loadProfileWithConfigureFlow("existing-profile", cmd)
+
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if profile == nil || profile.ProfileName != "existing-profile" {
+		t.Errorf("Expected the existing profile to be returned as-is, got %+v", profile)
+	}
+	if configureTriggered {
+		t.Error("Expected configure flow NOT to be triggered when profile already exists")
+	}
+}
+
 // TestIdsecLoginAction_ConfigureFlow tests the new configure flow behavior
 func TestIdsecLoginAction_ConfigureFlow(t *testing.T) {
 	t.Run("interactive_mode_triggers_configure_flow", func(t *testing.T) {

@@ -147,7 +147,7 @@ func (a *IdsecConfigureAction) DefineAction(cmd *cobra.Command) {
 	confCmd := &cobra.Command{
 		Use:   "configure",
 		Short: "Configure the CLI",
-		Run:   a.runConfigureAction,
+		Run:   func(cmd *cobra.Command, args []string) { a.runConfigureAction(cmd, args) },
 	}
 	confCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
 		a.CommonActionsExecution(cmd, args, true)
@@ -667,7 +667,8 @@ func (a *IdsecConfigureAction) runSilentConfigureAction(cmd *cobra.Command, args
 // runConfigureAction determines whether to run in interactive or silent mode based
 // on the current CLI environment settings, executes the appropriate configuration
 // method, saves the resulting profile, and displays the configuration results to
-// the user.
+// the user. It returns the saved profile so callers (e.g. the inline login flow)
+// can use it directly without re-loading by name.
 //
 // The function performs the following operations:
 //  1. Checks if the CLI is running in interactive mode
@@ -691,7 +692,7 @@ func (a *IdsecConfigureAction) runSilentConfigureAction(cmd *cobra.Command, args
 //	  "auth_profiles": {...}
 //	}
 //	Profile has been saved to /home/user/.idsec/profiles
-func (a *IdsecConfigureAction) runConfigureAction(cmd *cobra.Command, configureArgs []string) {
+func (a *IdsecConfigureAction) runConfigureAction(cmd *cobra.Command, configureArgs []string) *models.IdsecProfile {
 	var profile *models.IdsecProfile
 	var err error
 	if config.IsInteractive() {
@@ -710,13 +711,14 @@ func (a *IdsecConfigureAction) runConfigureAction(cmd *cobra.Command, configureA
 	err = (*a.profilesLoader).SaveProfile(profile)
 	if err != nil {
 		a.logger.Error("Error saving idsec profile %v", err)
-		return
+		return nil
 	}
 	data, err := json.MarshalIndent(profile, "", "  ")
 	if err != nil {
 		a.logger.Error("Error serializing idsec profile %v", err)
-		return
+		return nil
 	}
 	args.PrintSuccess(string(data))
 	args.PrintSuccessBright(fmt.Sprintf("Profile has been saved to %s", profiles.GetProfilesFolder()))
+	return profile
 }

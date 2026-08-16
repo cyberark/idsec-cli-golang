@@ -419,6 +419,48 @@ idsec pcloud applications create-auth-method --app-id myapp --auth-type hash --a
 idsec pcloud applications delete-auth-method --app-id myapp --auth-id 1
 ```
 
+## Access Space examples
+
+### List all accessible assets
+```shell linenums="0"
+idsec access assets list
+```
+
+### List only recently accessed assets
+```shell linenums="0"
+idsec access assets list-by --recents-only
+```
+
+### List only favorite assets
+```shell linenums="0"
+idsec access assets list-by --favorites-only
+```
+
+### List assets filtered by access method (vaulted or zsp)
+```shell linenums="0"
+idsec access assets list-by --access-method vaulted
+```
+
+### List assets with a keyword search and sort
+```shell linenums="0"
+idsec access assets list-by --search "address contains 10.0.0" --sort address.asc
+```
+
+### List assets with a result limit
+```shell linenums="0"
+idsec access assets list-by --limit 50
+```
+
+### Retrieve credentials for an asset
+```shell linenums="0"
+idsec access assets secret --asset-id your-asset-id
+```
+
+### Retrieve credentials with an audit reason
+```shell linenums="0"
+idsec access assets secret --asset-id your-asset-id --reason "Break-glass troubleshooting"
+```
+
 ### List SCA cloud-access targets across all providers
 ```shell linenums="0"
 idsec sca cloud-access list-targets
@@ -427,6 +469,11 @@ idsec sca cloud-access list-targets
 ### List SCA cloud-access targets for a single provider
 ```shell linenums="0"
 idsec sca cloud-access list-targets --csp aws
+```
+
+### List SCA cloud-access targets for GCP
+```shell linenums="0"
+idsec sca cloud-access list-targets --csp gcp
 ```
 
 ### Elevate into a single AWS account
@@ -462,6 +509,18 @@ Directory role IDs are bare GUIDs. Pass the Entra directory (tenant) ID as both 
 
 ```shell linenums="0"
 idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds fe930be7-5e62-47db-91af-98c3a49a38b1
+```
+
+### Elevate into a GCP project
+`--organization-id` is required for GCP and holds the GCP organization ID. GCP accepts up to five role IDs per call, all applied to the same `--workspace-id`.
+
+```shell linenums="0"
+idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --roleIds roles/iam.securityReviewer
+```
+
+### Elevate into a GCP project with multiple roles
+```shell linenums="0"
+idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --roleIds roles/iam.securityReviewer,roles/compute.admin
 ```
 
 ### List SCA group-access targets (Azure only)

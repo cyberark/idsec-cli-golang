@@ -229,7 +229,7 @@ The following services and commands are supported:
   - <b>db</b> - databases access policies management
   - <b>vm</b> - virtual machines access policies management
 - <b>sca</b> - Secure Cloud Access just-in-time elevation
-  - <b>cloud-access</b> - Elevate into AWS or Azure workspaces with a role
+  - <b>cloud-access</b> - Elevate into AWS, Azure, or GCP workspaces with a role
   - <b>group-access</b> - Request just-in-time membership in Microsoft Entra ID groups (Azure only)
 
 Any command has its own subcommands, with respective arguments
@@ -731,6 +731,11 @@ idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77
 Elevate into a Microsoft Entra ID directory role (bare-GUID role ID, directory ID for both `--workspace-id` and `--organization-id`)
 ```shell
 idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds fe930be7-5e62-47db-91af-98c3a49a38b1
+```
+
+Elevate into a GCP project, folder, or organization (organization ID always required; up to 5 roles per call)
+```shell
+idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --roleIds roles/iam.securityReviewer
 ```
 
 List SCA group-access targets (Azure only)

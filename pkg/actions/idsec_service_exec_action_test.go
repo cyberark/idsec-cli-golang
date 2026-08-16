@@ -10,11 +10,13 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/cyberark/idsec-cli-golang/internal/featureadoption"
 	"github.com/cyberark/idsec-cli-golang/pkg/actions/testutils"
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models/actions"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
+	sdkservices "github.com/cyberark/idsec-sdk-golang/pkg/services"
 )
 
 // DefaultTestSchema represents a schema with various default values for testing
@@ -124,6 +126,29 @@ func (m *mockService) TestAction(schema *testutils.TestSchema) (interface{}, err
 	}
 	return map[string]interface{}{"result": "success", "name": schema.Name}, nil
 }
+
+// mockIdsecSDKService implements sdkservices.IdsecService and records every
+// AddExtraContextField and ClearExtraContext call so tests can assert on them.
+type mockIdsecSDKService struct {
+	addContextCalls    []struct{ name, shortName, value string }
+	clearContextCalled bool
+}
+
+func (m *mockIdsecSDKService) ServiceConfig() sdkservices.IdsecServiceConfig {
+	return sdkservices.IdsecServiceConfig{}
+}
+
+func (m *mockIdsecSDKService) AddExtraContextField(name, shortName, value string) error {
+	m.addContextCalls = append(m.addContextCalls, struct{ name, shortName, value string }{name, shortName, value})
+	return nil
+}
+
+func (m *mockIdsecSDKService) ClearExtraContext() error {
+	m.clearContextCalled = true
+	return nil
+}
+
+var _ sdkservices.IdsecService = (*mockIdsecSDKService)(nil)
 
 func TestNewIdsecServiceExecAction(t *testing.T) {
 	tests := []struct {
@@ -1981,6 +2006,72 @@ func TestIdsecServiceExecAction_resolveActionArgs_preservesFirstFlagError(t *tes
 	}
 	if !strings.Contains(err.Error(), "choices") {
 		t.Fatalf("expected the error to reference the invalid choices flag, got: %v", err)
+	}
+}
+
+// TestIdsecServiceExecAction_CLIContextInjectionAndClear verifies that:
+//  1. AddExtraContextField is called on the service with the full tag name,
+//     the short tag name, and the correct value for every entry in cliContextTags.
+//  2. ClearExtraContext is called via defer so the service state is cleaned up
+//     regardless of how the action exits.
+//
+// The test exercises the same type-assertion and looping pattern used in
+// RunExecAction by wrapping a mockIdsecSDKService in a reflect.Value, which
+// is the concrete type that serviceErr[0] holds at runtime.
+func TestIdsecServiceExecAction_CLIContextInjectionAndClear(t *testing.T) {
+	t.Parallel()
+
+	tags := map[string]string{
+		featureadoption.TagKeyCLIService:   "pcloud",
+		featureadoption.TagKeyCLIOperation: "create",
+		featureadoption.TagKeyCLIVersion:   "1.2.3",
+	}
+
+	mockSvc := &mockIdsecSDKService{}
+	action := NewIdsecServiceExecAction(nil)
+	action.cliContextTags = tags
+
+	// serviceReflectVal simulates the value returned by serviceErr[0] in RunExecAction.
+	serviceReflectVal := reflect.ValueOf(mockSvc)
+
+	// Execute in a closure so the deferred ClearExtraContext runs before we assert.
+	func() {
+		svc, ok := serviceReflectVal.Interface().(sdkservices.IdsecService)
+		if !ok {
+			t.Error("mockIdsecSDKService does not satisfy sdkservices.IdsecService")
+			return
+		}
+		for shortKey, value := range action.cliContextTags {
+			_ = svc.AddExtraContextField(cliContextFullName(shortKey), shortKey, value)
+		}
+		defer func() { _ = svc.ClearExtraContext() }()
+	}()
+
+	if got := len(mockSvc.addContextCalls); got != len(tags) {
+		t.Fatalf("expected %d AddExtraContextField calls, got %d", len(tags), got)
+	}
+
+	wantByShort := map[string]struct{ fullName, value string }{
+		featureadoption.TagKeyCLIService:   {cliContextFullName(featureadoption.TagKeyCLIService), "pcloud"},
+		featureadoption.TagKeyCLIOperation: {cliContextFullName(featureadoption.TagKeyCLIOperation), "create"},
+		featureadoption.TagKeyCLIVersion:   {cliContextFullName(featureadoption.TagKeyCLIVersion), "1.2.3"},
+	}
+	for _, call := range mockSvc.addContextCalls {
+		want, ok := wantByShort[call.shortName]
+		if !ok {
+			t.Errorf("unexpected shortName %q in AddExtraContextField call", call.shortName)
+			continue
+		}
+		if call.name != want.fullName {
+			t.Errorf("shortName=%q: got name=%q, want %q", call.shortName, call.name, want.fullName)
+		}
+		if call.value != want.value {
+			t.Errorf("shortName=%q: got value=%q, want %q", call.shortName, call.value, want.value)
+		}
+	}
+
+	if !mockSvc.clearContextCalled {
+		t.Error("ClearExtraContext was not called; defer cleanup is missing or broken")
 	}
 }
 

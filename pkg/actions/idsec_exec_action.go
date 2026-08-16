@@ -67,6 +67,7 @@ type IdsecBaseExecAction struct {
 	profilesLoader *profiles.ProfileLoader
 	execAction     *IdsecExecAction
 	logger         *common.IdsecLogger
+	cliContextTags map[string]string
 }
 
 // NewIdsecBaseExecAction creates a new instance of IdsecBaseExecAction with the specified configuration.
@@ -223,6 +224,7 @@ func (a *IdsecBaseExecAction) runExecAction(cmd *cobra.Command, execArgs []strin
 	reportStatus := "success"
 	reportMessage := ""
 	fasTags := buildCLIContextTags(cmd, execCmd)
+	a.cliContextTags = fasTags
 	defer featureadoption.ReportOperationDefer(cmd.Context(), &api.IdsecAPI, a.logger, &reportStatus, &reportMessage, fasTags)()
 
 	// Run the actual exec fitting action with the api
@@ -277,4 +279,21 @@ func buildCLIContextTags(cmd *cobra.Command, stopCmd *cobra.Command) map[string]
 // Local `go build` without ldflags may show the SDK default (e.g. 0.0.0).
 func cliVersion() string {
 	return string(config.IdsecVersion())
+}
+
+// cliContextFullName maps a FAS short tag key to its descriptive long name for
+// use as the human-readable field name in the X-Cybr-Telemetry extra context.
+func cliContextFullName(shortKey string) string {
+	switch shortKey {
+	case featureadoption.TagKeyCLIService:
+		return "cli_service"
+	case featureadoption.TagKeyCLIOperation:
+		return "cli_operation"
+	case featureadoption.TagKeyCLIResource:
+		return "cli_resource"
+	case featureadoption.TagKeyCLIVersion:
+		return "cli_version"
+	default:
+		return "cli_" + shortKey
+	}
 }

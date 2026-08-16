@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/cyberark/idsec-cli-golang/pkg/actions/testutils"
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
+	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
@@ -290,6 +292,102 @@ func TestIdsecConfigureAction_runSilentConfigureAction(t *testing.T) {
 
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, profile, err)
+			}
+		})
+	}
+}
+
+// TestIdsecConfigureAction_runConfigureAction_ReturnsProfile verifies that runConfigureAction
+// returns the profile it just saved, rather than discarding it. This is the behavior the login
+// flow relies on: after triggering an inline configure, it uses this return value directly
+// instead of re-loading the profile by its original (potentially stale) name.
+func TestIdsecConfigureAction_runConfigureAction_ReturnsProfile(t *testing.T) {
+	// runSilentConfigureAction is exercised here (not the interactive path) since it does not
+	// require terminal input, keeping the test deterministic.
+	wasInteractive := config.IsInteractive()
+	config.DisableInteractive()
+	defer func() {
+		if wasInteractive {
+			config.EnableInteractive()
+		} else {
+			config.DisableInteractive()
+		}
+	}()
+
+	tests := []struct {
+		name         string
+		setupLoader  func() profiles.ProfileLoader
+		setupFlags   func(cmd *cobra.Command)
+		validateFunc func(t *testing.T, profile *models.IdsecProfile)
+	}{
+		{
+			name: "success_returns_profile_under_the_name_chosen_by_the_user",
+			setupLoader: func() profiles.ProfileLoader {
+				mock := testutils.NewMockProfileLoader()
+				mock.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
+					return nil, nil
+				}
+				mock.SaveProfileFunc = func(profile *models.IdsecProfile) error {
+					return nil
+				}
+				return mock
+			},
+			setupFlags: func(cmd *cobra.Command) {
+				cmd.Flags().String("profile-name", "", "Profile name")
+				cmd.Flags().Bool("work-with-isp", false, "Work with ISP")
+				cmd.Flags().String("isp-username", "", "ISP username")
+				_ = cmd.Flags().Set("profile-name", "yifat_july")
+				_ = cmd.Flags().Set("work-with-isp", "true")
+				_ = cmd.Flags().Set("isp-username", "tina@cyberark.cloud.50758")
+			},
+			validateFunc: func(t *testing.T, profile *models.IdsecProfile) {
+				if profile == nil {
+					t.Fatal("Expected runConfigureAction to return the saved profile, got nil")
+				}
+				if profile.ProfileName != "yifat_july" {
+					t.Errorf("Expected returned profile name 'yifat_july', got '%s'", profile.ProfileName)
+				}
+			},
+		},
+		{
+			name: "error_returns_nil_when_save_fails",
+			setupLoader: func() profiles.ProfileLoader {
+				mock := testutils.NewMockProfileLoader()
+				mock.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
+					return nil, nil
+				}
+				mock.SaveProfileFunc = func(profile *models.IdsecProfile) error {
+					return fmt.Errorf("disk full")
+				}
+				return mock
+			},
+			setupFlags: func(cmd *cobra.Command) {
+				cmd.Flags().String("profile-name", "", "Profile name")
+				cmd.Flags().Bool("work-with-isp", false, "Work with ISP")
+				cmd.Flags().String("isp-username", "", "ISP username")
+				_ = cmd.Flags().Set("profile-name", "another-profile")
+				_ = cmd.Flags().Set("work-with-isp", "true")
+				_ = cmd.Flags().Set("isp-username", "testuser")
+			},
+			validateFunc: func(t *testing.T, profile *models.IdsecProfile) {
+				if profile != nil {
+					t.Errorf("Expected nil profile when SaveProfile fails, got %+v", profile)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := tt.setupLoader()
+			action := NewIdsecConfigureAction(&loader)
+			cmd := &cobra.Command{}
+			tt.setupFlags(cmd)
+
+			profile := action.runConfigureAction(cmd, []string{})
+
+			if tt.validateFunc != nil {
+				tt.validateFunc(t, profile)
 			}
 		})
 	}

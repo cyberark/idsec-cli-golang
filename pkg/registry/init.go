@@ -3,6 +3,8 @@ package registry
 import (
 	"github.com/cyberark/idsec-sdk-golang/pkg/models/actions"
 
+	accessassetsactions "github.com/cyberark/idsec-cli-golang/pkg/services/access/assets/actions"
+
 	cmgrnetworksactions "github.com/cyberark/idsec-cli-golang/pkg/services/cmgr/networks/actions"
 	cmgrpoolcomponentsactions "github.com/cyberark/idsec-cli-golang/pkg/services/cmgr/poolcomponents/actions"
 	cmgrpoolidentifiersactions "github.com/cyberark/idsec-cli-golang/pkg/services/cmgr/poolidentifiers/actions"
@@ -191,6 +193,17 @@ func init() {
 		Subactions: []*actions.IdsecServiceCLIActionDefinition{
 			smsessionsactions.CLIAction,
 			smsessionactivitiesactions.CLIAction,
+		},
+	})
+
+	RegisterCLIAction(&actions.IdsecServiceCLIActionDefinition{
+		IdsecServiceBaseActionDefinition: actions.IdsecServiceBaseActionDefinition{
+			ActionName:        "access",
+			ActionDescription: "Access Space operations. Browse PAM-managed assets visible to the authenticated user and retrieve their credentials on demand, whether vaulted or Zero Standing Privilege (ZSP).",
+			ActionVersion:     1,
+		},
+		Subactions: []*actions.IdsecServiceCLIActionDefinition{
+			accessassetsactions.CLIAction,
 		},
 	})
 }

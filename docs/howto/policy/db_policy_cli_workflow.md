@@ -24,12 +24,12 @@ Here is an example workflow for adding a DB policy alongside all needed assets v
       "metadata": {
         "name": "Cool Policy",
         "description": "Cool Policy Description",
-        "status": { "status": "ACTIVE" },
+        "status": { "status": "Active" },
         "timeFrame": { "fromTime": null, "toTime": null },
         "policyEntitlement": {
           "targetCategory": "DB",
-          "locationType": "FQDN_IP",
-          "policyType": "RECURRING"
+          "locationType": "FQDN/IP",
+          "policyType": "Recurring"
         },
         "policyTags": ["cool_tag", "cool_tag2"],
         "timeZone": "Asia/Jerusalem"
@@ -53,22 +53,15 @@ Here is an example workflow for adding a DB policy alongside all needed assets v
         "idleTime": 1
       },
       "targets": {
-        "FQDN_IP": {
+        "FQDN/IP": {
           "instances": [
             {
-              "instanceName": "Mongo-atlas_ephemeral_user",
-              "instanceType": "Mongo",
-              "instanceId": "1234",
-              "authenticationMethod": "MONGO_AUTH",
-              "mongoAuthProfile": {
-                "globalBuiltinRoles": ["readWriteAnyDatabase"],
-                "databaseBuiltinRoles": {
-                  "mydb1": ["userAdmin"],
-                  "mydb2": ["dbAdmin"]
-                },
-                "databaseCustomRoles": {
-                  "mydb1": ["myCoolRole"]
-                }
+              "instanceName": "example-db-instance",
+              "instanceType": "MSSQL",
+              "instanceId": "1",
+              "authenticationMethod": "ldap_auth",
+              "ldapAuthProfile": {
+                "assignGroups": ["mygroup"]
               }
             }
           ]

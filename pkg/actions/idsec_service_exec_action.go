@@ -26,6 +26,7 @@ import (
 	"github.com/cyberark/idsec-sdk-golang/pkg/common"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models/actions"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
+	sdkservices "github.com/cyberark/idsec-sdk-golang/pkg/services"
 	"github.com/cyberark/idsec-sdk-golang/pkg/validation"
 )
 
@@ -1111,6 +1112,12 @@ func (s *IdsecServiceExecAction) RunExecAction(api *cli.IdsecCLIAPI, cmd *cobra.
 		if err, ok := serviceErr[1].Interface().(error); ok && err != nil {
 			return err
 		}
+	}
+	if svc, ok := service.Interface().(sdkservices.IdsecService); ok {
+		for shortKey, value := range s.cliContextTags {
+			_ = svc.AddExtraContextField(cliContextFullName(shortKey), shortKey, value)
+		}
+		defer func() { _ = svc.ClearExtraContext() }()
 	}
 	actionMethod, err := s.findMethodByName(reflect.ValueOf(service.Interface()), actionNameTitled)
 	if err != nil {

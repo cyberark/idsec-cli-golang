@@ -662,7 +662,7 @@ func TestServeFromUnifiedCache_EmptySessionEarlyReturns(t *testing.T) {
 	cmd := &cobra.Command{Use: "kubectl-login"}
 
 	stderr := captureKubectlLoginStderr(t, func() {
-		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", kubectlLoginSession{
+		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", "", kubectlLoginSession{
 			userUUID: "91ff5db2-24c9-4a2b-b414-ec416dfbd43f",
 		})
 		if served := a.serveFromUnifiedCache(cmd, req); served {
@@ -691,7 +691,7 @@ func TestSaveUnifiedExecCredential_EmptySessionNoOp(t *testing.T) {
 	}
 
 	stderr := captureKubectlLoginStderr(t, func() {
-		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", kubectlLoginSession{
+		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", "", kubectlLoginSession{
 			userUUID: "91ff5db2-24c9-4a2b-b414-ec416dfbd43f",
 		})
 		a.saveUnifiedExecCredential(cmd, req, "direct", cred)
@@ -720,7 +720,7 @@ func TestSaveUnifiedExecCredential_NoExpirationSkipsSave(t *testing.T) {
 	}
 
 	stderr := captureKubectlLoginStderr(t, func() {
-		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", kubectlLoginSession{
+		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", "", kubectlLoginSession{
 			userUUID:  "91ff5db2-24c9-4a2b-b414-ec416dfbd43f",
 			sessionID: "sid-not-empty",
 		})

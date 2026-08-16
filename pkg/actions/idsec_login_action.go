@@ -290,13 +290,10 @@ func (a *IdsecLoginAction) loadProfileWithConfigureFlow(profileName string, cmd 
 		if config.IsInteractive() {
 			args.PrintWarning("No profile found. Starting configuration flow...")
 
-			// Create a configure action instance and run it
+			// Run configure and use the returned profile directly
 			configureAction := NewIdsecConfigureAction(a.profilesLoader)
-			configureAction.runConfigureAction(cmd, []string{})
-
-			// Reload profile after configuration
-			profile, err = (*a.profilesLoader).LoadProfile(profiles.DeduceProfileName(profileName))
-			if err != nil || profile == nil {
+			profile = configureAction.runConfigureAction(cmd, []string{})
+			if profile == nil {
 				return nil, fmt.Errorf("failed to load profile after configuration")
 			}
 		} else {

@@ -681,6 +681,31 @@ func TestIdsecBaseExecAction_Integration(t *testing.T) {
 	}
 }
 
+func TestCLIContextFullName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		shortKey string
+		wantFull string
+	}{
+		{featureadoption.TagKeyCLIService, "cli_service"},
+		{featureadoption.TagKeyCLIOperation, "cli_operation"},
+		{featureadoption.TagKeyCLIResource, "cli_resource"},
+		{featureadoption.TagKeyCLIVersion, "cli_version"},
+		{"custom_key", "cli_custom_key"},
+		{"", "cli_"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.shortKey, func(t *testing.T) {
+			t.Parallel()
+			if got := cliContextFullName(tt.shortKey); got != tt.wantFull {
+				t.Errorf("cliContextFullName(%q) = %q, want %q", tt.shortKey, got, tt.wantFull)
+			}
+		})
+	}
+}
+
 func TestBuildCLIContextTags_ServiceOperationAndResource(t *testing.T) {
 	t.Parallel()
 

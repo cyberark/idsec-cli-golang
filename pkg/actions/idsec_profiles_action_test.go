@@ -500,6 +500,10 @@ func TestIdsecProfilesAction_runShowAction(t *testing.T) {
 	}
 }
 
+// TestIdsecProfilesAction_runShowAction_NilProfileHandling guards against a regression where
+// LoadProfile returning (nil, nil) - which is how the filesystem loader reports "no profile
+// found under this name" - was not checked for nil, causing the command to marshal a nil
+// pointer and print the literal string "null" instead of a clear warning.
 func TestIdsecProfilesAction_runDeleteAction(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -793,6 +797,47 @@ func TestIdsecProfilesAction_runCloneAction(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestIdsecProfilesAction_runCloneAction_NilProfileHandling guards against a regression where
+// LoadProfile returning (nil, nil) was not checked, which would have caused a nil pointer
+// dereference on clonedProfile.ProfileName = newProfileName below.
+// TestIdsecProfilesAction_NilProfileHandling guards against a regression where LoadProfile
+// returning (nil, nil) - which is how the filesystem loader reports "no profile found under
+// this name" - was not checked, causing show to print "null" and clone to panic on a nil
+// dereference.
+func TestIdsecProfilesAction_NilProfileHandling(t *testing.T) {
+	newAction := func() *IdsecProfilesAction {
+		mock := testutils.NewMockProfileLoader()
+		mock.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
+			return nil, nil
+		}
+		loader := profiles.ProfileLoader(mock)
+		return NewIdsecProfilesAction(&loader)
+	}
+
+	t.Run("show", func(t *testing.T) {
+		cmd := &cobra.Command{}
+		_ = cmd.Flags().String("profile-name", "", "Profile name")
+		_ = cmd.Flags().Set("profile-name", "missing-profile")
+		newAction().runShowAction(cmd, []string{})
+	})
+
+	t.Run("clone", func(t *testing.T) {
+		cmd := &cobra.Command{}
+		_ = cmd.Flags().String("profile-name", "", "Profile name")
+		_ = cmd.Flags().String("new-profile-name", "", "New profile name")
+		_ = cmd.Flags().Bool("yes", false, "Skip confirmation")
+		_ = cmd.Flags().Set("profile-name", "missing-profile")
+		newAction().runCloneAction(cmd, []string{}) // previously panicked on nil dereference
+	})
+
+	t.Run("edit", func(t *testing.T) {
+		cmd := &cobra.Command{}
+		_ = cmd.Flags().String("profile-name", "", "Profile name")
+		_ = cmd.Flags().Set("profile-name", "missing-profile")
+		newAction().runEditAction(cmd, []string{})
+	})
 }
 
 func TestIdsecProfilesAction_StructFields(t *testing.T) {

@@ -128,3 +128,6 @@ content/
 *.zip
 *.tar.gz
 .DS_Store
+
+# uv.lock file
+uv.lock

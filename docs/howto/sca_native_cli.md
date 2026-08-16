@@ -11,10 +11,10 @@ The feature is built around a consistent two-step workflow. First you **discover
 
 This workflow describes two command groups:
 
-- `idsec sca cloud-access` — elevate into a cloud workspace with a role, across AWS and Azure. This covers single AWS IAM accounts, AWS accounts managed by an AWS organization, Azure resource scopes (subscription, resource group, resource, management group), and Microsoft Entra ID directory roles.
+- `idsec sca cloud-access` — elevate into a cloud workspace with a role, across AWS, Azure, and GCP. This covers single AWS IAM accounts, AWS accounts managed by an AWS organization, Azure resource scopes (subscription, resource group, resource, management group), Microsoft Entra ID directory roles, and GCP projects, folders, and organizations.
 - `idsec sca group-access` — request just-in-time membership in Microsoft Entra ID groups. This command group is Azure-only.
 
-The sections below are organized by cloud provider and flow — AWS IAM, AWS organization, Azure resource, Azure Entra ID, and Group membership.
+The sections below are organized by cloud provider and flow — AWS IAM, AWS organization, Azure resource, Azure Entra ID, GCP, and Group membership.
 
 ## Before you begin
 
@@ -42,13 +42,13 @@ All SCA commands use the Identity Security Platform authenticator from your acti
 `list-targets` has no required flags:
 
 
-| Flag             | Type   | Description                                                                         |
-| ---------------- | ------ | ----------------------------------------------------------------------------------- |
-| `--csp`          | string | Cloud provider, `AWS` or `AZURE` (case-insensitive). Omit to list both.             |
-| `--all`          | bool   | Explicitly list targets for all default providers. Cannot be combined with `--csp`. |
-| `--workspace-id` | string | Filter the results to a single workspace.                                           |
-| `--limit`        | int    | Page size per API request, up to 50.                                                |
-| `--next-token`   | string | Start from a specific pagination token.                                             |
+| Flag             | Type   | Description                                                                            |
+| ---------------- | ------ | ---------------------------------------------------------------------------------------- |
+| `--csp`          | string | Cloud provider, `AWS`, `AZURE`, or `GCP` (case-insensitive). Omit to list all three.      |
+| `--all`          | bool   | Explicitly list targets for all default providers. Cannot be combined with `--csp`.      |
+| `--workspace-id` | string | Filter the results to a single workspace.                                                |
+| `--limit`        | int    | Page size per API request, up to 50.                                                     |
+| `--next-token`   | string | Start from a specific pagination token.                                                  |
 
 
 
@@ -58,12 +58,12 @@ All SCA commands use the Identity Security Platform authenticator from your acti
 `elevate` requires `--csp`, `--workspace-id`, and `--roleIds`:
 
 
-| Flag                | Type   | Description                                                                                                              |
-| ------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `--csp`             | string | **Required.** `AWS` or `AZURE`.                                                                                          |
-| `--workspace-id`    | string | **Required.** The `workspaceId` of the target from `list-targets`.                                                       |
-| `--roleIds`         | string | **Required.** Comma-separated role IDs. Maximum 1 for AWS, 5 for Azure.                                                  |
-| `--organization-id` | string | The organization or tenant ID. Required for Azure and for AWS accounts in an Organization; omit for single AWS accounts. |
+| Flag                | Type   | Description                                                                                                                    |
+| ------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `--csp`             | string | **Required.** `AWS`, `AZURE`, or `GCP`.                                                                                          |
+| `--workspace-id`    | string | **Required.** The `workspaceId` of the target from `list-targets`.                                                               |
+| `--roleIds`         | string | **Required.** Comma-separated role IDs. Maximum 1 for AWS, 5 for Azure and GCP.                                                  |
+| `--organization-id` | string | The organization or tenant ID. Required for Azure, GCP, and for AWS accounts in an Organization; omit for single AWS accounts.   |
 
 
 
@@ -95,21 +95,22 @@ All SCA commands use the Identity Security Platform authenticator from your acti
 Every cloud-access target has a `workspaceType` field. Use that value to pick the flow and options below:
 
 
-| `workspaceType`                                                  | Flow                              | Section                               |
-| ---------------------------------------------------------------- | --------------------------------- | ------------------------------------- |
-| `ACCOUNT`, no `organizationId`                                   | Single AWS account                | [AWS IAM](#aws-iam)                   |
-| `ACCOUNT`, with `organizationId`                                 | AWS account in an Organization    | [AWS organization](#aws-organization) |
-| `SUBSCRIPTION`, `RESOURCE_GROUP`, `RESOURCE`, `MANAGEMENT_GROUP` | Azure resource scope              | [Azure resource](#azure-resource)     |
-| `DIRECTORY`                                                      | Microsoft Entra ID directory role | [Azure Entra ID](#azure-entra-id)     |
+| `workspaceType`                                                  | Flow                               | Section                               |
+| ---------------------------------------------------------------- | ----------------------------------- | ------------------------------------- |
+| `ACCOUNT`, no `organizationId`                                   | Single AWS account                 | [AWS IAM](#aws-iam)                   |
+| `ACCOUNT`, with `organizationId`                                 | AWS account in an Organization     | [AWS organization](#aws-organization) |
+| `SUBSCRIPTION`, `RESOURCE_GROUP`, `RESOURCE`, `MANAGEMENT_GROUP` | Azure resource scope               | [Azure resource](#azure-resource)     |
+| `DIRECTORY`                                                      | Microsoft Entra ID directory role  | [Azure Entra ID](#azure-entra-id)     |
+| `PROJECT`, `FOLDER`, `GCP_ORGANIZATION`                          | GCP project, folder, or org        | [GCP](#gcp)                           |
 
 
-To list your eligibility across both providers at once, omit `--csp`:
+To list your eligibility across all providers at once, omit `--csp`:
 
 ```shell linenums="0"
 idsec sca cloud-access list-targets
 ```
 
-The output is then grouped by provider, and a failure from one provider does not abort the other:
+The output is then grouped by provider, and a failure from one provider does not abort the others:
 
 ```json
 {
@@ -135,6 +136,21 @@ The output is then grouped by provider, and a failure from one provider does not
         },
         "organizationId": "3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632",
         "workspaceType": "SUBSCRIPTION"
+      }
+    ],
+    "total": 1
+  },
+  "gcp": {
+    "response": [
+      {
+        "workspaceId": "acme-prod-payments-458213",
+        "workspaceName": "acme-prod-payments",
+        "role": {
+          "id": "roles/iam.securityReviewer",
+          "name": "Security Reviewer"
+        },
+        "organizationId": "884271936502",
+        "workspaceType": "PROJECT"
       }
     ],
     "total": 1
@@ -448,6 +464,104 @@ idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0
 
 As with Azure resource scopes, Azure does not return an `accessCredentials` field. The directory role is assigned to your existing identity, and a fresh sign-in might be required before a token reflects it.
 
+## GCP
+
+Use this flow to elevate into a GCP project, folder, or organization with a predefined or custom IAM role. These targets carry `workspaceType: PROJECT`, `FOLDER`, or `GCP_ORGANIZATION`, and `organizationId` always holds the GCP organization ID — GCP requires organization context even for a single project.
+
+### List eligible GCP targets
+
+```shell linenums="0"
+idsec sca cloud-access list-targets --csp gcp
+```
+
+```json
+{
+  "response": [
+    {
+      "workspaceId": "acme-prod-payments-458213",
+      "workspaceName": "acme-prod-payments",
+      "role": {
+        "id": "roles/iam.securityReviewer",
+        "name": "Security Reviewer"
+      },
+      "organizationId": "884271936502",
+      "workspaceType": "PROJECT"
+    },
+    {
+      "workspaceId": "folders/778899001122",
+      "workspaceName": "Payments-Folder",
+      "role": {
+        "id": "roles/resourcemanager.folderViewer",
+        "name": "Folder Viewer"
+      },
+      "organizationId": "884271936502",
+      "workspaceType": "FOLDER"
+    }
+  ],
+  "total": 2
+}
+```
+
+A GCP role ID is an IAM role path of the form `roles/<service>.<role>` (predefined) or `organizations/<id>/roles/<name>` (custom), not a bare name. `workspaceId` follows the scope: a plain project ID for a project, `folders/<id>` for a folder, and `organizations/<id>` for an organization. Copy `workspaceId`, `role.id`, and `organizationId` verbatim from `list-targets`.
+
+### Elevate into a GCP project
+
+`--organization-id` is required for GCP and holds the GCP organization ID from `organizationId`. `--workspace-id` is the `workspaceId` of the scope you want, whatever its type:
+
+```shell linenums="0"
+idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --roleIds roles/iam.securityReviewer
+```
+
+```json
+{
+  "response": {
+    "organizationId": "884271936502",
+    "csp": "GCP",
+    "results": [
+      {
+        "workspaceId": "acme-prod-payments-458213",
+        "roleId": "roles/iam.securityReviewer",
+        "sessionId": "f3d81b6a-7c42-4e05-9b81-2ce7f4a83d61"
+      }
+    ]
+  }
+}
+```
+
+### Elevate with multiple roles
+
+GCP accepts up to five role IDs in one call, all applied to the single workspace given by `--workspace-id`. To elevate in more than one workspace (for example, two different projects), run `elevate` once per workspace:
+
+```shell linenums="0"
+idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --roleIds roles/iam.securityReviewer,roles/compute.admin
+```
+
+```json
+{
+  "response": {
+    "organizationId": "884271936502",
+    "csp": "GCP",
+    "results": [
+      {
+        "workspaceId": "acme-prod-payments-458213",
+        "roleId": "roles/iam.securityReviewer",
+        "sessionId": "f3d81b6a-7c42-4e05-9b81-2ce7f4a83d61"
+      },
+      {
+        "workspaceId": "acme-prod-payments-458213",
+        "roleId": "roles/compute.admin",
+        "sessionId": "0c6a2e94-8b17-4c5d-9a3f-1e7d5c02b6a9"
+      }
+    ]
+  }
+}
+```
+
+Elevating into a folder or organization scope works the same way — pass the `folders/<id>` or `organizations/<id>` value from `workspaceId` as `--workspace-id`.
+
+**NOTE - No credentials are returned for GCP:**
+Like Azure, GCP elevation grants an IAM role binding to your existing identity rather than minting a separate credential set, so the results contain a `sessionId` and no `accessCredentials`. Continue with your normal GCP tooling — for example `gcloud auth login` followed by `gcloud config set project <id>` — and the newly assigned role applies to that identity.
+
 ## Group Access
 
 Use `idsec sca group-access` to request just-in-time membership in Microsoft Entra ID groups. Instead of granting a role on a cloud scope, this adds you to a group for a policy-defined period, so you inherit whatever that group confers.
@@ -563,7 +677,8 @@ Each `elevate` call is capped on the number of roles or groups it can carry. Exc
 | ---------------------------------- | ------------ | --------------------------------------------- |
 | `cloud-access elevate --csp aws`   | 1 role ID    | `maximum 1 role IDs allowed for AWS, got 2`   |
 | `cloud-access elevate --csp azure` | 5 role IDs   | `maximum 5 role IDs allowed for AZURE, got 6` |
+| `cloud-access elevate --csp gcp`   | 5 role IDs   | `maximum 5 role IDs allowed for GCP, got 6`   |
 | `group-access elevate`             | 5 group IDs | `maximum 5 group IDs allowed, got 6`        |
 
 
-The Azure limit of five applies to resource scopes and Entra ID directory roles alike, and all role IDs in one call must belong to the same `--workspace-id`.
+The limit of five applies to Azure resource scopes and Entra ID directory roles, and to GCP projects, folders, and organizations alike. In every case, all role IDs in one call must belong to the same `--workspace-id`.

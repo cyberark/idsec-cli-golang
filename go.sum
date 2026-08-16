@@ -58,8 +58,8 @@ github.com/confluentinc/go-editor v0.11.0/go.mod h1:nEjwqdqx8S7ZGjXsDvRgawsA04Fu
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/creack/pty v1.1.17 h1:QeVUsEDNrLBW4tMgZHvxy18sKtr6VI492kBhUfhDJNI=
 github.com/creack/pty v1.1.17/go.mod h1:MOBLtS5ELjhRRrroQr9kyvTxUAFNvYEK993ew/Vr4O4=
-github.com/cyberark/idsec-sdk-golang v0.8.1 h1:5VIv1r38QU9lqt+u7jb9aX0uPONPnzffnmCA0oDEUoc=
-github.com/cyberark/idsec-sdk-golang v0.8.1/go.mod h1:MhrabeLOMO6GOb4TOLX1iPFpFUaTNErvsbjUwz4PbDk=
+github.com/cyberark/idsec-sdk-golang v0.9.0 h1:vfqINEhYdnaJzjHCVXHIwvjrzX0AEN1Qmiamj75UG3I=
+github.com/cyberark/idsec-sdk-golang v0.9.0/go.mod h1:MhrabeLOMO6GOb4TOLX1iPFpFUaTNErvsbjUwz4PbDk=
 github.com/danieljoos/wincred v1.2.2 h1:774zMFJrqaeYCK2W57BgAem/MLi6mtSE47MB6BOJ0i0=
 github.com/danieljoos/wincred v1.2.2/go.mod h1:w7w4Utbrz8lqeMbDAK0lkNJUv5sAOkFi7nd/ogr0Uh8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

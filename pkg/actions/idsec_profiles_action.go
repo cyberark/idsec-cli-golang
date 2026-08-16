@@ -248,7 +248,7 @@ func (a *IdsecProfilesAction) runShowAction(cmd *cobra.Command, args []string) {
 	}
 
 	profile, err := (*a.profilesLoader).LoadProfile(profileName)
-	if err != nil {
+	if err != nil || profile == nil {
 		commonargs.PrintWarning(fmt.Sprintf("No profile was found for the name %s", profileName))
 		return
 	}
@@ -352,7 +352,7 @@ func (a *IdsecProfilesAction) runClearAction(cmd *cobra.Command, args []string) 
 func (a *IdsecProfilesAction) runCloneAction(cmd *cobra.Command, args []string) {
 	profileName, _ := cmd.Flags().GetString("profile-name")
 	profile, err := (*a.profilesLoader).LoadProfile(profileName)
-	if err != nil {
+	if err != nil || profile == nil {
 		commonargs.PrintWarning(fmt.Sprintf("No profile was found for the name %s", profileName))
 		return
 	}
@@ -449,7 +449,7 @@ func (a *IdsecProfilesAction) runEditAction(cmd *cobra.Command, args []string) {
 	}
 
 	profile, err := (*a.profilesLoader).LoadProfile(profileName)
-	if err != nil {
+	if err != nil || profile == nil {
 		commonargs.PrintWarning(fmt.Sprintf("No profile was found for the name %s", profileName))
 		return
 	}

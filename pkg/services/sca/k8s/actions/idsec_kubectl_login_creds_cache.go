@@ -109,11 +109,12 @@ func AzureCLIFingerprint() string {
 type execCredFlow string
 
 const (
-	execCredFlowAWSDirect   execCredFlow = "aws direct"
-	execCredFlowAWSProxy    execCredFlow = "aws proxy"
-	execCredFlowAWSIDCProxy execCredFlow = "aws idc proxy"
-	execCredFlowAzureDirect execCredFlow = "azure direct"
-	execCredFlowAzureProxy  execCredFlow = "azure proxy"
+	execCredFlowAWSDirect    execCredFlow = "aws direct"
+	execCredFlowAWSIDCDirect execCredFlow = "aws idc direct"
+	execCredFlowAWSProxy     execCredFlow = "aws proxy"
+	execCredFlowAWSIDCProxy  execCredFlow = "aws idc proxy"
+	execCredFlowAzureDirect  execCredFlow = "azure direct"
+	execCredFlowAzureProxy   execCredFlow = "azure proxy"
 )
 
 // ttlCandidate is one expiry dimension considered when computing the effective
@@ -195,7 +196,7 @@ func execCredTTLCandidates(
 	k8sAccessToken string,
 ) []ttlCandidate {
 	switch flow {
-	case execCredFlowAWSDirect:
+	case execCredFlowAWSDirect, execCredFlowAWSIDCDirect:
 		return []ttlCandidate{
 			execCredentialExpiresAtCandidate("eks", execCred),
 			rawTokenTTLCandidate("elevate", elevateExpiresAt),

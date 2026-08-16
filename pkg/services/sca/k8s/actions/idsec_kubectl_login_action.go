@@ -39,7 +39,7 @@ type kubectlLoginRequest struct {
 // from CLI flags and the loaded ISP session. cluster.Region, cluster.ClusterID,
 // and cluster.K8sToken are filled in later by the active flow.
 func buildKubectlLoginRequest(
-	csp, roleID, fqdn, organizationID, namespace, elevateToken string,
+	csp, roleID, fqdn, organizationID, namespace, elevateToken, clusterToken string,
 	session kubectlLoginSession,
 ) *kubectlLoginRequest {
 	return &kubectlLoginRequest{
@@ -50,6 +50,7 @@ func buildKubectlLoginRequest(
 			OrganizationID: organizationID,
 			Namespace:      namespace,
 			ElevateToken:   elevateToken,
+			ClusterToken:   clusterToken,
 		},
 		session: session,
 	}
@@ -102,6 +103,7 @@ func addElevateFlags(c *cobra.Command) {
 	c.Flags().String("fqdn", "", "Cluster API endpoint FQDN (e.g. xxxx.gr7.us-east-1.eks.amazonaws.com for EKS, <name>.hcp.<region>.azmk8s.io for AKS)")
 	c.Flags().String("organization-id", "", "Azure Entra Directory ID (tenant) — required for Azure, ignored otherwise")
 	c.Flags().String("namespace", "", "Optional Kubernetes namespace (Azure)")
+	c.Flags().String("cluster-token", "", "Base64-encoded cluster token injected by SIA (optional, backward-compatible)")
 }
 
 // loadISPAuthTokenForKubectlLogin loads ISP auth without interactive login.
@@ -184,6 +186,7 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 	fqdn, _ := cmd.Flags().GetString("fqdn")
 	organizationID, _ := cmd.Flags().GetString("organization-id")
 	namespace, _ := cmd.Flags().GetString("namespace")
+	clusterToken, _ := cmd.Flags().GetString("cluster-token")
 
 	cspUpper := strings.ToUpper(strings.TrimSpace(csp))
 	if cspUpper == "" {
@@ -197,8 +200,8 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 		exitErr("--fqdn is required")
 	}
 
-	kubectlLoginVerbose("flags: csp=%q roleId=%q fqdn=%q organizationId=%q namespace=%q",
-		cspUpper, roleID, clusterFQDN, organizationID, namespace)
+	kubectlLoginVerbose("flags: csp=%q roleId=%q fqdn=%q organizationId=%q namespace=%q clusterTokenLen=%d",
+		cspUpper, roleID, clusterFQDN, organizationID, namespace, len(clusterToken))
 
 	profileName := profiles.DeduceProfileName("")
 	if strings.TrimSpace(profileName) == "" {
@@ -262,7 +265,7 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 		kubectlLoginVerbose("silent refresh SID unchanged sid8=%q…", sid8(ispClaims.SessionID))
 	}
 
-	req := buildKubectlLoginRequest(cspUpper, roleID, clusterFQDN, organizationID, namespace, loadedToken.Token, kubectlLoginSession{
+	req := buildKubectlLoginRequest(cspUpper, roleID, clusterFQDN, organizationID, namespace, loadedToken.Token, clusterToken, kubectlLoginSession{
 		profileName: profileName,
 		userUUID:    ispClaims.UserUUID,
 		sessionID:   ispClaims.SessionID,
@@ -636,16 +639,33 @@ func (a *IdsecKubectlLoginAction) runDirectFlow(
 	}
 }
 
-// runAWSDirectFlow implements the AWS EKS direct path:
-//  1. Cached Elevate (sessionExpTime-based) or Elevate API
-//  2. Parse EKS ARN from targetId → region + cluster name for STS presign
-//  3. GenerateToken (STS presign) → ExecCredential bearer token
+// runAWSDirectFlow dispatches the AWS EKS direct path to the appropriate sub-flow
+// based on whether the role is an IAM Identity Center permission-set or a plain IAM role.
 func (a *IdsecKubectlLoginAction) runAWSDirectFlow(
 	cmd *cobra.Command,
 	svc *k8sservice.IdsecSCAK8sService,
 	provider k8sservice.IdsecSCAK8sTokenProvider,
 	req *kubectlLoginRequest,
 ) *k8smodels.IdsecSCAK8sExecCredential {
+	if k8sservice.IsAWSIDCPermissionSetRole(req.cluster.RoleID) {
+		return a.runAWSIDCDirectFlow(cmd, svc, provider, req)
+	}
+	return a.runAWSIAMDirectFlow(cmd, svc, provider, req)
+}
+
+// runAWSIDCDirectFlow implements the AWS IDC permission-set direct path:
+//  1. Cached Elevate (sessionExpTime-based) or Elevate API
+//  2. Parse EKS ARN from targetId → region + cluster name
+//  3. HydrateAWSAccessCredentialsFromElevate (device registration → GetRoleCredentials)
+//  4. GenerateToken (client-side STS presign) → ExecCredential bearer token
+func (a *IdsecKubectlLoginAction) runAWSIDCDirectFlow(
+	cmd *cobra.Command,
+	svc *k8sservice.IdsecSCAK8sService,
+	provider k8sservice.IdsecSCAK8sTokenProvider,
+	req *kubectlLoginRequest,
+) *k8smodels.IdsecSCAK8sExecCredential {
+	kubectlLoginInfo("AWS flow selected: IDC permission-set (device registration → STS → EKS token)")
+
 	elevateResult, _, elevateExpiresAt := a.resolveElevateResult(cmd, svc, req)
 
 	if elevateResult.TargetID != "" {
@@ -658,27 +678,164 @@ func (a *IdsecKubectlLoginAction) runAWSDirectFlow(
 		kubectlLoginVerbose("parsed EKS ARN — region=%q cluster=%q", region, clusterName)
 	}
 
-	if k8sservice.IsAWSIDCPermissionSetRole(elevateResult.RoleID) {
-		kubectlLoginInfo("AWS flow selected: IDC permission-set (device registration → STS → EKS token)")
-		kubectlLoginInfo("hydrating AWS IDC credentials via device registration")
-		oidcCache := NewAWSIDCOIDCCache(
-			req.session.profileName,
-			req.cluster.CSP,
-			req.cluster.RoleID,
-			req.cluster.FQDN,
-			req.session.userUUID,
-			req.resolvedNamespace(),
-			req.session.sessionID,
-		)
-		if err := k8sservice.HydrateAWSAccessCredentialsFromElevate(
-			elevateResult,
-			req.cluster.Diagnostics,
-			oidcCache,
-		); err != nil {
-			exitErr(fmt.Sprintf("failed to obtain AWS IDC credentials: %v", err))
+	kubectlLoginInfo("hydrating AWS IDC credentials via device registration")
+	oidcCache := NewAWSIDCOIDCCache(
+		req.session.profileName,
+		req.cluster.CSP,
+		req.cluster.RoleID,
+		req.cluster.FQDN,
+		req.session.userUUID,
+		req.resolvedNamespace(),
+		req.session.sessionID,
+	)
+	if err := k8sservice.HydrateAWSAccessCredentialsFromElevate(
+		elevateResult,
+		req.cluster.Diagnostics,
+		oidcCache,
+	); err != nil {
+		exitErr(fmt.Sprintf("failed to obtain AWS IDC credentials: %v", err))
+	}
+
+	kubectlLoginInfo("generating AWS token via direct provider")
+	generateStartedAt := time.Now()
+	execCred, err := provider.GenerateToken(elevateResult, req.cluster)
+	if err != nil {
+		exitErr(fmt.Sprintf("failed to generate AWS token: %v", err))
+	}
+	a.applyFlowExecCredentialTTL(cmd, execCredFlowAWSIDCDirect, execCred, elevateExpiresAt, "")
+	kubectlLoginVerboseDuration("AWS IDC direct token generation", generateStartedAt)
+	return execCred
+}
+
+// runAWSIAMDirectFlow implements the AWS IAM role direct path with two sub-paths
+// determined by which Elevate API format is cached:
+//
+//  1. Check the Elevate cache via LoadCachedElevateKeyringWithReason.
+//  2. Old format (accessCredentials present, eksToken absent): cache hit → skip Elevate API
+//     entirely and generate the EKS token client-side from the cached STS credentials.
+//     STS credentials are valid for ~1 hour, so this is safe until sessionExpTime.
+//  3. New format (eksToken present): eksToken has a 15-min hard ceiling, so always call the
+//     Elevate API for a fresh token. Pass the cached sessionId (if any) to continue the
+//     existing SCA session without starting a new one.
+//  4. Cache miss → call Elevate API without a sessionId (cold start).
+//  5. Parse EKS ARN from targetId → region + cluster name.
+//  6. Persist the fresh Elevate result for reuse on the next invocation.
+//  7. GenerateToken → ExecCredential bearer token.
+func (a *IdsecKubectlLoginAction) runAWSIAMDirectFlow(
+	cmd *cobra.Command,
+	svc *k8sservice.IdsecSCAK8sService,
+	provider k8sservice.IdsecSCAK8sTokenProvider,
+	req *kubectlLoginRequest,
+) *k8smodels.IdsecSCAK8sExecCredential {
+	kubectlLoginInfo("AWS flow selected: IAM role (server-side EKS token)")
+	namespace := req.resolvedNamespace()
+
+	cached, hitReason, missReason, cacheErr := LoadCachedElevateKeyringWithReason(
+		req.session.profileName, req.cluster.CSP, req.cluster.RoleID, req.cluster.FQDN,
+		req.session.userUUID, namespace, req.session.sessionID,
+	)
+	if cacheErr != nil {
+		kubectlLoginVerbose("failed to read Elevate cache: %v", cacheErr)
+	}
+
+	// Old Elevate API (accessCredentials, no eksToken): cached STS credentials are valid for ~1 hour.
+	// Skip the Elevate API and generate the EKS token client-side — restores pre-eksToken behaviour.
+	if cached != nil && strings.TrimSpace(cached.EKSToken) == "" {
+		kubectlLoginInfo("Elevate cache HIT (accessCredentials format — skipping Elevate API): %s", hitReason)
+		elevateExpiresAt, expErr := deriveElevateExpiry(cached)
+		if expErr != nil {
+			exitErr(expErr.Error())
+		}
+		if cached.TargetID != "" {
+			region, clusterName, parseErr := k8sservice.ParseEKSARN(cached.TargetID)
+			if parseErr != nil {
+				exitErr(fmt.Sprintf("failed to parse EKS ARN from cached Elevate targetId %q: %v", cached.TargetID, parseErr))
+			}
+			req.cluster.Region = region
+			req.cluster.ClusterID = clusterName
+			kubectlLoginVerbose("parsed EKS ARN — region=%q cluster=%q", region, clusterName)
+		}
+		generateStartedAt := time.Now()
+		execCred, err := provider.GenerateToken(cached, req.cluster)
+		if err != nil {
+			exitErr(fmt.Sprintf("failed to generate AWS token: %v", err))
+		}
+		a.applyFlowExecCredentialTTL(cmd, execCredFlowAWSDirect, execCred, elevateExpiresAt, "")
+		kubectlLoginVerboseDuration("AWS IAM direct token generation", generateStartedAt)
+		return execCred
+	}
+
+	// New Elevate API (eksToken): 15-min hard ceiling means the cached token is unusable by the time
+	// the ExecCredential cache expires. Always call the API for a fresh token; pass the cached
+	// sessionId (if available) so the server continues the existing SCA session.
+	cachedSessionID := ""
+	elevateCacheKey := buildSCAK8sCacheKey(req.session.profileName, req.cluster.CSP, req.cluster.RoleID,
+		req.cluster.FQDN, req.session.userUUID, namespace, req.session.sessionID)
+	if cached != nil {
+		cachedSessionID = strings.TrimSpace(cached.SessionID)
+		if cachedSessionID != "" {
+			kubectlLoginVerbose("elevate: reusing cached sessionId=%q for EKS token refresh", sid8(cachedSessionID))
 		}
 	} else {
-		kubectlLoginInfo("AWS flow selected: IAM role (Elevate accessCredentials → EKS token)")
+		if missReason == "" {
+			missReason = "no cached entry"
+		}
+		kubectlLoginVerbose("elevate: no valid cached sessionId — starting new session (%s)", missReason)
+	}
+
+	elevateStartedAt := time.Now()
+	kubectlLoginInfo("calling Elevate API (hasCachedSession=%v)", cachedSessionID != "")
+	elevateResp, err := svc.Elevate(&k8smodels.IdsecSCAK8sElevateKubectlRequest{
+		CSP:            req.cluster.CSP,
+		RoleID:         req.cluster.RoleID,
+		FQDN:           req.cluster.FQDN,
+		OrganizationID: req.cluster.OrganizationID,
+		SessionID:      cachedSessionID,
+	})
+	if err != nil {
+		if cachedSessionID != "" {
+			// The forwarded sessionId may have been revoked server-side. Delete the
+			// cache entry so the next invocation starts a fresh session.
+			if impl, kErr := krElevateCreds.get(); kErr == nil {
+				_ = impl.DeletePassword(elevateCredsServiceName, elevateCacheKey)
+				kubectlLoginVerbose("cleared elevate cache after Elevate API error (sessionId may have been revoked)")
+			}
+		}
+		exitErr(fmt.Sprintf("elevate API call failed: %v", err))
+	}
+	if len(elevateResp.Response.Results) == 0 {
+		exitErr("elevate API returned no results for the requested cluster/role")
+	}
+	kubectlLoginVerboseDuration("Elevate API call", elevateStartedAt)
+
+	elevateResult := &elevateResp.Response.Results[0]
+	kubectlLoginVerbose(
+		"Elevate response: sessionId=%q sessionExpTime=%q eksToken_len=%d targetId=%q",
+		elevateResult.SessionID, elevateResult.SessionExpTime, len(elevateResult.EKSToken), elevateResult.TargetID,
+	)
+
+	if elevateResult.TargetID != "" {
+		region, clusterName, parseErr := k8sservice.ParseEKSARN(elevateResult.TargetID)
+		if parseErr != nil {
+			exitErr(fmt.Sprintf("failed to parse EKS ARN from elevate response targetId %q: %v", elevateResult.TargetID, parseErr))
+		}
+		req.cluster.Region = region
+		req.cluster.ClusterID = clusterName
+		kubectlLoginVerbose("parsed EKS ARN — region=%q cluster=%q", region, clusterName)
+	}
+
+	elevateExpiresAt, expErr := deriveElevateExpiry(elevateResult)
+	if expErr != nil {
+		exitErr(expErr.Error())
+	}
+
+	if saveErr := SaveElevateCreds(
+		req.session.profileName, req.cluster.CSP, req.cluster.RoleID, req.cluster.FQDN,
+		req.session.userUUID, namespace, req.session.sessionID, elevateResult,
+	); saveErr != nil {
+		kubectlLoginWarning("failed to cache Elevate result (next run will call Elevate API without sessionId): %v", saveErr)
+	} else {
+		kubectlLoginVerbose("cached Elevate result (sessionId=%q sessionExpTime=%q)", elevateResult.SessionID, elevateResult.SessionExpTime)
 	}
 
 	kubectlLoginInfo("generating AWS token via direct provider")
@@ -688,7 +845,7 @@ func (a *IdsecKubectlLoginAction) runAWSDirectFlow(
 		exitErr(fmt.Sprintf("failed to generate AWS token: %v", err))
 	}
 	a.applyFlowExecCredentialTTL(cmd, execCredFlowAWSDirect, execCred, elevateExpiresAt, "")
-	kubectlLoginVerboseDuration("AWS direct token generation", generateStartedAt)
+	kubectlLoginVerboseDuration("AWS IAM direct token generation", generateStartedAt)
 	return execCred
 }
 
@@ -814,6 +971,27 @@ func (a *IdsecKubectlLoginAction) runProxyFlow(
 
 // requireProxyRootCA ensures evaluate certificateData is present for Azure / AWS IDC
 // proxy JWE paths (SIA proxy needs the cluster CA for mTLS to the API server).
+// proxyJWEFields returns a "+"-joined list of the JWE fields that will be sent
+// to the DPA acquire call based on what is currently set on the cluster context.
+func proxyJWEFields(cluster *k8sservice.IdsecSCAK8sClusterContext) string {
+	var fields []string
+	if cluster != nil {
+		if strings.TrimSpace(cluster.K8sToken) != "" {
+			fields = append(fields, "k8s_token")
+		}
+		if strings.TrimSpace(cluster.RootCA) != "" {
+			fields = append(fields, "root_ca")
+		}
+		if strings.TrimSpace(cluster.ClusterToken) != "" {
+			fields = append(fields, "cluster_token")
+		}
+	}
+	if len(fields) == 0 {
+		return "none"
+	}
+	return strings.Join(fields, "+")
+}
+
 func requireProxyRootCA(req *kubectlLoginRequest) {
 	if req == nil || strings.TrimSpace(req.cluster.RootCA) == "" {
 		exitErr("evaluate response missing certificateData required for proxy JWE (k8s_token+root_ca)")
@@ -826,7 +1004,7 @@ func (a *IdsecKubectlLoginAction) runAWSProxyFlow(
 	req *kubectlLoginRequest,
 ) *k8smodels.IdsecSCAK8sExecCredential {
 	if !k8sservice.IsAWSIDCPermissionSetRole(req.cluster.RoleID) {
-		kubectlLoginInfo("AWS flow selected: IAM role (proxy DPA SSO acquire without proxy JWE)")
+		kubectlLoginInfo("AWS flow selected: IAM role (proxy DPA SSO acquire jwe_fields=%s)", proxyJWEFields(req.cluster))
 		kubectlLoginInfo("generating AWS proxy ExecCredential")
 		proxyStartedAt := time.Now()
 		execCred, err := svc.GenerateProxyExecCredential(k8smodels.CSPAWS, req.cluster)
@@ -865,7 +1043,7 @@ func (a *IdsecKubectlLoginAction) runAWSProxyFlow(
 	kubectlLoginVerbose("EKS token acquired (len=%d) root_ca_len=%d — encrypting as JWE for DPA",
 		len(eksToken), len(req.cluster.RootCA))
 
-	kubectlLoginInfo("aws idc proxy flow [3/3]: calling DPA SSO acquire (DPA-K8S) with proxy JWE (k8s_token+root_ca)")
+	kubectlLoginInfo("aws idc proxy flow [3/3]: calling DPA SSO acquire (DPA-K8S) with proxy JWE (jwe_fields=%s)", proxyJWEFields(req.cluster))
 	proxyStartedAt := time.Now()
 	execCred, err := svc.GenerateProxyExecCredential(k8smodels.CSPAWS, req.cluster)
 	if err != nil {
@@ -878,7 +1056,7 @@ func (a *IdsecKubectlLoginAction) runAWSProxyFlow(
 
 // runAzureProxyFlow implements the Azure AKS proxy cold path:
 // acquireAzureAKSToken → set K8sToken → GenerateProxyExecCredential
-// (DPA SSO acquire with k8s_token+root_ca JWE) → return cert/key ExecCredential.
+// (DPA SSO acquire with proxy JWE) → return cert/key ExecCredential.
 // Caching of the resulting ExecCredential is handled by the unified cache layer
 // in runKubectlLoginAction; nothing is persisted at this level. The AKS JWT
 // itself is never cached.
@@ -902,7 +1080,7 @@ func (a *IdsecKubectlLoginAction) runAzureProxyFlow(
 		len(accessToken), len(req.cluster.RootCA))
 
 	req.cluster.K8sToken = accessToken
-	kubectlLoginInfo("azure proxy flow [2/2]: calling DPA SSO acquire (DPA-K8S) with proxy JWE (k8s_token+root_ca)")
+	kubectlLoginInfo("azure proxy flow [2/2]: calling DPA SSO acquire (DPA-K8S) with proxy JWE (jwe_fields=%s)", proxyJWEFields(req.cluster))
 	proxyStartedAt := time.Now()
 	execCred, err := svc.GenerateProxyExecCredential(k8smodels.CSPAzure, req.cluster)
 	if err != nil {

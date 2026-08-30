@@ -75,15 +75,16 @@ func (a *IdsecUpgradeAction) DefineAction(cmd *cobra.Command) {
 //
 // runUpgradeAction handles the core upgrade logic including version detection,
 // GitHub release checking, and binary updating. It supports both dry-run mode
-// for preview and actual upgrade execution. The function configures GitHub
-// Enterprise support if GITHUB_URL environment variable is set.
+// for preview and actual upgrade execution. The repository and host to upgrade
+// from are resolved by the common package, which defaults to the location this
+// binary was built from, so GitHub Enterprise needs no environment setup.
 //
 // Parameters:
 //   - cmd: The cobra.Command containing the parsed flags and configuration
 //   - upgradeArgs: Command line arguments passed to the upgrade command
 //
 // The function performs the following operations:
-//   - Configures GitHub updater with enterprise support if needed
+//   - Configures GitHub updater for the host publishing the release binaries
 //   - Parses current version and detects latest available version
 //   - Handles specific version targeting via --version flag
 //   - Executes dry-run preview if --dry-run flag is set
@@ -91,7 +92,7 @@ func (a *IdsecUpgradeAction) DefineAction(cmd *cobra.Command) {
 //   - Provides user feedback throughout the upgrade process
 //
 // Environment Variables:
-//   - GITHUB_URL: Optional GitHub Enterprise URL for custom GitHub instances
+//   - GITHUB_URL: Optional host overriding the one releases are fetched from
 //
 // The function panics on critical errors such as version parsing failures,
 // updater creation errors, or update execution failures.
@@ -117,7 +118,7 @@ func (a *IdsecUpgradeAction) runUpgradeAction(cmd *cobra.Command, upgradeArgs []
 		a.logger.Error("Error parsing version %v", err)
 		panic(err)
 	}
-	latest, found, err := updater.DetectLatest(config.IdsecPath())
+	latest, found, err := updater.DetectLatest(common.UpgradeRepoSlug())
 	if err != nil {
 		a.logger.Error("Error checking latest version %v", err)
 		panic(err)
@@ -133,7 +134,7 @@ func (a *IdsecUpgradeAction) runUpgradeAction(cmd *cobra.Command, upgradeArgs []
 			a.logger.Error("Error parsing version %v", err)
 			panic(err)
 		}
-		versionToUpgradeRelease, found, err = updater.DetectVersion(config.IdsecPath(), versionToUpgrade.String())
+		versionToUpgradeRelease, found, err = updater.DetectVersion(common.UpgradeRepoSlug(), versionToUpgrade.String())
 		if err != nil {
 			a.logger.Error("Error checking version %v", err)
 			panic(err)
@@ -168,7 +169,7 @@ func (a *IdsecUpgradeAction) runUpgradeAction(cmd *cobra.Command, upgradeArgs []
 			a.logger.Error("Error getting executable path %v", err)
 			panic(err)
 		}
-		err = updater.UpdateTo(versionToUpgradeRelease, cmdPath)
+		err = common.ApplyUpgrade(versionToUpgradeRelease, cmdPath)
 		if err != nil {
 			a.logger.Error("Error updating to latest version %v", err)
 			panic(err)

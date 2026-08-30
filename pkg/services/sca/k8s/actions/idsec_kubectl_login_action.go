@@ -181,6 +181,15 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 
 	kubectlLoginInfo("starting kubectl-login flow (verbose=%v)", kubectlLoginDiagnosticsEnabled())
 
+	newKubectlLoginProgress()
+	defer func() { getActiveProgress().done() }() // safety net: clears the spinner on any return path not covered below
+	defer func() {
+		if r := recover(); r != nil {
+			getActiveProgress().done()
+			panic(r)
+		}
+	}()
+
 	csp, _ := cmd.Flags().GetString("csp")
 	roleID, _ := cmd.Flags().GetString("role-id")
 	fqdn, _ := cmd.Flags().GetString("fqdn")
@@ -207,6 +216,7 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 	if strings.TrimSpace(profileName) == "" {
 		exitErr("could not determine idsec profile name — run 'idsec login' first")
 	}
+	getActiveProgress().update("Verifying your session...")
 	kubectlLoginVerbose("loading idsec profile %q", profileName)
 	profileLoadStartedAt := time.Now()
 	profile, err := (*a.profilesLoader).LoadProfile(profileName)
@@ -273,6 +283,7 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 	req.cluster.Diagnostics = kubectlLoginDiagnosticsEnabled()
 
 	if a.serveFromUnifiedCache(cmd, req) {
+		getActiveProgress().done()
 		return
 	}
 
@@ -283,6 +294,7 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 	}
 	kubectlLoginVerboseDuration("SCA K8S service initialization", serviceInitStartedAt)
 
+	getActiveProgress().update("Checking eligibility...")
 	kubectlLoginInfo("calling EvaluateEligibility — csp=%q fqdn=%q", cspUpper, clusterFQDN)
 	evaluateStartedAt := time.Now()
 	evalResp, err := svc.EvaluateEligibility(&k8smodels.IdsecSCAK8sEvaluateRequest{
@@ -340,6 +352,8 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 
 	var execCred *k8smodels.IdsecSCAK8sExecCredential
 
+	getActiveProgress().update("Requesting session elevation...")
+
 	switch connectionMethod {
 	case "direct":
 		kubectlLoginInfo("entering direct flow")
@@ -359,6 +373,7 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 
 	a.saveUnifiedExecCredential(cmd, req, connectionMethod, execCred)
 
+	getActiveProgress().done()
 	kubectlLoginInfo("writing ExecCredential JSON to stdout")
 	if err := json.NewEncoder(os.Stdout).Encode(execCred); err != nil {
 		exitErr(fmt.Sprintf("failed to encode ExecCredential: %v", err))
@@ -666,6 +681,7 @@ func (a *IdsecKubectlLoginAction) runAWSIDCDirectFlow(
 ) *k8smodels.IdsecSCAK8sExecCredential {
 	kubectlLoginInfo("AWS flow selected: IDC permission-set (device registration → STS → EKS token)")
 
+	getActiveProgress().update("Requesting session elevation...")
 	elevateResult, _, elevateExpiresAt := a.resolveElevateResult(cmd, svc, req)
 
 	if elevateResult.TargetID != "" {
@@ -678,6 +694,7 @@ func (a *IdsecKubectlLoginAction) runAWSIDCDirectFlow(
 		kubectlLoginVerbose("parsed EKS ARN — region=%q cluster=%q", region, clusterName)
 	}
 
+	getActiveProgress().update("Waiting for AWS IDC authentication...")
 	kubectlLoginInfo("hydrating AWS IDC credentials via device registration")
 	oidcCache := NewAWSIDCOIDCCache(
 		req.session.profileName,
@@ -696,6 +713,7 @@ func (a *IdsecKubectlLoginAction) runAWSIDCDirectFlow(
 		exitErr(fmt.Sprintf("failed to obtain AWS IDC credentials: %v", err))
 	}
 
+	getActiveProgress().update("Acquiring cloud credentials...")
 	kubectlLoginInfo("generating AWS token via direct provider")
 	generateStartedAt := time.Now()
 	execCred, err := provider.GenerateToken(elevateResult, req.cluster)
@@ -728,6 +746,7 @@ func (a *IdsecKubectlLoginAction) runAWSIAMDirectFlow(
 	req *kubectlLoginRequest,
 ) *k8smodels.IdsecSCAK8sExecCredential {
 	kubectlLoginInfo("AWS flow selected: IAM role (server-side EKS token)")
+	getActiveProgress().update("Requesting session elevation...")
 	namespace := req.resolvedNamespace()
 
 	cached, hitReason, missReason, cacheErr := LoadCachedElevateKeyringWithReason(
@@ -755,6 +774,7 @@ func (a *IdsecKubectlLoginAction) runAWSIAMDirectFlow(
 			req.cluster.ClusterID = clusterName
 			kubectlLoginVerbose("parsed EKS ARN — region=%q cluster=%q", region, clusterName)
 		}
+		getActiveProgress().update("Acquiring cloud credentials...")
 		generateStartedAt := time.Now()
 		execCred, err := provider.GenerateToken(cached, req.cluster)
 		if err != nil {
@@ -838,6 +858,7 @@ func (a *IdsecKubectlLoginAction) runAWSIAMDirectFlow(
 		kubectlLoginVerbose("cached Elevate result (sessionId=%q sessionExpTime=%q)", elevateResult.SessionID, elevateResult.SessionExpTime)
 	}
 
+	getActiveProgress().update("Acquiring cloud credentials...")
 	kubectlLoginInfo("generating AWS token via direct provider")
 	generateStartedAt := time.Now()
 	execCred, err := provider.GenerateToken(elevateResult, req.cluster)
@@ -862,8 +883,10 @@ func (a *IdsecKubectlLoginAction) acquireAzureAKSToken(
 	provider k8sservice.IdsecSCAK8sTokenProvider,
 	req *kubectlLoginRequest,
 ) (accessToken string, elevateFromCache bool, elevateExpiresAt time.Time) {
+	getActiveProgress().update("Requesting session elevation...")
 	elevateResult, elevateFromCache, elevateExpiresAt := a.resolveElevateResult(cmd, svc, req)
 
+	getActiveProgress().update("Signing in to Azure...")
 	subscriptionID := k8sservice.AzureSubscriptionFromTargetID(elevateResult.TargetID)
 	kubectlLoginInfo("acquiring AKS token via az (fresh elevate=%v)", !elevateFromCache)
 	var err error
@@ -883,6 +906,7 @@ func (a *IdsecKubectlLoginAction) acquireAzureAKSToken(
 		// no value here; skip it (SSAR-based readiness is planned as a follow-up).
 		kubectlLoginVerbose("skipping role propagation (namespace-scoped elevation)")
 	default:
+		getActiveProgress().update("Waiting for Azure role assignment...")
 		principalOID, oidErr := k8sservice.ExtractAzurePrincipalOID(accessToken)
 		if oidErr != nil {
 			exitErr(fmt.Sprintf("failed to read principal OID from az access token: %v", oidErr))
@@ -905,6 +929,7 @@ func (a *IdsecKubectlLoginAction) acquireAWSIDCSTSCredentials(
 	provider k8sservice.IdsecSCAK8sTokenProvider,
 	req *kubectlLoginRequest,
 ) (elevateResult *k8smodels.IdsecSCAK8sElevateResult, elevateFromCache bool, elevateExpiresAt time.Time) {
+	getActiveProgress().update("Requesting session elevation...")
 	elevateResult, elevateFromCache, elevateExpiresAt = a.resolveElevateResult(cmd, svc, req)
 
 	if elevateResult.TargetID != "" {
@@ -916,6 +941,7 @@ func (a *IdsecKubectlLoginAction) acquireAWSIDCSTSCredentials(
 		req.cluster.ClusterID = clusterName
 	}
 
+	getActiveProgress().update("Waiting for AWS IDC authentication...")
 	kubectlLoginInfo("acquiring AWS IDC STS credentials (fresh elevate=%v)", !elevateFromCache)
 	oidcCache := NewAWSIDCOIDCCache(
 		req.session.profileName,
@@ -948,6 +974,7 @@ func (a *IdsecKubectlLoginAction) runAzureDirectFlow(
 	req *kubectlLoginRequest,
 ) *k8smodels.IdsecSCAK8sExecCredential {
 	accessToken, _, elevateExpiresAt := a.acquireAzureAKSToken(cmd, svc, provider, req)
+	getActiveProgress().update("Acquiring cloud credentials...")
 	execCred := k8sservice.BuildAzureExecCredential(accessToken)
 	a.applyFlowExecCredentialTTL(cmd, execCredFlowAzureDirect, execCred, elevateExpiresAt, "")
 	return execCred
@@ -1005,6 +1032,7 @@ func (a *IdsecKubectlLoginAction) runAWSProxyFlow(
 ) *k8smodels.IdsecSCAK8sExecCredential {
 	if !k8sservice.IsAWSIDCPermissionSetRole(req.cluster.RoleID) {
 		kubectlLoginInfo("AWS flow selected: IAM role (proxy DPA SSO acquire jwe_fields=%s)", proxyJWEFields(req.cluster))
+		getActiveProgress().update("Connecting via SIA proxy...")
 		kubectlLoginInfo("generating AWS proxy ExecCredential")
 		proxyStartedAt := time.Now()
 		execCred, err := svc.GenerateProxyExecCredential(k8smodels.CSPAWS, req.cluster)
@@ -1021,6 +1049,10 @@ func (a *IdsecKubectlLoginAction) runAWSProxyFlow(
 	kubectlLoginVerbose("aws idc proxy flow: fqdn=%q role=%q userUUID=%q",
 		req.cluster.FQDN, req.cluster.RoleID, req.session.userUUID)
 
+	// Start the JWKS public key fetch in the background before the Elevate API call
+	// so the two network round-trips overlap in time.
+	keyFuture := svc.BeginProxyKeyPrefetch(kubectlLoginDiagnosticsEnabled())
+
 	kubectlLoginInfo("aws idc proxy flow [1/3]: acquiring AWS IDC STS credentials (Elevate → device auth)")
 	provider, err := k8sservice.GetTokenProvider(k8smodels.CSPAWS)
 	if err != nil {
@@ -1029,6 +1061,7 @@ func (a *IdsecKubectlLoginAction) runAWSProxyFlow(
 	elevateResult, _, elevateExpiresAt := a.acquireAWSIDCSTSCredentials(cmd, svc, provider, req)
 	kubectlLoginInfo("aws idc proxy flow [1/3]: AWS IDC STS credentials acquired")
 
+	getActiveProgress().update("Acquiring cloud credentials...")
 	kubectlLoginInfo("aws idc proxy flow [2/3]: generating EKS bearer token (K8sToken)")
 	eksExecCred, err := provider.GenerateToken(elevateResult, req.cluster)
 	if err != nil {
@@ -1043,9 +1076,10 @@ func (a *IdsecKubectlLoginAction) runAWSProxyFlow(
 	kubectlLoginVerbose("EKS token acquired (len=%d) root_ca_len=%d — encrypting as JWE for DPA",
 		len(eksToken), len(req.cluster.RootCA))
 
+	getActiveProgress().update("Connecting via SIA proxy...")
 	kubectlLoginInfo("aws idc proxy flow [3/3]: calling DPA SSO acquire (DPA-K8S) with proxy JWE (jwe_fields=%s)", proxyJWEFields(req.cluster))
 	proxyStartedAt := time.Now()
-	execCred, err := svc.GenerateProxyExecCredential(k8smodels.CSPAWS, req.cluster)
+	execCred, err := svc.GenerateProxyExecCredentialWithPrefetch(k8smodels.CSPAWS, req.cluster, keyFuture)
 	if err != nil {
 		exitErr(fmt.Sprintf("proxy credential generation failed: %v", err))
 	}
@@ -1069,20 +1103,25 @@ func (a *IdsecKubectlLoginAction) runAzureProxyFlow(
 	kubectlLoginVerbose("azure proxy flow: fqdn=%q role=%q userUUID=%q",
 		req.cluster.FQDN, req.cluster.RoleID, req.session.userUUID)
 
+	// Start the JWKS public key fetch in the background before the Elevate API call
+	// so the two network round-trips overlap in time.
+	keyFuture := svc.BeginProxyKeyPrefetch(kubectlLoginDiagnosticsEnabled())
+
 	kubectlLoginInfo("azure proxy flow [1/2]: acquiring AKS token (Elevate → az CLI)")
 	provider, err := k8sservice.GetTokenProvider(k8smodels.CSPAzure)
 	if err != nil {
 		exitErr(fmt.Sprintf("unsupported CSP %q: %v", k8smodels.CSPAzure, err))
 	}
 	accessToken, _, elevateExpiresAt := a.acquireAzureAKSToken(cmd, svc, provider, req)
+	req.cluster.K8sToken = accessToken
 	kubectlLoginInfo("azure proxy flow [1/2]: AKS token acquired (%d bytes)", len(accessToken))
 	kubectlLoginVerbose("AKS token acquired (len=%d) root_ca_len=%d — encrypting as JWE for DPA",
 		len(accessToken), len(req.cluster.RootCA))
 
-	req.cluster.K8sToken = accessToken
+	getActiveProgress().update("Connecting via SIA proxy...")
 	kubectlLoginInfo("azure proxy flow [2/2]: calling DPA SSO acquire (DPA-K8S) with proxy JWE (jwe_fields=%s)", proxyJWEFields(req.cluster))
 	proxyStartedAt := time.Now()
-	execCred, err := svc.GenerateProxyExecCredential(k8smodels.CSPAzure, req.cluster)
+	execCred, err := svc.GenerateProxyExecCredentialWithPrefetch(k8smodels.CSPAzure, req.cluster, keyFuture)
 	if err != nil {
 		exitErr(fmt.Sprintf("proxy credential generation failed: %v", err))
 	}

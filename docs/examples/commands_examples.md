@@ -480,47 +480,47 @@ idsec sca cloud-access list-targets --csp gcp
 Omit `--organization-id` — it is not relevant for single accounts. AWS accepts exactly one role ID per elevation.
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp aws --workspace-id 123456789012 --roleIds arn:aws:iam::123456789012:role/SCA-ReadOnly
+idsec sca cloud-access elevate --csp aws --workspace-id 123456789012 --role-ids arn:aws:iam::123456789012:role/SCA-ReadOnly
 ```
 
 ### Elevate into an AWS account managed by an AWS organization
 Add `--organization-id` with the AWS organization ID. `--workspace-id` remains the member account ID.
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp aws --workspace-id 210987654321 --organization-id o-a1b2c3d4e5 --roleIds arn:aws:iam::210987654321:role/SCA-PowerUser
+idsec sca cloud-access elevate --csp aws --workspace-id 210987654321 --organization-id o-a1b2c3d4e5 --role-ids arn:aws:iam::210987654321:role/SCA-PowerUser
 ```
 
 ### Elevate into an Azure resource scope
 Works for a subscription, resource group, resource, or management group. `--organization-id` is the Entra tenant ID.
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
 ```
 
 ### Elevate into an Azure resource scope with multiple roles
 Azure accepts up to five role IDs per call, all applied to the same `--workspace-id`.
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
 ```
 
 ### Elevate into a Microsoft Entra ID directory role
 Directory role IDs are bare GUIDs. Pass the Entra directory (tenant) ID as both `--workspace-id` and `--organization-id`.
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds fe930be7-5e62-47db-91af-98c3a49a38b1
+idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids fe930be7-5e62-47db-91af-98c3a49a38b1
 ```
 
 ### Elevate into a GCP project
 `--organization-id` is required for GCP and holds the GCP organization ID. GCP accepts up to five role IDs per call, all applied to the same `--workspace-id`.
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --roleIds roles/iam.securityReviewer
+idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --role-ids roles/iam.securityReviewer
 ```
 
 ### Elevate into a GCP project with multiple roles
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --roleIds roles/iam.securityReviewer,roles/compute.admin
+idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --role-ids roles/iam.securityReviewer,roles/compute.admin
 ```
 
 ### List SCA group-access targets (Azure only)

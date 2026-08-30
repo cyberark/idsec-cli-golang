@@ -13,6 +13,9 @@ import (
 	k8smodels "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s/models"
 )
 
+// emptyKubeconfigContent is a minimal valid kubeconfig written when no eligible targets are found for a CSP.
+const emptyKubeconfigContent = "apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\ncurrent-context: \"\"\npreferences: {}\n"
+
 func normalizeCSP(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
@@ -160,17 +163,18 @@ func writeKubeconfigs(result map[string]string, kubeconfigLocation string) (summ
 	}
 
 	summary = make(map[string]string, len(result))
+	noTargetsCount := 0
 	for cspKey, value := range result {
 		cspKey = normalizeCSP(cspKey)
 		if cspKey == "" {
 			continue
 		}
 
-		if !isValidKubeconfig(value) {
-			summary[cspKey] = value
-			failureCount++
-			args.PrintFailure(fmt.Sprintf("idsec generate-kubeconfig [%s]: %s", cspKey, value))
-			continue
+		noEligibleTargets := !isValidKubeconfig(value)
+		if noEligibleTargets {
+			// Write an empty kubeconfig to overwrite any stale file.
+			args.PrintFailure(fmt.Sprintf("idsec generate-kubeconfig [%s]: no eligible targets — %s", cspKey, value))
+			value = emptyKubeconfigContent
 		}
 
 		outputPath := resolveOutputPath(kubeconfigLocation, cspKey, homeDir)
@@ -189,16 +193,23 @@ func writeKubeconfigs(result map[string]string, kubeconfigLocation string) (summ
 			continue
 		}
 
-		summary[cspKey] = fmt.Sprintf("file created at location %s", outputPath)
+		if noEligibleTargets {
+			summary[cspKey] = "no eligible targets"
+			noTargetsCount++
+		} else {
+			summary[cspKey] = fmt.Sprintf("file created at location %s", outputPath)
+		}
 		successCount++
 	}
 
-	summaryJSON, err := json.MarshalIndent(summary, "", "  ")
-	if err != nil {
-		args.PrintWarning(fmt.Sprintf("error serializing generate-kubeconfig summary to JSON: %v", err))
-		args.PrintSuccess(summary)
-	} else {
-		args.PrintSuccess(string(summaryJSON))
+	if len(result) != 1 || noTargetsCount != 1 {
+		summaryJSON, err := json.MarshalIndent(summary, "", "  ")
+		if err != nil {
+			args.PrintWarning(fmt.Sprintf("error serializing generate-kubeconfig summary to JSON: %v", err))
+			args.PrintSuccess(summary)
+		} else {
+			args.PrintSuccess(string(summaryJSON))
+		}
 	}
 	if failureCount > 0 && successCount == 0 {
 		os.Exit(1)

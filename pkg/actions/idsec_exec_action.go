@@ -142,6 +142,7 @@ func (a *IdsecBaseExecAction) DefineAction(cmd *cobra.Command) {
 	execCmd.PersistentFlags().Int("retry-count", 1, "Retry count for execution")
 	execCmd.PersistentFlags().Bool("refresh-auth", true, "If a cache exists, will also try to refresh it")
 	execCmd.PersistentFlags().Int("page-size", 0, "Show N items per page in interactive output, pausing between pages (0 = disabled)")
+	execCmd.PersistentFlags().String("format", "auto", "Output format: auto (service-defined formatter when available, otherwise JSON) or json (always JSON)")
 	err := (*a.execAction).DefineExecAction(execCmd)
 	if err != nil {
 		args.PrintFailure(fmt.Sprintf("Error defining exec action %v", err))

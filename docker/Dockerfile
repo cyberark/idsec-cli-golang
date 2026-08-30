@@ -24,7 +24,7 @@ RUN set -eux; \
       -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.buildDate=${BUILD_DATE}' \
       -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.version=${BUILD_VERSION}' \
       -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.buildNumber=${BUILD_NUMBER}' \
-      -X 'github.com/cyberark/idsec-sdk-golang/pkg/config.repoPath=cyberark/idsec-cli-golang' \
+      -X 'github.com/cyberark/idsec-cli-golang/pkg/common.releaseRepoOverride=github.com/cyberark/idsec-cli-golang' \
       -X 'github.com/cyberark/idsec-cli-golang/pkg/registry.releasedFeaturesOnly=${RELEASED_FEATURES_ONLY}'" \
     -o /app/idsec \
     ./cmd/idsec/idsec.go; \
@@ -47,11 +47,12 @@ LABEL org.opencontainers.image.title="idsec" \
 RUN apk add --no-cache ca-certificates && \
     addgroup -S idsec-cli && \
     adduser -S -D -G idsec-cli -h /home/idsec-cli -s /bin/sh idsec-cli && \
-    mkdir -p /idsec/profiles /idsec/keyring /data && \
+    mkdir -p /idsec/profiles /idsec/keyring /idsec/keys /data && \
     chown -R idsec-cli:idsec-cli /idsec /home/idsec-cli /data
 
 ENV IDSEC_PROFILES_FOLDER=/idsec/profiles
 ENV IDSEC_KEYRING_FOLDER=/idsec/keyring
+ENV IDSEC_KEYRING_KEY_FILE=/idsec/keys/keyring.key
 
 COPY --from=builder --chmod=0755 /app/idsec /usr/local/bin/idsec
 

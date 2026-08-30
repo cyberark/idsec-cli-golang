@@ -6,8 +6,10 @@ require (
 	github.com/Iilun/survey/v2 v2.5.3
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/confluentinc/go-editor v0.11.0
-	github.com/cyberark/idsec-sdk-golang v0.9.0
+	github.com/cyberark/idsec-sdk-golang v0.10.0
 	github.com/fatih/color v1.18.0
+	github.com/google/go-github/v30 v30.1.0
+	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/octago/sflags v0.3.1
@@ -16,6 +18,9 @@ require (
 	github.com/spf13/pflag v1.0.6
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.11.1
+	github.com/tcnksm/go-gitconfig v0.1.2
+	github.com/ulikunitz/xz v0.5.9
+	golang.org/x/oauth2 v0.0.0-20181106182150-f42d05182288
 	golang.org/x/term v0.43.0
 	golang.org/x/text v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -59,14 +64,12 @@ require (
 	github.com/gofrs/uuid v4.4.0+incompatible // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang/protobuf v1.3.2 // indirect
-	github.com/google/go-github/v30 v30.1.0 // indirect
 	github.com/google/go-querystring v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/iancoleman/strcase v0.3.0 // indirect
-	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
@@ -92,10 +95,8 @@ require (
 	github.com/spf13/afero v1.14.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
-	github.com/tcnksm/go-gitconfig v0.1.2 // indirect
 	github.com/tidwall/transform v0.0.0-20201103190739-32f242e2dbde // indirect
 	github.com/toqueteos/webbrowser v1.2.0 // indirect
-	github.com/ulikunitz/xz v0.5.9 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.design/x/clipboard v0.7.0 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
@@ -103,7 +104,6 @@ require (
 	golang.org/x/image v0.26.0 // indirect
 	golang.org/x/mobile v0.0.0-20250408133729-978277e7eaf7 // indirect
 	golang.org/x/net v0.54.0 // indirect
-	golang.org/x/oauth2 v0.0.0-20181106182150-f42d05182288 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	google.golang.org/appengine v1.3.0 // indirect
 	gopkg.in/errgo.v1 v1.0.1 // indirect

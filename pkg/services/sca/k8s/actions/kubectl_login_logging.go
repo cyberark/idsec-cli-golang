@@ -104,6 +104,9 @@ func kubectlLoginVerboseExecCredentialTTL(
 }
 
 func exitErr(msg string) {
+	if p := getActiveProgress(); p != nil {
+		p.done()
+	}
 	kubectlLoginError("%s", msg)
 	if !kubectlLoginDiagnosticsEnabled() {
 		kubectlLoginWarning("hint: re-run with IDSEC_VERBOSE=true set for step-by-step diagnostics")

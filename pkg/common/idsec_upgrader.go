@@ -5,6 +5,8 @@ package common
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/blang/semver"
@@ -13,14 +15,82 @@ import (
 )
 
 const latestVersionCheckTimeout = 5 * time.Second
+const publicGitHubHost = "github.com"
+const releaseRepoFallback = "github.com/cyberark/idsec-cli-golang"
+
+var releaseRepoOverride = ""
+
+// releaseRepoHostAndSlug resolves the host and the "owner/name" slug of the
+// repository publishing the release binaries.
+//
+// The two are always resolved together from a single location string. Splitting
+// them across independent sources lets them drift, which silently sends the
+// upgrade check to a host that does not hold the target repository.
+//
+// Resolution order is the link-time override, then the module path recorded in
+// the binary's build information, then releaseRepoFallback.
+func releaseRepoHostAndSlug() (string, string) {
+	if host, slug, ok := parseRepoLocation(releaseRepoOverride); ok {
+		return host, slug
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if host, slug, ok := parseRepoLocation(info.Main.Path); ok {
+			return host, slug
+		}
+	}
+	host, slug, _ := parseRepoLocation(releaseRepoFallback)
+	return host, slug
+}
+
+// parseRepoLocation splits a "host/owner/name" location, such as a Go module
+// path, into its host and "owner/name" slug.
+//
+// Any trailing path elements, for example a "/v2" major-version suffix or a
+// "/cmd/idsec" package path, are ignored. The boolean result reports whether
+// location held a usable host and slug.
+func parseRepoLocation(location string) (string, string, bool) {
+	parts := strings.Split(strings.Trim(location, "/"), "/")
+	if len(parts) < 3 {
+		return "", "", false
+	}
+	host, owner, name := parts[0], parts[1], parts[2]
+	// A host without a dot is not a registry we can reach; this also rejects
+	// placeholder module paths such as Go's "command-line-arguments".
+	if !strings.Contains(host, ".") || owner == "" || name == "" {
+		return "", "", false
+	}
+	return host, owner + "/" + name, true
+}
+
+// UpgradeRepoSlug returns the GitHub "owner/name" slug that release binaries
+// are published to, for use as the repository argument of the self-updater's
+// detection calls.
+func UpgradeRepoSlug() string {
+	_, slug := releaseRepoHostAndSlug()
+	return slug
+}
+
+// upgradeAPIHost resolves the GitHub host to query for releases.
+//
+// It defaults to the host owning the release repository, so upgrades work on
+// GitHub Enterprise installations without any environment setup. GITHUB_URL
+// overrides it, which both retargets the check at another instance and lets
+// tests point it at a local server.
+func upgradeAPIHost() string {
+	if envHost := os.Getenv("GITHUB_URL"); envHost != "" {
+		return envHost
+	}
+	host, _ := releaseRepoHostAndSlug()
+	return host
+}
 
 // GetSelfUpgrader creates and configures a GitHub self-updater instance.
 func GetSelfUpgrader() (*selfupdate.Updater, error) {
-	githubURL := os.Getenv("GITHUB_URL")
+	host := upgradeAPIHost()
 	config := selfupdate.Config{}
-	if githubURL != "" {
-		config.EnterpriseUploadURL = fmt.Sprintf("https://%s/api/uploads/", githubURL)
-		config.EnterpriseBaseURL = fmt.Sprintf("https://%s/api/v3/", githubURL)
+	if host != publicGitHubHost {
+		config.EnterpriseUploadURL = fmt.Sprintf("https://%s/api/uploads/", host)
+		config.EnterpriseBaseURL = fmt.Sprintf("https://%s/api/v3/", host)
 	}
 	return selfupdate.NewUpdater(config)
 }
@@ -47,7 +117,7 @@ func IsLatestVersion() (bool, *semver.Version, error) {
 			ch <- result{err: err}
 			return
 		}
-		latest, found, err := updater.DetectLatest(config.IdsecPath())
+		latest, found, err := updater.DetectLatest(UpgradeRepoSlug())
 		if err != nil {
 			ch <- result{err: err}
 			return

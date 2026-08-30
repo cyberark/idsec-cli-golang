@@ -79,29 +79,24 @@ func (a *IdsecCacheAction) DefineAction(cmd *cobra.Command) {
 	cmd.AddCommand(cacheCmd)
 }
 
-// runClearCacheAction clears cached credentials and profile data for basic keyring implementations.
+// runClearCacheAction clears the cached credentials held by whichever keyring the SDK resolves.
 //
-// runClearCacheAction attempts to clear cached data by removing the keyring and MAC files
-// from the basic keyring storage location. The function only operates on basic keyring
-// implementations and will print a message for other keyring types.
+// runClearCacheAction resolves the keyring and delegates the removal to it, so the cache is
+// cleared wherever it happens to live: the OS keystore removes the entries the SDK owns, and the
+// file-backed keyring removes its stored file. The key material protecting the file-backed cache
+// is deliberately left in place, since removing the cache is enough to forget the credentials and
+// the key on its own decrypts nothing.
 //
-// The function performs the following operations:
-//  1. Creates a new IdsecKeyring instance and retrieves the keyring
-//  2. Checks if the keyring is a IdsecBasicKeyring implementation
-//  3. If not IdsecBasicKeyring, prints an informational message and returns
-//  4. Determines the cache folder path from HOME or environment variable
-//  5. Removes the "keyring" and "mac" files from the cache folder
+// Clearing a cache that is already empty succeeds, and so does clearing one written by an earlier
+// version whose contents this build can no longer read.
 //
 // Parameters:
 //   - cmd: The cobra command (not currently used)
 //   - args: Command line arguments (not currently used)
 //
-// The function gracefully handles errors by ignoring file removal failures,
-// following the pattern of best-effort cleanup operations.
-//
-// Cache folder resolution:
-//   - Default: $HOME/.idsec/cache/keyring
-//   - Override: IDSEC_KEYRING_FOLDER environment variable
+// A keyring that cannot be resolved leaves nothing to clear and is not reported: the cache is
+// unreachable for reading too, so the credentials are already unusable. A removal that does fail
+// is logged as a warning rather than returned, following the pattern of best-effort cleanup.
 func (a *IdsecCacheAction) runClearCacheAction(cmd *cobra.Command, args []string) {
 	if keyring, err := keyring.NewIdsecKeyring("").GetKeyring(false); err == nil {
 		err = keyring.ClearAllPasswords()

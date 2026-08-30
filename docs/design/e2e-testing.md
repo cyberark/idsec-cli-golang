@@ -83,7 +83,7 @@ with no credentials, and a **live tier** that is opt-in and gated behind real
 | Dynamic service tree | `pkg/registry/init.go` (`RegisterCLIAction`) | Services: `sia`(`dpa`), `cmgr`(`cm`,`connectormanager`), `pcloud`(`pc`,`privilegecloud`), `identity`(`id`,`idaptive`), `policy`(`acp`,`accesspolicies`), `sca`(`asca`,`accesssca`), `sechub`(`sh`,`secretshub`), `sm`(`sessionmonitoring`). Aliases are E2E routing cases. |
 | Feature gating | `pkg/registry.releasedFeaturesOnly` ldflag (build.sh / goreleaser / Dockerfile) | The visible action set depends on this build flag. E2E must pin it so goldens are stable (recommend `RELEASED_FEATURES_ONLY=false` for the dev E2E build, matching PR builds). |
 | CLI config file | `pkg/config/config_file.go` | Loads `~/.idsec/config.yaml` early (before Cobra), sets `IDSEC_*` env vars if unset. Honors `--config`, `IDSEC_CONFIG_FILE`. Only `IDSEC_*` + standard proxy keys accepted; others warn. **Rich hermetic surface** (precedence, warnings). |
-| Env surface | `docs/config/environment.md` | `IDSEC_PROFILE`, `IDSEC_LOG_LEVEL`, `IDSEC_DISABLE_CERTIFICATE_VERIFICATION`, `IDSEC_DISABLE_TELEMETRY_COLLECTION`, `IDSEC_BASIC_KEYRING`, `IDSEC_KEYRING_FOLDER`, `IDSEC_SUPPRESS_UPGRADE_CHECK`, proxy vars. Docker sets `IDSEC_PROFILES_FOLDER`, `IDSEC_KEYRING_FOLDER`. |
+| Env surface | `docs/config/environment.md` | `IDSEC_PROFILE`, `IDSEC_LOG_LEVEL`, `IDSEC_DISABLE_CERTIFICATE_VERIFICATION`, `IDSEC_DISABLE_TELEMETRY_COLLECTION`, `IDSEC_BASIC_KEYRING`, `IDSEC_KEYRING_FOLDER`, `IDSEC_KEYRING_KEY_FILE`, `IDSEC_SUPPRESS_UPGRADE_CHECK`, proxy vars. Docker sets `IDSEC_PROFILES_FOLDER`, `IDSEC_KEYRING_FOLDER`, `IDSEC_KEYRING_KEY_FILE`. |
 | Upgrade check | `pkg/common/idsec_upgrader.go` | Reads `GITHUB_URL` env → sets `config.EnterpriseBaseURL = https://<GITHUB_URL>/api/v3/`. **This is the one clean HTTP override we can point at `httptest`** for a hermetic upgrade test. Also `IDSEC_SUPPRESS_UPGRADE_CHECK=true` to silence the nag for stable goldens. |
 | Backend URL resolution | SDK `pkg/common/isp/idsec_isp_service_client.go` → `resolveServiceURL` | Service base URL is derived from JWT claims (`subdomain`, `platform_domain`) and the `DEPLOY_ENV`-selected root domain (`pkg/models/common/idsec_env.go`). **There is no first-class `--base-url`/`IDSEC_API_BASE_URL` override.** This constrains hermetic HTTP faking of *service* calls (see §7). |
 | Build | `scripts/build.sh` (`make all`), `scripts/build_goreleaser.sh` (`make goreleaser-build`), `.goreleaser.yaml` | Cross-compiles darwin/linux/windows (+ freebsd/arm in goreleaser). ldflags stamp `version`, `buildDate`, `gitCommit`, etc. Binaries land in `bin/` (build.sh) or `dist/` (goreleaser). |
@@ -352,8 +352,9 @@ docker run --rm <image> profiles list     # exits cleanly with empty profiles di
 ```
 
 This validates the `docker/Dockerfile` wiring (non-root user, `idsec` on PATH,
-`IDSEC_PROFILES_FOLDER`/`IDSEC_KEYRING_FOLDER`). It stays out of the default PR
-gate (Docker may be unavailable on some agents) and runs where Docker exists.
+`IDSEC_PROFILES_FOLDER`/`IDSEC_KEYRING_FOLDER`/`IDSEC_KEYRING_KEY_FILE`). It
+stays out of the default PR gate (Docker may be unavailable on some agents) and
+runs where Docker exists.
 
 ### Cross-OS considerations
 
@@ -361,7 +362,10 @@ gate (Docker may be unavailable on some agents) and runs where Docker exists.
   temp dir and pass via `HOME` (POSIX) and the profiles/keyring/config env vars.
   On Windows the CLI resolves `os.UserHomeDir()`; the harness sets `USERPROFILE`
   and `HOME` and points `IDSEC_CONFIG_FILE`/`IDSEC_PROFILES_FOLDER`/
-  `IDSEC_KEYRING_FOLDER` explicitly to sidestep OS differences.
+  `IDSEC_KEYRING_FOLDER`/`IDSEC_KEYRING_KEY_FILE` explicitly to sidestep OS
+  differences. `IDSEC_KEYRING_KEY_FILE` needs its own override because the
+  keyring folder does not relocate the key material protecting it, so a test
+  that only redirects the folder still writes a key file under the real home.
 - **Line endings:** normalize `\r\n` → `\n` before golden comparison (§9) so
   Windows runs match the same goldens.
 - **Exe suffix:** harness appends `.exe` on `GOOS=windows`.

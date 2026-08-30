@@ -17,7 +17,22 @@ The official command-line interface for Idira Identity Security Platform operati
 Installation
 ============
 
-Install the CLI via go modules. For private repositories, configure Git credentials:
+Homebrew
+--------
+
+Install the CLI with Homebrew:
+
+```shell
+brew tap cyberark/tools
+brew install idsec
+```
+
+Go
+--
+
+Install the CLI via go modules. For private repositories, configure Git credentials.
+
+**macOS / Linux**
 
 ```shell
 # Requires Go 1.25+ and git 2.24+
@@ -32,15 +47,22 @@ Make sure that the PATH environment variable points to the go binary path, for e
 export PATH=$PATH:$(go env GOPATH)/bin
 ```
 
-Homebrew
---------
+**Windows (PowerShell)**
 
-Install the CLI with Homebrew:
-
-```shell
-brew tap cyberark/tools
-brew install idsec
+```powershell
+# Requires Go 1.25+ and Git for Windows 2.24+ on PATH
+$env:GOPRIVATE = "github.com"
+git config --global url."https://<username>:<token>@github.com".insteadOf "https://github.com"
+go install github.com/cyberark/idsec-cli-golang/cmd/idsec@latest
 ```
+
+The Go installer adds its own `bin` directory to PATH but not the one `go install` writes to, so add that as well:
+
+```powershell linenums="0"
+$env:Path += ";$(go env GOPATH)\bin"
+```
+
+This lasts for the current session only. To keep it, add the same directory to PATH under System Properties > Environment Variables.
 
 Docker
 ------
@@ -77,6 +99,8 @@ docker run --rm -it \
   cyberark/idsec-cli-golang:<version> \
   configure
 ```
+
+Mounting the whole `/idsec` path matters: the cached credentials are encrypted under key material the image keeps beside them, under `/idsec/keys`, and a cache that outlives the key protecting it cannot be read, so mounting only part of the path means logging in again on every run.
 
 CLI Usage
 ============
@@ -710,32 +734,32 @@ idsec sca cloud-access list-targets --csp aws
 
 Elevate into a single AWS account (omit `--organization-id`)
 ```shell
-idsec sca cloud-access elevate --csp aws --workspace-id 123456789012 --roleIds arn:aws:iam::123456789012:role/SCA-ReadOnly
+idsec sca cloud-access elevate --csp aws --workspace-id 123456789012 --role-ids arn:aws:iam::123456789012:role/SCA-ReadOnly
 ```
 
 Elevate into an AWS account managed by an AWS organization
 ```shell
-idsec sca cloud-access elevate --csp aws --workspace-id 210987654321 --organization-id o-a1b2c3d4e5 --roleIds arn:aws:iam::210987654321:role/SCA-PowerUser
+idsec sca cloud-access elevate --csp aws --workspace-id 210987654321 --organization-id o-a1b2c3d4e5 --role-ids arn:aws:iam::210987654321:role/SCA-PowerUser
 ```
 
 Elevate into an Azure resource scope (subscription, resource group, resource, or management group)
 ```shell
-idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
 ```
 
 Elevate into an Azure resource scope with multiple roles (up to 5 per call)
 ```shell
-idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
 ```
 
 Elevate into a Microsoft Entra ID directory role (bare-GUID role ID, directory ID for both `--workspace-id` and `--organization-id`)
 ```shell
-idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds fe930be7-5e62-47db-91af-98c3a49a38b1
+idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids fe930be7-5e62-47db-91af-98c3a49a38b1
 ```
 
 Elevate into a GCP project, folder, or organization (organization ID always required; up to 5 roles per call)
 ```shell
-idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --roleIds roles/iam.securityReviewer
+idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --role-ids roles/iam.securityReviewer
 ```
 
 List SCA group-access targets (Azure only)

@@ -39,6 +39,7 @@ import (
 	siacertificatesactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/certificates/actions"
 	siadbactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/db/actions"
 	siadbstrongaccountsactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/dbstrongaccounts/actions"
+	siadoctoractions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/doctor/actions"
 	siak8sactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/k8s/actions"
 	siasecretsdbactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/secretsdb/actions"
 	siasecretsvmactions "github.com/cyberark/idsec-cli-golang/pkg/services/sia/secretsvm/actions"
@@ -78,6 +79,7 @@ func init() {
 			siasecretsvmactions.CLIAction,
 			siadbstrongaccountsactions.CLIAction,
 			siaaccessactions.CLIAction,
+			siadoctoractions.CLIAction,
 			siasshcaactions.CLIAction,
 			siasshactions.CLIAction,
 			siadbactions.CLIAction,

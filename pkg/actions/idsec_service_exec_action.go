@@ -1178,10 +1178,35 @@ func (s *IdsecServiceExecAction) RunExecAction(api *cli.IdsecCLIAPI, cmd *cobra.
 		}
 	}
 
+	format, _ := execCmd.PersistentFlags().GetString("format")
 	pageSize, _ := execCmd.PersistentFlags().GetInt("page-size")
 	if pageSize < 0 {
 		pageSize = 0
 	}
+
+	// When the action definition carries a CLIFormatter for this action name
+	// and the user has not explicitly requested JSON output, delegate rendering
+	// to the formatter instead of the default JSON serializer.
+	var formatter actions.CLIFormatter
+	if actionSchemaDef != nil && actionSchemaDef.Formatters != nil {
+		formatter = actionSchemaDef.Formatters[actionName]
+	}
+	if formatter != nil && format != "json" {
+		for _, res := range result {
+			if res.Kind() == reflect.Pointer && res.IsNil() {
+				continue
+			}
+			if res.Kind() == reflect.Interface && res.Type().Implements(reflect.TypeOf((*error)(nil)).Elem()) {
+				continue
+			}
+			args.PrintNormal(formatter.Format(res.Interface()))
+			return nil
+		}
+		// Nothing printable — fall through to generic message.
+		s.serializeAndPrintOutput(result, actionName, pageSize)
+		return nil
+	}
+
 	s.serializeAndPrintOutput(result, actionName, pageSize)
 
 	return nil

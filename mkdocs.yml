@@ -33,6 +33,12 @@ nav:
           - DB Policy CLI workflow: howto/policy/db_policy_cli_workflow.md
           - VM Policy CLI workflow: howto/policy/vm_policy_cli_workflow.md
           - Cloud Access Policy CLI workflow: howto/policy/cloud_access_policy_cli_workflow.md
+      - SIA Doctor:
+          - SIA Doctor Check Client: howto/sia_doctor/check_client.md
+          - SIA Doctor Check Target: howto/sia_doctor/check_target.md
+          - SIA Doctor Check Connector: howto/sia_doctor/check_connector.md
+          - SIA Doctor Check Domain Controller: howto/sia_doctor/check_domain_controller.md
+          - SIA Doctor Check: howto/sia_doctor/check.md
       - SCA just-in-time elevation: howto/sca_native_cli.md
   - Examples:
       - Commands examples: examples/commands_examples.md

@@ -2,6 +2,7 @@ package common
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/rhysd/go-github-selfupdate/selfupdate"
@@ -107,6 +108,164 @@ func TestGetSelfUpgrader(t *testing.T) {
 
 			if tt.validateConfig != nil {
 				tt.validateConfig(t, updater)
+			}
+		})
+	}
+}
+
+// TestUpgradeRepoSlug guards the upgrade target against regressing to the SDK
+// repository, whose releases carry no binary assets and therefore make the
+// self-updater report that no versions are available.
+func TestUpgradeRepoSlug(t *testing.T) {
+	t.Parallel()
+
+	slug := UpgradeRepoSlug()
+
+	owner, name, found := strings.Cut(slug, "/")
+	if !found || owner == "" || name == "" {
+		t.Fatalf("Expected slug in \"owner/name\" form, got %q", slug)
+	}
+	if name != "idsec-cli-golang" {
+		t.Errorf("Expected slug to target repository 'idsec-cli-golang', got %q", name)
+	}
+	if strings.Contains(slug, "idsec-sdk-golang") {
+		t.Errorf("Slug must not target the SDK repository, got %q", slug)
+	}
+}
+
+// TestReleaseRepoHostAndSlugAgree guards the invariant that the API host and the
+// repository slug are resolved from one location. If the host names a different
+// forge than the one owning the slug, every upgrade check queries a repository
+// that does not exist there.
+func TestReleaseRepoHostAndSlugAgree(t *testing.T) {
+	t.Parallel()
+
+	host, slug := releaseRepoHostAndSlug()
+
+	if !strings.Contains(host, ".") {
+		t.Errorf("Expected a resolvable host, got %q", host)
+	}
+	owner, _, _ := strings.Cut(slug, "/")
+	// The public mirror is owned by 'cyberark'; every other host is internal.
+	if host == publicGitHubHost && owner != "cyberark" {
+		t.Errorf("Host %q implies the public mirror, but owner is %q", host, owner)
+	}
+	if host != publicGitHubHost && owner == "cyberark" {
+		t.Errorf("Owner %q implies the public mirror, but host is %q", owner, host)
+	}
+}
+
+// TestUpgradeAPIHost covers the precedence between the explicit GITHUB_URL
+// override and the host derived from the release location. The override has to
+// keep winning: the hermetic upgrade tests rely on it to redirect the check at a
+// local server.
+func TestUpgradeAPIHost(t *testing.T) {
+	derivedHost, _ := releaseRepoHostAndSlug()
+
+	tests := []struct {
+		name         string
+		githubURL    string
+		expectedHost string
+	}{
+		{
+			name:         "env_var_overrides_derived_host",
+			githubURL:    "github.enterprise.com",
+			expectedHost: "github.enterprise.com",
+		},
+		{
+			name:         "local_test_server_override",
+			githubURL:    "127.0.0.1:8080",
+			expectedHost: "127.0.0.1:8080",
+		},
+		{
+			name:         "unset_env_var_falls_back_to_derived_host",
+			githubURL:    "",
+			expectedHost: derivedHost,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cleanup := setEnvVar(t, "GITHUB_URL", tt.githubURL)
+			defer cleanup()
+
+			if host := upgradeAPIHost(); host != tt.expectedHost {
+				t.Errorf("Expected host %q, got %q", tt.expectedHost, host)
+			}
+		})
+	}
+}
+
+func TestParseRepoLocation(t *testing.T) {
+	tests := []struct {
+		name          string
+		location      string
+		expectedHost  string
+		expectedSlug  string
+		expectedFound bool
+	}{
+		{
+			name:          "public_module_path",
+			location:      "github.com/cyberark/idsec-cli-golang",
+			expectedHost:  "github.com",
+			expectedSlug:  "cyberark/idsec-cli-golang",
+			expectedFound: true,
+		},
+		{
+			name:          "enterprise_module_path",
+			location:      "github.com/cyberark/idsec-cli-golang",
+			expectedHost:  "github.com",
+			expectedSlug:  "cyberark/idsec-cli-golang",
+			expectedFound: true,
+		},
+		{
+			name:          "major_version_suffix_ignored",
+			location:      "github.com/cyberark/idsec-cli-golang/v2",
+			expectedHost:  "github.com",
+			expectedSlug:  "cyberark/idsec-cli-golang",
+			expectedFound: true,
+		},
+		{
+			name:          "package_path_suffix_ignored",
+			location:      "github.com/cyberark/idsec-cli-golang/cmd/idsec",
+			expectedHost:  "github.com",
+			expectedSlug:  "cyberark/idsec-cli-golang",
+			expectedFound: true,
+		},
+		{
+			name:          "empty_location_rejected",
+			location:      "",
+			expectedFound: false,
+		},
+		{
+			name:          "too_few_elements_rejected",
+			location:      "github.com/cyberark",
+			expectedFound: false,
+		},
+		{
+			name:          "host_without_dot_rejected",
+			location:      "command-line-arguments/foo/bar",
+			expectedFound: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			host, slug, found := parseRepoLocation(tt.location)
+
+			if found != tt.expectedFound {
+				t.Fatalf("Expected found %v, got %v", tt.expectedFound, found)
+			}
+			if !tt.expectedFound {
+				return
+			}
+			if host != tt.expectedHost {
+				t.Errorf("Expected host %q, got %q", tt.expectedHost, host)
+			}
+			if slug != tt.expectedSlug {
+				t.Errorf("Expected slug %q, got %q", tt.expectedSlug, slug)
 			}
 		})
 	}

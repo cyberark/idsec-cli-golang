@@ -55,14 +55,14 @@ All SCA commands use the Identity Security Platform authenticator from your acti
 
 #### elevate
 
-`elevate` requires `--csp`, `--workspace-id`, and `--roleIds`:
+`elevate` requires `--csp`, `--workspace-id`, and `--role-ids`:
 
 
 | Flag                | Type   | Description                                                                                                                    |
 | ------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | `--csp`             | string | **Required.** `AWS`, `AZURE`, or `GCP`.                                                                                          |
 | `--workspace-id`    | string | **Required.** The `workspaceId` of the target from `list-targets`.                                                               |
-| `--roleIds`         | string | **Required.** Comma-separated role IDs. Maximum 1 for AWS, 5 for Azure and GCP.                                                  |
+| `--role-ids`         | string | **Required.** Comma-separated role IDs. Maximum 1 for AWS, 5 for Azure and GCP.                                                  |
 | `--organization-id` | string | The organization or tenant ID. Required for Azure, GCP, and for AWS accounts in an Organization; omit for single AWS accounts.   |
 
 
@@ -196,7 +196,7 @@ idsec sca cloud-access list-targets --csp aws
 Omit `--organization-id` — it is not relevant for single accounts. AWS accepts exactly one role ID per elevation:
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp aws --workspace-id 123456789012 --roleIds arn:aws:iam::123456789012:role/SCA-ReadOnly
+idsec sca cloud-access elevate --csp aws --workspace-id 123456789012 --role-ids arn:aws:iam::123456789012:role/SCA-ReadOnly
 ```
 
 ```json
@@ -259,7 +259,7 @@ idsec sca cloud-access list-targets --csp aws --workspace-id 210987654321
 Add `--organization-id` with the AWS organization ID. `--workspace-id` remains the member account ID, not the management account:
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp aws --workspace-id 210987654321 --organization-id o-a1b2c3d4e5 --roleIds arn:aws:iam::210987654321:role/SCA-PowerUser
+idsec sca cloud-access elevate --csp aws --workspace-id 210987654321 --organization-id o-a1b2c3d4e5 --role-ids arn:aws:iam::210987654321:role/SCA-PowerUser
 ```
 
 ```json
@@ -326,7 +326,7 @@ An Azure resource role ID is an Azure role definition resource ID of the form `/
 `--organization-id` is required for Azure and holds the Entra tenant ID from `organizationId`. `--workspace-id` is the `workspaceId` of the scope you want, whatever its type:
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
 ```
 
 
@@ -336,10 +336,10 @@ idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77
 Azure accepts up to five role IDs in one call. All of them are applied to the single workspace provided by `--workspace-id`. To elevate in more than one workspace, run `elevate` once per workspace:
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
 ```
 
-Whitespace around the commas is tolerated, so `--roleIds "role-a, role-b"` also works.
+Whitespace around the commas is tolerated, so `--role-ids "role-a, role-b"` also works.
 
 ```json
 {
@@ -409,10 +409,10 @@ idsec sca cloud-access list-targets --csp azure
 
 ### Elevate into an Entra ID directory role
 
-Pass the Entra directory (tenant) ID as both `--workspace-id` and `--organization-id`, and the directory role ID as `--roleIds`:
+Pass the Entra directory (tenant) ID as both `--workspace-id` and `--organization-id`, and the directory role ID as `--role-ids`:
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds fe930be7-5e62-47db-91af-98c3a49a38b1
+idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids fe930be7-5e62-47db-91af-98c3a49a38b1
 ```
 
 ```json
@@ -438,7 +438,7 @@ idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0
 The Azure limit of five role IDs per call applies here too. Because every directory role shares the same workspace — the directory itself — several roles can be activated in a single command:
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --roleIds fe930be7-5e62-47db-91af-98c3a49a38b1,f2ef992c-3afb-46b9-b7cf-a126ee74c451
+idsec sca cloud-access elevate --csp azure --workspace-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids fe930be7-5e62-47db-91af-98c3a49a38b1,f2ef992c-3afb-46b9-b7cf-a126ee74c451
 ```
 
 ```json
@@ -509,7 +509,7 @@ A GCP role ID is an IAM role path of the form `roles/<service>.<role>` (predefin
 `--organization-id` is required for GCP and holds the GCP organization ID from `organizationId`. `--workspace-id` is the `workspaceId` of the scope you want, whatever its type:
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --roleIds roles/iam.securityReviewer
+idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --role-ids roles/iam.securityReviewer
 ```
 
 ```json
@@ -533,7 +533,7 @@ idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-45821
 GCP accepts up to five role IDs in one call, all applied to the single workspace given by `--workspace-id`. To elevate in more than one workspace (for example, two different projects), run `elevate` once per workspace:
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --roleIds roles/iam.securityReviewer,roles/compute.admin
+idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --role-ids roles/iam.securityReviewer,roles/compute.admin
 ```
 
 ```json

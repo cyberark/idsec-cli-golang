@@ -213,6 +213,9 @@ func TestIdsecBaseExecAction_DefineAction(t *testing.T) {
 					"request-file",
 					"retry-count",
 					"refresh-auth",
+					"query",
+					"arg",
+					"argjson",
 				}
 
 				for _, flagName := range expectedFlags {

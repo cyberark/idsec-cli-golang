@@ -111,6 +111,7 @@ The profiles can be configured upon need and be used for the consecutive actions
 The CLI has the following basic commands:
 - <b>configure</b> - Configures profiles and their respective authentication methods
 - <b>login</b> - Logs into the profile authentication methods
+- <b>status</b> - Shows whether a profile is authenticated and how much time is left before its token expires
 - <b>exec</b> - Executes different commands based on the supported services (this is the default command, so it can be omitted)
 - <b>profiles</b> - Manage multiple profiles on the machine
 - <b>cache</b> - Manage the cache of the authentication methods
@@ -216,6 +217,46 @@ Flags:
 Notes:
 
 - You may disable certificate validation for login to different authenticators using the --disable-certificate-verification or supply a certificate to be used, not recommended to disable
+
+
+status
+------
+The status command shows the authentication state of a profile
+
+For each configured authenticator it reports whether you are authenticated, the authenticated username and endpoint, when the cached token expires, and how much time is left before it expires
+
+The information is read from local state only (the profile and the cached token in the keyring), so it never triggers a login or a network request, making it safe to run in scripts and CI
+
+How to run:
+```shell
+idsec status
+```
+
+Usage:
+```shell
+Show the authentication status of a profile
+
+Usage:
+  idsec status [flags]
+
+Flags:
+      --allow-output                Allow stdout / stderr even when silent and not interactive
+      --disable-cert-verification   Disables certificate verification on HTTPS calls, unsafe!
+  -h, --help                        help for status
+      --json                        Output the status as JSON
+      --log-level string            Log level to use while verbose (default "INFO")
+      --logger-style string         Which verbose logger style to use (default "default")
+      --profile-name string         Profile name to show status for, if not given, uses the current one (default "idsec")
+      --raw                         Whether to raw output
+      --silent                      Silent execution, no interactiveness
+      --trusted-cert string         Certificate to use for HTTPS calls
+      --verbose                     Whether to verbose log
+```
+
+For machine-readable output, use `--json`:
+```shell
+idsec status --json
+```
 
 
 exec
@@ -744,12 +785,12 @@ idsec sca cloud-access elevate --csp aws --workspace-id 210987654321 --organizat
 
 Elevate into an Azure resource scope (subscription, resource group, resource, or management group)
 ```shell
-idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
 ```
 
 Elevate into an Azure resource scope with multiple roles (up to 5 per call)
 ```shell
-idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
 ```
 
 Elevate into a Microsoft Entra ID directory role (bare-GUID role ID, directory ID for both `--workspace-id` and `--organization-id`)
@@ -784,6 +825,49 @@ Notes:
 Useful Env Vars:
 - IDSEC_PROFILE - Sets the profile to be used across the CLI
 - IDSEC_DISABLE_CERTIFICATE_VERIFICATION - Disables certificate verification on REST API's
+
+
+query
+-----
+The query command runs a [jq](https://jqlang.org) expression against JSON produced by an idsec command — read from a file (for example output saved with `--output-path`) or from standard input. The expression is evaluated in-process using [gojq](https://github.com/itchyny/gojq), so the `jq` binary does not need to be installed.
+
+This is the standalone counterpart to the inline `--query` flag available on `exec`, `login`, `profiles list`, and `configure`: instead of querying a command's live output, `query` filters JSON you already have — from a saved file or piped in.
+
+How to run:
+```shell
+# Save a command's output, then query it later
+idsec exec cmgr pools list --output-path pools.json
+idsec query --path pools.json --query '.[] | select(.type == "ACCESS") | .name'
+
+# Or pipe JSON in without ever writing it to disk
+idsec exec cmgr pools list | idsec query --query '.[] | select(.type == "ACCESS") | .name'
+```
+
+Usage:
+```shell
+Run a jq query on JSON produced by an idsec command (from a file or stdin)
+
+Usage:
+  idsec query [flags]
+
+Flags:
+      --allow-output                Allow stdout / stderr even when silent and not interactive
+      --arg stringArray             Bind a jq variable to a string value, as name=value (usable as $name); repeatable
+      --argjson stringArray         Bind a jq variable to a JSON value, as name=json (usable as $name); repeatable
+      --disable-cert-verification   Disables certificate verification on HTTPS calls, unsafe!
+  -h, --help                        help for query
+      --log-level string            Log level to use while verbose (default "INFO")
+      --logger-style string         Which verbose logger style to use (default "default")
+  -n, --null-input                  Do not read any input; run the query against null (like jq -n)
+      --path string                 Path to a JSON file produced by an idsec command; use '-' or omit to read JSON from stdin
+      --query string                jq expression to evaluate against the JSON content
+      --raw                         Raw output: disable colored output; with --query, also print string results unquoted (like jq -r)
+      --silent                      Silent execution, no interactiveness
+      --trusted-cert string         Certificate to use for HTTPS calls
+      --verbose                     Whether to verbose log
+```
+
+Bind shell values to jq variables with `--arg name=value` / `--argjson name=json` (referenced as `$name`) instead of interpolating them into the query string, which avoids jq-program injection when the value is user-supplied. As in jq, the environment is reachable via `env` / `$ENV` — a safer channel than argv for secrets. See [`docs/commands/query.md`](docs/commands/query.md) for the full reference.
 
 
 profiles

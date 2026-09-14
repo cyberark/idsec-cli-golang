@@ -101,11 +101,13 @@ func (a *IdsecProfilesAction) DefineAction(cmd *cobra.Command) {
 	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all profiles",
-		Run:   a.runListAction,
+		RunE:  a.runListAction,
 	}
 	listCmd.Flags().StringP("name", "", "", "Profile name to filter with by wildcard")
 	listCmd.Flags().StringP("auth-profile", "", "", "Filter profiles by auth types")
 	listCmd.Flags().BoolP("all", "", false, "Whether to show all profiles data as well and not only their names")
+	listCmd.Flags().String("query", "", "jq expression to apply to the JSON output")
+	registerQueryVarFlags(listCmd.Flags())
 
 	showCmd := &cobra.Command{
 		Use:   "show",
@@ -177,21 +179,28 @@ func (a *IdsecProfilesAction) DefineAction(cmd *cobra.Command) {
 //   - auth-profile: Filter profiles by specific auth type
 //   - all: Show full profile data instead of just names
 //
-// The function prints warnings if no profiles are found and outputs JSON-formatted
-// results for successful operations.
-
-func (a *IdsecProfilesAction) runListAction(cmd *cobra.Command, args []string) {
-	// Start by loading all the profiles
+// A failure to load the profiles is reported as an error (non-zero exit),
+// distinct from the "no profiles configured" case. Output is always a valid
+// JSON array — an empty result set marshals to [] (never null), so JSON
+// consumers of --all or the default name listing never break.
+func (a *IdsecProfilesAction) runListAction(cmd *cobra.Command, args []string) error {
+	// Start by loading all the profiles. An error here (for example an
+	// unreadable or corrupt profiles directory) is a genuine failure and must
+	// not be conflated with "you have no profiles".
 	loadedProfiles, err := (*a.profilesLoader).LoadAllProfiles()
-	if err != nil || len(loadedProfiles) == 0 {
-		commonargs.PrintWarning("No loadedProfiles were found")
-		return
+	if err != nil {
+		commonargs.PrintFailure(fmt.Sprintf("Failed to load profiles: %v", err))
+		return &ExitCodeError{Code: 1}
+	}
+	// Guarantee a non-nil slice so a genuinely empty result marshals to [].
+	if loadedProfiles == nil {
+		loadedProfiles = []*models.IdsecProfile{}
 	}
 
 	// Filter profiles
 	name, _ := cmd.Flags().GetString("name")
 	if name != "" {
-		var filtered []*models.IdsecProfile
+		filtered := []*models.IdsecProfile{}
 		for _, p := range loadedProfiles {
 			if matched, err := regexp.MatchString(name, p.ProfileName); err == nil && matched {
 				filtered = append(filtered, p)
@@ -202,7 +211,7 @@ func (a *IdsecProfilesAction) runListAction(cmd *cobra.Command, args []string) {
 
 	authProfile, _ := cmd.Flags().GetString("auth-profile")
 	if authProfile != "" {
-		var filtered []*models.IdsecProfile
+		filtered := []*models.IdsecProfile{}
 		for _, p := range loadedProfiles {
 			if _, ok := p.AuthProfiles[authProfile]; ok {
 				filtered = append(filtered, p)
@@ -211,19 +220,32 @@ func (a *IdsecProfilesAction) runListAction(cmd *cobra.Command, args []string) {
 		loadedProfiles = filtered
 	}
 
-	// Print them based on request
+	// Build the output value based on --all.
 	showAll, _ := cmd.Flags().GetBool("all")
+	var output any
 	if showAll {
-		data, _ := json.MarshalIndent(loadedProfiles, "", "  ")
-		commonargs.PrintSuccess(string(data))
+		output = loadedProfiles
 	} else {
-		names := []string{}
+		names := make([]string, 0, len(loadedProfiles))
 		for _, p := range loadedProfiles {
 			names = append(names, p.ProfileName)
 		}
-		data, _ := json.MarshalIndent(names, "", "  ")
-		commonargs.PrintSuccess(string(data))
+		output = names
 	}
+
+	query, _ := cmd.Flags().GetString("query")
+	if query != "" {
+		raw, _ := cmd.Flags().GetBool("raw")
+		vars, err := queryVarsFromFlags(cmd.Flags())
+		if err != nil {
+			return err
+		}
+		return applyGojqQuery(output, query, raw, vars...)
+	}
+
+	data, _ := json.MarshalIndent(output, "", "  ")
+	commonargs.PrintSuccess(string(data))
+	return nil
 }
 
 // runShowAction handles the profiles show command execution.

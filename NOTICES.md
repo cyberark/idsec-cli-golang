@@ -12,6 +12,8 @@ idsec-cli-golang is using the following open source components:
 8)  cobra (https://github.com/spf13/cobra) : Apache-2.0 License Copyright 2013-2023 The Cobra Authors
 9)  pflag (https://github.com/spf13/pflag) : BSD-3-Clause License Copyright (c) 2012 Alex Ogier. All rights reserved. Copyright (c) 2012 The Go Authors. All rights reserved.
 10) viper (https://github.com/spf13/viper) : MIT License Copyright (c) 2014 Steve Francia
+11) ini (https://github.com/go-ini/ini) : Apache-2.0 License Copyright 2019 Unknwon
+12) gojq (https://github.com/itchyny/gojq) : MIT License Copyright (c) 2019 itchyny
 
 =====================================================================
 1)  Apache-2.0 License

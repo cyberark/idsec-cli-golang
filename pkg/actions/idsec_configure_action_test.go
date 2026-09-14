@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -81,7 +82,7 @@ func TestIdsecConfigureAction_DefineAction(t *testing.T) {
 					t.Errorf("Expected command short description 'Configure the CLI', got '%s'", confCmd.Short)
 				}
 
-				if confCmd.Run == nil {
+				if confCmd.RunE == nil {
 					t.Error("Expected run function to be set")
 				}
 
@@ -391,6 +392,184 @@ func TestIdsecConfigureAction_runConfigureAction_ReturnsProfile(t *testing.T) {
 			}
 		})
 	}
+}
+
+// withSilentMode forces silent (non-interactive) mode for the duration of the
+// test and restores the previous mode afterwards.
+func withSilentMode(t *testing.T) {
+	t.Helper()
+	wasInteractive := config.IsInteractive()
+	config.DisableInteractive()
+	t.Cleanup(func() {
+		if wasInteractive {
+			config.EnableInteractive()
+		} else {
+			config.DisableInteractive()
+		}
+	})
+}
+
+// newConfigureCmd builds a configure command carrying the dry-run, query and
+// profile flags runConfigureCommand reads, pre-set to build a valid ISP profile
+// named profileName.
+func newConfigureCmd(profileName string) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("dry-run", false, "")
+	cmd.Flags().String("query", "", "")
+	cmd.Flags().Bool("raw", false, "")
+	cmd.Flags().String("profile-name", "", "")
+	cmd.Flags().Bool("work-with-isp", false, "")
+	cmd.Flags().String("isp-username", "", "")
+	registerQueryVarFlags(cmd.Flags())
+	_ = cmd.Flags().Set("profile-name", profileName)
+	_ = cmd.Flags().Set("work-with-isp", "true")
+	_ = cmd.Flags().Set("isp-username", "user@example.com")
+	return cmd
+}
+
+// TestIdsecConfigureAction_runConfigureCommand_Query verifies --query is applied
+// to the profile JSON on the normal save path (saved, then queried).
+func TestIdsecConfigureAction_runConfigureCommand_Query(t *testing.T) {
+	withSilentMode(t)
+
+	newCmd := func(query string, raw bool) *cobra.Command {
+		cmd := newConfigureCmd("query-profile")
+		_ = cmd.Flags().Set("query", query)
+		if raw {
+			_ = cmd.Flags().Set("raw", "true")
+		}
+		return cmd
+	}
+
+	t.Run("save_then_query", func(t *testing.T) {
+		saved := false
+		mock := testutils.NewMockProfileLoader()
+		mock.LoadProfileFunc = func(string) (*models.IdsecProfile, error) { return nil, nil }
+		mock.SaveProfileFunc = func(*models.IdsecProfile) error { saved = true; return nil }
+		action := NewIdsecConfigureAction(mock.AsProfileLoader())
+
+		var err error
+		out := withCapturedOutput(func() {
+			err = action.runConfigureCommand(newCmd(".profile_name", true), []string{})
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !saved {
+			t.Error("expected SaveProfile to be called on the normal save path")
+		}
+		if !strings.Contains(out, "query-profile") {
+			t.Errorf("expected the queried profile name in output, got %q", out)
+		}
+	})
+
+	t.Run("invalid_arg_exits_nonzero", func(t *testing.T) {
+		mock := testutils.NewMockProfileLoader()
+		mock.LoadProfileFunc = func(string) (*models.IdsecProfile, error) { return nil, nil }
+		action := NewIdsecConfigureAction(mock.AsProfileLoader())
+
+		cmd := newCmd(".profile_name", false)
+		_ = cmd.Flags().Set("arg", "not-a-pair")
+		var err error
+		withCapturedOutput(func() { err = action.runConfigureCommand(cmd, []string{}) })
+		var exitErr *ExitCodeError
+		if !errors.As(err, &exitErr) || exitErr.Code != 1 {
+			t.Errorf("expected *ExitCodeError{1} for a malformed --arg, got %v", err)
+		}
+	})
+}
+
+// TestIdsecConfigureAction_runConfigureCommand_DryRun verifies that --dry-run
+// builds and validates the profile but never writes it, printing a preview on
+// success and exiting non-zero on a validation failure, and that it composes
+// with --query.
+func TestIdsecConfigureAction_runConfigureCommand_DryRun(t *testing.T) {
+	withSilentMode(t)
+
+	t.Run("valid_profile_is_previewed_not_saved", func(t *testing.T) {
+		saved := false
+		mock := testutils.NewMockProfileLoader()
+		mock.LoadProfileFunc = func(string) (*models.IdsecProfile, error) { return nil, nil }
+		mock.SaveProfileFunc = func(*models.IdsecProfile) error { saved = true; return nil }
+		action := NewIdsecConfigureAction(mock.AsProfileLoader())
+
+		cmd := newConfigureCmd("preview-profile")
+		_ = cmd.Flags().Set("dry-run", "true")
+
+		var err error
+		output := withCapturedOutput(func() { err = action.runConfigureCommand(cmd, []string{}) })
+
+		if err != nil {
+			t.Fatalf("expected nil error for a valid dry run, got %v", err)
+		}
+		if saved {
+			t.Error("expected SaveProfile NOT to be called under --dry-run")
+		}
+		if !strings.Contains(output, "preview-profile") {
+			t.Errorf("expected the previewed JSON to mention the profile name, got: %q", output)
+		}
+		if !strings.Contains(output, "would be saved") || !strings.Contains(output, "not saved") {
+			t.Errorf("expected a dry-run notice, got: %q", output)
+		}
+	})
+
+	t.Run("query_previews_a_single_field_without_saving", func(t *testing.T) {
+		saved := false
+		mock := testutils.NewMockProfileLoader()
+		mock.LoadProfileFunc = func(string) (*models.IdsecProfile, error) { return nil, nil }
+		mock.SaveProfileFunc = func(*models.IdsecProfile) error { saved = true; return nil }
+		action := NewIdsecConfigureAction(mock.AsProfileLoader())
+
+		cmd := newConfigureCmd("preview-profile")
+		_ = cmd.Flags().Set("dry-run", "true")
+		_ = cmd.Flags().Set("query", ".profile_name")
+		_ = cmd.Flags().Set("raw", "true")
+
+		var err error
+		output := withCapturedOutput(func() { err = action.runConfigureCommand(cmd, []string{}) })
+
+		if err != nil {
+			t.Fatalf("expected nil error for a valid dry run with --query, got %v", err)
+		}
+		if saved {
+			t.Error("expected SaveProfile NOT to be called under --dry-run")
+		}
+		if !strings.Contains(output, "preview-profile") {
+			t.Errorf("expected the queried profile name in output, got: %q", output)
+		}
+		// The whole-profile JSON dump is replaced by the query result.
+		if strings.Contains(output, "auth_profiles") {
+			t.Errorf("expected --query to replace the JSON dump, got: %q", output)
+		}
+	})
+
+	t.Run("invalid_profile_exits_nonzero_without_saving", func(t *testing.T) {
+		saved := false
+		mock := testutils.NewMockProfileLoader()
+		mock.LoadProfileFunc = func(string) (*models.IdsecProfile, error) { return nil, nil }
+		mock.SaveProfileFunc = func(*models.IdsecProfile) error { saved = true; return nil }
+		action := NewIdsecConfigureAction(mock.AsProfileLoader())
+
+		cmd := newConfigureCmd("empty-profile")
+		_ = cmd.Flags().Set("dry-run", "true")
+		// No authenticator selected, so the built profile has no auth profiles and
+		// Validate rejects it.
+		_ = cmd.Flags().Set("work-with-isp", "false")
+
+		var err error
+		_ = withCapturedOutput(func() { err = action.runConfigureCommand(cmd, []string{}) })
+
+		var exitErr *ExitCodeError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("expected *ExitCodeError for an invalid dry run, got %v", err)
+		}
+		if exitErr.Code != 1 {
+			t.Errorf("expected exit code 1, got %d", exitErr.Code)
+		}
+		if saved {
+			t.Error("expected SaveProfile NOT to be called when the profile is invalid")
+		}
+	})
 }
 
 func TestIdsecConfigureAction_StructFields(t *testing.T) {

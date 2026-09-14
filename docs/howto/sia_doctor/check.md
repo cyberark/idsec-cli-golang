@@ -236,4 +236,4 @@ The duration shown in the header is the overall wall-clock time for the entire m
 | `--timeout-sec` | (per-mode default) | Per-mode operation timeout in seconds. |
 | `--concurrency-limit` | `32` | Max parallel checks within each mode. |
 | `--disable-certificate-check` | `false` | Disable TLS certificate validation across all modes. |
-| `--batch-reachability` | `false` | Experimental: batch all ports per host in one API call. |
+| `--batch-reachability` | `true` | Send all of a host's ports in one reachability API call instead of one call per port. |

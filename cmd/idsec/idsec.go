@@ -18,6 +18,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -97,6 +98,8 @@ func registerActions(rootCmd *cobra.Command, profilesLoader *profiles.ProfileLoa
 		actions.NewIdsecConfigureAction(profilesLoader),
 		actions.NewIdsecLoginAction(profilesLoader),
 		actions.NewIdsecServiceExecAction(profilesLoader),
+		actions.NewIdsecStatusAction(profilesLoader),
+		actions.NewIdsecQueryAction(),
 		actions.NewIdsecUpgradeAction(),
 		k8sactions.NewIdsecKubectlLoginAction(profilesLoader),
 		k8sactions.NewIdsecGenerateKubeconfigAction(profilesLoader),
@@ -364,6 +367,14 @@ func handleCommandExecution(rootCmd *cobra.Command) {
 	}
 
 	if err := rootCmd.Execute(); err != nil {
+		// The action already reported its failure to the user; only a specific
+		// non-zero exit code is required, so exit with it without printing
+		// anything further.
+		var exitErr *actions.ExitCodeError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.Code)
+		}
+
 		errStr := err.Error()
 
 		// Check if this is an "unknown command" or "unknown flag" error that should be routed to exec

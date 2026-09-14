@@ -45,13 +45,16 @@ nav:
   - CLI commands:
       - Configure: commands/configure.md
       - Login: commands/login.md
+      - Status: commands/status.md
       - Exec: commands/exec.md
+      - Query: commands/query.md
       - Profiles: commands/profiles.md
       - Cache: commands/cache.md
       - Upgrade: commands/upgrade.md
       - Version: commands/version.md
   - Config:
       - Environment: config/environment.md
+      - Credentials file: config/credentials_file.md
       - Telemetry: config/telemetry.md
       - Proxy: config/proxy.md
 

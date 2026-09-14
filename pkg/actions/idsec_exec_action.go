@@ -116,6 +116,7 @@ func NewIdsecBaseExecAction(execAction *IdsecExecAction, name string, profilesLo
 //   - retry-count: Number of retry attempts for failed executions
 //   - refresh-auth: Forces authentication token refresh
 //   - page-size: Items per page for interactive paging, pausing between pages (0 = disabled)
+//   - dry-run: Print the resolved action plan as JSON without authenticating or executing
 //
 // Parameters:
 //   - cmd: The parent cobra command to which the exec command will be added
@@ -143,6 +144,9 @@ func (a *IdsecBaseExecAction) DefineAction(cmd *cobra.Command) {
 	execCmd.PersistentFlags().Bool("refresh-auth", true, "If a cache exists, will also try to refresh it")
 	execCmd.PersistentFlags().Int("page-size", 0, "Show N items per page in interactive output, pausing between pages (0 = disabled)")
 	execCmd.PersistentFlags().String("format", "auto", "Output format: auto (service-defined formatter when available, otherwise JSON) or json (always JSON)")
+	execCmd.PersistentFlags().Bool("dry-run", false, "Print the action, operation, resolved arguments, and secret fields as JSON without authenticating or executing")
+	execCmd.PersistentFlags().String("query", "", "jq expression applied to the JSON output (e.g. '.name', '.[] | select(.active)')")
+	registerQueryVarFlags(execCmd.PersistentFlags())
 	err := (*a.execAction).DefineExecAction(execCmd)
 	if err != nil {
 		args.PrintFailure(fmt.Sprintf("Error defining exec action %v", err))

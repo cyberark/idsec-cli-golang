@@ -168,4 +168,4 @@ A connector showing `fail` on `connector-backend` cannot tunnel sessions. Common
 | `--connector-machines` | (none) | Machines to SSH/WinRM into to read connector IDs. |
 | `--timeout-sec` | `30` | Overall operation timeout in seconds. |
 | `--concurrency-limit` | `32` | Max parallel connector checks. |
-| `--batch-reachability` | `false` | Experimental: batch all ports in a single reachability call. |
+| `--batch-reachability` | `true` | Send all of a target's ports in one reachability API call instead of one call per port. |

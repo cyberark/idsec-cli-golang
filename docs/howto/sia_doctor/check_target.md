@@ -243,4 +243,4 @@ idsec sia certificates create --cert-name "my-root-ca" --cert-type PEM --file /p
 | `--timeout-sec` | `30` | Overall operation timeout in seconds. |
 | `--concurrency-limit` | `32` | Max parallel connector checks. |
 | `--disable-certificate-check` | `false` | Skip TLS certificate validation against tenant certificates. |
-| `--batch-reachability` | `false` | Experimental: send all ports for a host in one API call. |
+| `--batch-reachability` | `true` | Send all of a host's ports in one reachability API call instead of one call per port. |

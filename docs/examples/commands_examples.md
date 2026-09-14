@@ -56,6 +56,28 @@ idsec login -s --isp-secret=CoolPassword --profile-name PROD
 idsec login -s --pvwa-secret=MyPassword --profile-name PVWA-PROD
 ```
 
+## Status command examples
+
+The `status` command shows whether a profile is authenticated and how much time is left before its token expires. It reads local state only and never triggers a login.
+
+### Show status of the current profile
+
+```bash linenums="0"
+idsec status
+```
+
+### Show status of a specific profile
+
+```bash linenums="0"
+idsec status --profile-name PROD
+```
+
+### Machine-readable status (JSON)
+
+```bash linenums="0"
+idsec status --json
+```
+
 ## Exec command examples
 
 Use the `--help` flag to view all `exec` options.
@@ -477,7 +499,7 @@ idsec sca cloud-access list-targets --csp gcp
 ```
 
 ### Elevate into a single AWS account
-Omit `--organization-id` — it is not relevant for single accounts. AWS accepts exactly one role ID per elevation.
+Omit `--organization-id` — it is not relevant for standalone AWS IAM accounts. AWS accepts exactly one role ID per elevation.
 
 ```shell linenums="0"
 idsec sca cloud-access elevate --csp aws --workspace-id 123456789012 --role-ids arn:aws:iam::123456789012:role/SCA-ReadOnly
@@ -494,14 +516,14 @@ idsec sca cloud-access elevate --csp aws --workspace-id 210987654321 --organizat
 Works for a subscription, resource group, resource, or management group. `--organization-id` is the Entra tenant ID.
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
 ```
 
 ### Elevate into an Azure resource scope with multiple roles
 Azure accepts up to five role IDs per call, all applied to the same `--workspace-id`.
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
 ```
 
 ### Elevate into a Microsoft Entra ID directory role

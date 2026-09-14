@@ -60,6 +60,7 @@ The CLI has the following basic commands:
 
 - <b>configure</b>: Configure profiles and their authentication methods (see [Configure](commands/configure.md))
 - <b>login</b>: Log in using the configured profile authentication methods (see [Login](commands/login.md))
+- <b>status</b>: Show whether a profile is authenticated and how much time is left before its token expires (see [Status](commands/status.md))
 - <b>exec</b>: Execute commands for supported services (see [Exec](commands/exec.md)). You can also skip `exec` and invoke services directly, e.g. `idsec sia sso short-lived-password`
 - <b>profiles</b>: Manage multiple profiles on the machine (see [Profiles](commands/profiles.md))
 - <b>cache</b>: Manage idsec cache on the machine (see [Cache](commands/cache.md))

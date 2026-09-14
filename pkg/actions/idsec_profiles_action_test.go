@@ -1,8 +1,11 @@
 package actions
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -404,12 +407,169 @@ func TestIdsecProfilesAction_runListAction(t *testing.T) {
 			}
 
 			// Execute the function - should not panic
-			action.runListAction(cmd, []string{})
+			_ = action.runListAction(cmd, []string{})
 
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, loader)
 			}
 		})
+	}
+}
+
+// newListCmd builds a cobra command carrying the flags runListAction reads.
+func newListCmd() *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("name", "", "Profile name filter")
+	cmd.Flags().String("auth-profile", "", "Auth profile filter")
+	cmd.Flags().Bool("all", false, "Show all data")
+	cmd.Flags().String("query", "", "jq query")
+	cmd.Flags().Bool("raw", false, "raw output")
+	registerQueryVarFlags(cmd.Flags())
+	return cmd
+}
+
+// TestIdsecProfilesAction_runListAction_Query verifies --query is applied to the
+// list output, for both the default (names) and --all (full objects) shapes,
+// including raw string output.
+func TestIdsecProfilesAction_runListAction_Query(t *testing.T) {
+	mock := testutils.NewMockProfileLoader()
+	mock.LoadAllProfilesFunc = func() ([]*models.IdsecProfile, error) {
+		return []*models.IdsecProfile{
+			testutils.CreateTestProfile("alpha"),
+			testutils.CreateTestProfile("beta"),
+		}, nil
+	}
+	action := NewIdsecProfilesAction(mock.AsProfileLoader())
+
+	t.Run("names_raw_first", func(t *testing.T) {
+		cmd := newListCmd()
+		_ = cmd.Flags().Set("query", ".[0]")
+		_ = cmd.Flags().Set("raw", "true")
+		out := withCapturedOutput(func() { _ = action.runListAction(cmd, []string{}) })
+		if got := strings.TrimSpace(out); got != "alpha" {
+			t.Errorf("expected raw 'alpha', got %q", got)
+		}
+	})
+
+	t.Run("all_profile_name_quoted", func(t *testing.T) {
+		cmd := newListCmd()
+		_ = cmd.Flags().Set("all", "true")
+		_ = cmd.Flags().Set("query", ".[0].profile_name")
+		out := withCapturedOutput(func() { _ = action.runListAction(cmd, []string{}) })
+		if got := strings.TrimSpace(out); got != `"alpha"` {
+			t.Errorf("expected quoted \"alpha\", got %q", got)
+		}
+	})
+
+	// --arg binds a shell value safely; a hostile name is inert data, so it
+	// cannot rewrite the query (no jq-program injection) even inline.
+	t.Run("arg_select_is_injection_safe", func(t *testing.T) {
+		cmd := newListCmd()
+		_ = cmd.Flags().Set("query", `.[] | select(. == $n)`)
+		_ = cmd.Flags().Set("raw", "true")
+		_ = cmd.Flags().Set("arg", `n=alpha") | .[], ("`)
+		out := withCapturedOutput(func() { _ = action.runListAction(cmd, []string{}) })
+		if got := strings.TrimSpace(out); got != "" {
+			t.Errorf("injection string should match nothing, got %q", got)
+		}
+	})
+
+	t.Run("arg_matches_real_name", func(t *testing.T) {
+		cmd := newListCmd()
+		_ = cmd.Flags().Set("query", `.[] | select(. == $n)`)
+		_ = cmd.Flags().Set("raw", "true")
+		_ = cmd.Flags().Set("arg", "n=beta")
+		out := withCapturedOutput(func() { _ = action.runListAction(cmd, []string{}) })
+		if got := strings.TrimSpace(out); got != "beta" {
+			t.Errorf("expected 'beta', got %q", got)
+		}
+	})
+}
+
+// TestIdsecProfilesAction_runListAction_LoadErrorIsError verifies a profiles
+// load failure is surfaced as a non-zero exit, not conflated with "no profiles".
+func TestIdsecProfilesAction_runListAction_LoadErrorIsError(t *testing.T) {
+	mock := testutils.NewMockProfileLoader()
+	mock.LoadAllProfilesFunc = func() ([]*models.IdsecProfile, error) {
+		return nil, fmt.Errorf("profiles directory is unreadable")
+	}
+	action := NewIdsecProfilesAction(mock.AsProfileLoader())
+
+	err := action.runListAction(newListCmd(), []string{})
+
+	var exitErr *ExitCodeError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected *ExitCodeError on load failure, got %v", err)
+	}
+	if exitErr.Code != 1 {
+		t.Errorf("expected exit code 1, got %d", exitErr.Code)
+	}
+}
+
+// TestIdsecProfilesAction_runListAction_EmptyEmitsJSONArray verifies that with
+// no profiles the output is a valid empty JSON array (not null, not a warning
+// that leaks an internal identifier), for both the default and --all outputs.
+func TestIdsecProfilesAction_runListAction_EmptyEmitsJSONArray(t *testing.T) {
+	for _, all := range []bool{false, true} {
+		all := all
+		t.Run(fmt.Sprintf("all=%v", all), func(t *testing.T) {
+			mock := testutils.NewMockProfileLoader()
+			mock.LoadAllProfilesFunc = func() ([]*models.IdsecProfile, error) {
+				return nil, nil
+			}
+			action := NewIdsecProfilesAction(mock.AsProfileLoader())
+			cmd := newListCmd()
+			if all {
+				_ = cmd.Flags().Set("all", "true")
+			}
+
+			var err error
+			out := withCapturedOutput(func() { err = action.runListAction(cmd, []string{}) })
+			if err != nil {
+				t.Fatalf("expected nil error, got %v", err)
+			}
+
+			trimmed := strings.TrimSpace(out)
+			if trimmed != "[]" {
+				t.Errorf("expected empty JSON array %q, got %q", "[]", trimmed)
+			}
+			if strings.Contains(out, "loadedProfiles") {
+				t.Errorf("output must not leak the internal identifier, got: %q", out)
+			}
+		})
+	}
+}
+
+// TestIdsecProfilesAction_runListAction_FilterMissEmitsJSONArray verifies that a
+// filter that matches nothing under --all yields [] rather than null, so JSON
+// consumers do not break on a nil slice.
+func TestIdsecProfilesAction_runListAction_FilterMissEmitsJSONArray(t *testing.T) {
+	mock := testutils.NewMockProfileLoader()
+	mock.LoadAllProfilesFunc = func() ([]*models.IdsecProfile, error) {
+		return []*models.IdsecProfile{testutils.CreateTestProfile("prod-profile")}, nil
+	}
+	action := NewIdsecProfilesAction(mock.AsProfileLoader())
+	cmd := newListCmd()
+	_ = cmd.Flags().Set("all", "true")
+	_ = cmd.Flags().Set("name", "zzznomatch")
+
+	var err error
+	out := withCapturedOutput(func() { err = action.runListAction(cmd, []string{}) })
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	trimmed := strings.TrimSpace(out)
+	if trimmed != "[]" {
+		t.Fatalf("expected empty JSON array %q, got %q", "[]", trimmed)
+	}
+	// Must be valid JSON that unmarshals to an (empty) array, never null.
+	var decoded []json.RawMessage
+	if jsonErr := json.Unmarshal([]byte(trimmed), &decoded); jsonErr != nil {
+		t.Fatalf("output is not valid JSON array: %v (%q)", jsonErr, trimmed)
+	}
+	if decoded == nil {
+		t.Error("expected a non-nil (empty) array, got JSON null")
 	}
 }
 

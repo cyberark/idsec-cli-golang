@@ -8,6 +8,10 @@ description: Useful environment variables for configuring the Idsec CLI.
 The Idsec CLI uses environment variables to configure its behavior and settings. Below are some of the key environment variables that can be set:
 
 - `IDSEC_PROFILE`: Specifies the profile to use for authentication and service interactions. If not set, the default profile will be used.
+- `IDSEC_<AUTHENTICATOR>_USERNAME`: Supplies the username for an authenticator during `login`, where `<AUTHENTICATOR>` is the uppercased authenticator name (for example `IDSEC_ISP_USERNAME`, `IDSEC_PVWA_USERNAME`).
+- `IDSEC_<AUTHENTICATOR>_SECRET`: Supplies the secret/password for an authenticator during `login` (for example `IDSEC_ISP_SECRET`, `IDSEC_PVWA_SECRET`). Useful for silent, non-interactive logins.
+- `IDSEC_<AUTHENTICATOR>_SECRET_FILE`: Path to a file whose contents are the secret for an authenticator during `login` (for example `IDSEC_ISP_SECRET_FILE`). Preferred over `IDSEC_<AUTHENTICATOR>_SECRET` because the secret can live in a `0600` file instead of the environment. A single trailing newline is stripped. If both are set, the literal `IDSEC_<AUTHENTICATOR>_SECRET` wins; a configured-but-unreadable file is a hard error rather than a silent fallback.
+- `IDSEC_CREDENTIALS_FILE`: Path to an `.idsecrc` credentials file used by `login`. Overrides auto-discovery. See [Credentials file](credentials_file.md).
 - `IDSEC_LOG_LEVEL`: Sets the logging level for the CLI. Possible values include `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`. The default level is `CRITICAL`.
 - `IDSEC_DISABLE_CERTIFICATE_VERIFICATION`: If set to `true`, disables SSL certificate verification for HTTPS requests. This is not recommended for production environments.
 - `IDSEC_DISABLE_TELEMETRY_COLLECTION`: If set to `true`, disables telemetry data collection.

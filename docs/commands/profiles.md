@@ -12,6 +12,26 @@ Use the `profiles` command to manage multiple users and tenants, and list all ex
 idsec profiles
 ```
 
+## Filtering `list` output with `--query`
+
+`profiles list` emits JSON — an array of profile names by default, or an array of full profile objects with `--all`. Use `--query` to apply a [jq](https://jqlang.org) expression to that JSON, evaluated in-process with [gojq](https://github.com/itchyny/gojq) (no `jq` binary required). An empty result set is always a valid JSON array (`[]`), so queries never see `null`.
+
+Add the common `--raw` flag to print a top-level string result unquoted, useful for capturing a single value into a shell variable.
+
+```shell linenums="0"
+# Names of all profiles that use the isp authenticator
+idsec profiles list --all --query '.[] | select(.auth_profiles.isp) | .profile_name'
+
+# First profile name, unquoted
+idsec profiles list --raw --query '.[0]'
+```
+
+Use `--arg name=value` / `--argjson name=json` to bind a shell value to a jq variable (`$name`) instead of interpolating it into the query string, which avoids jq-program injection when the value is user-supplied:
+
+```shell linenums="0"
+idsec profiles list --raw --query '.[] | select(. == $n)' --arg n="$PROFILE_NAME"
+```
+
 ## Usage
 ```shell
 Manage profiles

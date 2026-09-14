@@ -147,12 +147,16 @@ func (a *IdsecConfigureAction) DefineAction(cmd *cobra.Command) {
 	confCmd := &cobra.Command{
 		Use:   "configure",
 		Short: "Configure the CLI",
-		Run:   func(cmd *cobra.Command, args []string) { a.runConfigureAction(cmd, args) },
+		RunE:  a.runConfigureCommand,
 	}
 	confCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
 		a.CommonActionsExecution(cmd, args, true)
 	}
 	a.CommonActionsConfiguration(confCmd)
+
+	confCmd.Flags().Bool("dry-run", false, "Validate and print the profile that would be saved, without writing it")
+	confCmd.Flags().String("query", "", "jq expression to apply to the profile JSON output")
+	registerQueryVarFlags(confCmd.Flags())
 
 	// Add the profile settings to the arguments
 	err := gpflag.ParseTo(&models.IdsecProfile{}, confCmd.Flags())
@@ -692,14 +696,89 @@ func (a *IdsecConfigureAction) runSilentConfigureAction(cmd *cobra.Command, args
 //	  "auth_profiles": {...}
 //	}
 //	Profile has been saved to /home/user/.idsec/profiles
-func (a *IdsecConfigureAction) runConfigureAction(cmd *cobra.Command, configureArgs []string) *models.IdsecProfile {
-	var profile *models.IdsecProfile
-	var err error
+//
+// buildConfiguredProfile assembles a profile from flags and/or prompts according
+// to the current interactive/silent mode, without validating or saving it. It is
+// shared by the normal save path and the --dry-run preview path.
+func (a *IdsecConfigureAction) buildConfiguredProfile(cmd *cobra.Command, configureArgs []string) (*models.IdsecProfile, error) {
 	if config.IsInteractive() {
-		profile, err = a.runInteractiveConfigureAction(cmd, configureArgs)
-	} else {
-		profile, err = a.runSilentConfigureAction(cmd, configureArgs)
+		return a.runInteractiveConfigureAction(cmd, configureArgs)
 	}
+	return a.runSilentConfigureAction(cmd, configureArgs)
+}
+
+// runConfigureCommand is the cobra entry point for `configure`.
+//
+// Two modifiers sit on top of the plain save-and-print behavior:
+//
+//   - --dry-run builds and validates the profile and prints what would be
+//     saved, without writing anything.
+//   - --query replaces the JSON profile dump with the result of applying a jq
+//     expression to the profile.
+//
+// They compose, so --dry-run --query previews a single field of the profile
+// that would be saved. Either one exits non-zero on a build or validation
+// failure. With neither flag it delegates to runConfigureAction, preserving the
+// existing save-and-print behavior.
+func (a *IdsecConfigureAction) runConfigureCommand(cmd *cobra.Command, configureArgs []string) error {
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	query, _ := cmd.Flags().GetString("query")
+	if !dryRun && query == "" {
+		a.runConfigureAction(cmd, configureArgs)
+		return nil
+	}
+
+	rawOutput, _ := cmd.Flags().GetBool("raw")
+	queryVars, err := queryVarsFromFlags(cmd.Flags())
+	if err != nil {
+		args.PrintFailure(err.Error())
+		return &ExitCodeError{Code: 1}
+	}
+
+	// Failures are prefixed under --dry-run so it is obvious nothing was written.
+	failPrefix := ""
+	if dryRun {
+		failPrefix = "Dry run: "
+	}
+
+	profile, err := a.buildConfiguredProfile(cmd, configureArgs)
+	if err != nil {
+		args.PrintFailure(fmt.Sprintf("%sfailed to build profile: %v", failPrefix, err))
+		return &ExitCodeError{Code: 1}
+	}
+	if err := profile.Validate(); err != nil {
+		args.PrintFailure(fmt.Sprintf("%sprofile is invalid: %v", failPrefix, err))
+		return &ExitCodeError{Code: 1}
+	}
+	if !dryRun {
+		if err := (*a.profilesLoader).SaveProfile(profile); err != nil {
+			args.PrintFailure(fmt.Sprintf("Failed to save profile: %v", err))
+			return &ExitCodeError{Code: 1}
+		}
+		args.PrintSuccessBright(fmt.Sprintf("Profile has been saved to %s", profiles.GetProfilesFolder()))
+	}
+
+	if query != "" {
+		if err := applyGojqQuery(profile, query, rawOutput, queryVars...); err != nil {
+			return err
+		}
+	} else {
+		data, err := json.MarshalIndent(profile, "", "  ")
+		if err != nil {
+			args.PrintFailure(fmt.Sprintf("%sfailed to serialize profile: %v", failPrefix, err))
+			return &ExitCodeError{Code: 1}
+		}
+		args.PrintNormal(string(data))
+	}
+
+	if dryRun {
+		args.PrintNormalBright(fmt.Sprintf("Dry run: profile is valid and would be saved to %s (not saved)", profiles.GetProfilesFolder()))
+	}
+	return nil
+}
+
+func (a *IdsecConfigureAction) runConfigureAction(cmd *cobra.Command, configureArgs []string) *models.IdsecProfile {
+	profile, err := a.buildConfiguredProfile(cmd, configureArgs)
 	if err != nil {
 		a.logger.Error("Error configuring idsec profile %v", err)
 		panic(err)

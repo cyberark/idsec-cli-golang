@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -30,6 +31,9 @@ import (
 	"github.com/cyberark/idsec-sdk-golang/pkg/validation"
 )
 
+// secretMask is the placeholder printed in place of a secret argument value.
+const secretMask = "***"
+
 // IdsecServiceExecAction is a struct that implements the IdsecExecAction interface for executing service actions.
 //
 // IdsecServiceExecAction provides functionality for dynamically executing service actions
@@ -48,6 +52,20 @@ type IdsecServiceExecAction struct {
 	IdsecExecAction
 	// IdsecBaseExecAction provides common execution functionality
 	*IdsecBaseExecAction
+}
+
+// dryRunPlan is the JSON document printed by `idsec exec ... --dry-run`. It
+// describes the action that would run without authenticating or executing it.
+type dryRunPlan struct {
+	// Operation is the dotted service path and action, e.g. "sia.access.install_connector".
+	Operation string `json:"operation"`
+	// Profile is the effective profile name that would be used (resolved, not loaded).
+	Profile string `json:"profile"`
+	// ResolvedArgs are the effective arguments (provided flags plus applied
+	// defaults), keyed by kebab-case flag name. Secret values are masked.
+	ResolvedArgs map[string]string `json:"resolved_args"`
+	// SecretFields lists the resolved_args keys whose values were masked.
+	SecretFields []string `json:"secret_fields"`
 }
 
 // NewIdsecServiceExecAction creates a new instance of IdsecServiceExecAction.
@@ -398,6 +416,10 @@ func (s *IdsecServiceExecAction) defineServiceExecAction(
 						_ = cmd.Help()
 						return
 					}
+					if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
+						_ = s.dryRunExecAction(cmd)
+						return
+					}
 					s.runExecAction(cmd, args)
 				},
 			}
@@ -433,7 +455,10 @@ func (s *IdsecServiceExecAction) defineServiceExecAction(
 							continue
 						}
 					}
-					if strings.Contains(field.Tag.Get("validate"), "required") {
+					// Skip cobra's required-flag enforcement under --dry-run so a
+					// plan can be produced from a request file alone, without
+					// re-specifying every required flag on the command line.
+					if strings.Contains(field.Tag.Get("validate"), "required") && !dryRunRequested() {
 						err = subCmd.MarkFlagRequired(flag.Name)
 						if err != nil {
 							return nil, err
@@ -800,6 +825,54 @@ func (s *IdsecServiceExecAction) serializeAndPrintOutput(result []reflect.Value,
 		caser := cases.Title(language.English)
 		args.PrintSuccess(fmt.Sprintf("%s finished successfully", strings.ReplaceAll(caser.String(actionName), "-", " ")))
 	}
+}
+
+// extractOutputValue returns the single printable value from a method result
+// slice using the same kind discrimination as serializeAndPrintOutput. Channels
+// are drained into a slice. Returns (nil, false) when every value is nil or an
+// error — the "no printable output" case.
+func (s *IdsecServiceExecAction) extractOutputValue(result []reflect.Value) (any, bool) {
+	for _, res := range result {
+		if res.Kind() == reflect.Pointer && res.IsNil() {
+			continue
+		}
+		if res.Kind() == reflect.Interface && res.Type().Implements(reflect.TypeOf((*error)(nil)).Elem()) {
+			continue
+		}
+		if res.Kind() == reflect.Pointer {
+			res = res.Elem()
+		}
+		switch res.Kind() {
+		case reflect.Struct, reflect.Map, reflect.Array, reflect.Slice:
+			return res.Interface(), true
+		case reflect.Chan:
+			items := slices.Collect(seqFromChannel(res))
+			if items == nil {
+				items = []interface{}{}
+			}
+			return items, true
+		case reflect.Int:
+			return res.Int(), true
+		case reflect.Bool:
+			return res.Bool(), true
+		default:
+			return res.Interface(), true
+		}
+	}
+	return nil, false
+}
+
+// applyQueryAndPrint evaluates a jq expression against the command result and
+// prints each output value, one per line (see applyGojqQuery for raw/JSON
+// rendering rules).
+//
+// When the result carries no printable value the query runs against JSON null
+// (jq's empty-input model) rather than emitting a human-readable sentinel — so
+// a capture like ID=$(idsec ... --query '.pool_id') stays a clean null/empty
+// instead of picking up a "finished successfully" sentence.
+func (s *IdsecServiceExecAction) applyQueryAndPrint(result []reflect.Value, query string, raw bool, vars ...queryVar) error {
+	value, _ := s.extractOutputValue(result)
+	return applyGojqQuery(value, query, raw, vars...)
 }
 
 // seqFromSlice yields each element of a slice or array reflect.Value as a
@@ -1178,6 +1251,17 @@ func (s *IdsecServiceExecAction) RunExecAction(api *cli.IdsecCLIAPI, cmd *cobra.
 		}
 	}
 
+	// --query takes precedence over formatters and the default JSON serializer.
+	query, _ := execCmd.PersistentFlags().GetString("query")
+	if query != "" {
+		raw, _ := execCmd.PersistentFlags().GetBool("raw")
+		vars, err := queryVarsFromFlags(execCmd.PersistentFlags())
+		if err != nil {
+			return err
+		}
+		return s.applyQueryAndPrint(result, query, raw, vars...)
+	}
+
 	format, _ := execCmd.PersistentFlags().GetString("format")
 	pageSize, _ := execCmd.PersistentFlags().GetInt("page-size")
 	if pageSize < 0 {
@@ -1210,4 +1294,355 @@ func (s *IdsecServiceExecAction) RunExecAction(api *cli.IdsecCLIAPI, cmd *cobra.
 	s.serializeAndPrintOutput(result, actionName, pageSize)
 
 	return nil
+}
+
+// dryRunExecAction builds the dry-run plan for the leaf command and prints it
+// as indented JSON to stdout. It performs no authentication, profile loading,
+// or SDK invocation. When --query is given, the jq expression is applied to the
+// plan instead of the plan being dumped whole, so the same expression can be
+// rehearsed against a plan before it is run for real. The returned error is also
+// surfaced to the user; the caller may ignore it.
+func (s *IdsecServiceExecAction) dryRunExecAction(cmd *cobra.Command) error {
+	plan, err := s.buildDryRunPlan(cmd)
+	if err != nil {
+		args.PrintFailure(fmt.Sprintf("Failed to build dry-run plan: %s", err))
+		return err
+	}
+
+	// Non-nil here: buildDryRunPlan already failed out if exec was not found.
+	execCmd := findExecCommand(cmd)
+	if query, _ := execCmd.PersistentFlags().GetString("query"); query != "" {
+		raw, _ := execCmd.PersistentFlags().GetBool("raw")
+		vars, err := queryVarsFromFlags(execCmd.PersistentFlags())
+		if err != nil {
+			args.PrintFailure(err.Error())
+			return err
+		}
+		if err := applyGojqQuery(plan, query, raw, vars...); err != nil {
+			args.PrintFailure(err.Error())
+			return err
+		}
+		return nil
+	}
+
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		args.PrintFailure(fmt.Sprintf("Failed to render dry-run plan: %s", err))
+		return err
+	}
+	_, _ = fmt.Fprintln(os.Stdout, string(data))
+	return nil
+}
+
+// buildDryRunPlan resolves the operation identity, effective profile name, and
+// effective arguments (with secrets masked) for the leaf command, using only
+// the command tree and the CLI action registry. It never authenticates or
+// calls a service.
+func (s *IdsecServiceExecAction) buildDryRunPlan(cmd *cobra.Command) (*dryRunPlan, error) {
+	execCmd := findExecCommand(cmd)
+	if execCmd == nil {
+		return nil, fmt.Errorf("failed to find exec command")
+	}
+
+	serviceParts := commandServiceParts(cmd, execCmd)
+	actionName := cmd.Name()
+
+	profileName, _ := execCmd.Flags().GetString("profile-name")
+
+	actionSchema, err := resolveDryRunSchema(serviceParts, actionName)
+	if err != nil {
+		return nil, err
+	}
+
+	requestFileArgs, err := readDryRunRequestFile(execCmd, actionSchema)
+	if err != nil {
+		return nil, err
+	}
+
+	resolvedArgs, secretFields := resolveDryRunArgs(cmd, actionSchema, requestFileArgs)
+
+	return &dryRunPlan{
+		Operation:    deriveOperation(serviceParts, actionName),
+		Profile:      profiles.DeduceProfileName(profileName),
+		ResolvedArgs: resolvedArgs,
+		SecretFields: secretFields,
+	}, nil
+}
+
+// findExecCommand walks up from cmd to the "exec" command, returning nil when
+// it is not found.
+func findExecCommand(cmd *cobra.Command) *cobra.Command {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Use == "exec" {
+			return c
+		}
+	}
+	return nil
+}
+
+// commandServiceParts returns the command path between exec (exclusive) and the
+// leaf command (exclusive), i.e. the service/resource segments. For
+// "idsec exec sia access install-connector" it returns ["sia", "access"].
+func commandServiceParts(cmd *cobra.Command, execCmd *cobra.Command) []string {
+	parts := make([]string, 0)
+	for c := cmd.Parent(); c != nil && c != execCmd; c = c.Parent() {
+		parts = append([]string{c.Name()}, parts...)
+	}
+	return parts
+}
+
+// deriveOperation joins the service parts and action name into a dotted
+// operation identifier, converting each segment's dashes to underscores.
+// ["sia", "access"] + "install-connector" -> "sia.access.install_connector".
+func deriveOperation(serviceParts []string, actionName string) string {
+	segments := make([]string, 0, len(serviceParts)+1)
+	for _, part := range serviceParts {
+		segments = append(segments, strings.ReplaceAll(part, "-", "_"))
+	}
+	segments = append(segments, strings.ReplaceAll(actionName, "-", "_"))
+	return strings.Join(segments, ".")
+}
+
+// resolveDryRunSchema locates the request schema for the action from the CLI
+// action registry, mirroring the resolution used by RunExecAction. It returns
+// a nil schema (and nil error) for actions that take no arguments.
+func resolveDryRunSchema(serviceParts []string, actionName string) (interface{}, error) {
+	var actionSchemaDef *actions.IdsecServiceCLIActionDefinition
+	for _, servicePart := range serviceParts {
+		if actionSchemaDef != nil {
+			var next *actions.IdsecServiceCLIActionDefinition
+			for _, sub := range actionSchemaDef.Subactions {
+				if sub.ActionName == servicePart {
+					next = sub
+					break
+				}
+			}
+			actionSchemaDef = next
+		} else {
+			for _, cliActionDef := range registry.TopLevelCLIActions() {
+				if cliActionDef.ActionName == servicePart {
+					actionSchemaDef = cliActionDef
+					break
+				}
+			}
+		}
+		if actionSchemaDef == nil {
+			return nil, fmt.Errorf("action %s not found for service path %s", actionName, strings.Join(serviceParts, " "))
+		}
+	}
+	if actionSchemaDef == nil {
+		return nil, fmt.Errorf("action %s not found", actionName)
+	}
+	rawActionSchema, ok := actionSchemaDef.Schemas[actionName]
+	if !ok {
+		return nil, fmt.Errorf("action %s not supported", actionName)
+	}
+	schema, _ := actions.UnwrapSchema(rawActionSchema)
+	return schema, nil
+}
+
+// readDryRunRequestFile loads and snake-cases the --request-file JSON so the
+// dry-run plan reflects the same values a real run would merge. --request-file
+// is the mandated secret channel, so its contents must appear in the plan
+// (with secrets masked). It returns (nil, nil) when no request file is set.
+func readDryRunRequestFile(execCmd *cobra.Command, schema interface{}) (map[string]interface{}, error) {
+	requestFile, err := execCmd.PersistentFlags().GetString("request-file")
+	if err != nil || requestFile == "" {
+		return nil, nil
+	}
+	fileContent, err := os.ReadFile(requestFile) // #nosec G304
+	if err != nil {
+		return nil, err
+	}
+	var data map[string]interface{}
+	if err := json.Unmarshal(fileContent, &data); err != nil {
+		return nil, err
+	}
+	if schema == nil {
+		return data, nil
+	}
+	schemaType := reflect.ValueOf(schema).Type()
+	converted, _ := common.ConvertToSnakeCase(data, &schemaType).(map[string]interface{})
+	return converted, nil
+}
+
+// resolveDryRunArgs builds the resolved_args map (kebab-case keys) and the
+// list of masked secret fields from the leaf command's local flags merged with
+// the request file. A flag is included when the user provided it or it carries
+// a non-zero applied default; request-file values fill in fields not set on the
+// command line (an explicit flag wins). Values backed by a `secret:"true"`
+// schema field are masked wherever they originate.
+func resolveDryRunArgs(cmd *cobra.Command, schema interface{}, requestFileArgs map[string]interface{}) (map[string]string, []string) {
+	secretFlags := map[string]bool{}
+	snakeToFlag := map[string]string{}
+	if schema != nil {
+		collectSecretFlags(reflect.TypeOf(schema), secretFlags)
+		collectRequestFileKeyMap(reflect.TypeOf(schema), snakeToFlag)
+	}
+
+	resolvedArgs := map[string]string{}
+	secretSet := map[string]bool{}
+	cmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
+		if f.Name == "help" || !dryRunFlagIncluded(f) {
+			return
+		}
+		if secretFlags[f.Name] {
+			resolvedArgs[f.Name] = secretMask
+			secretSet[f.Name] = true
+			return
+		}
+		resolvedArgs[f.Name] = effectiveFlagValue(f)
+	})
+
+	for snakeKey, value := range requestFileArgs {
+		flagName := snakeToFlag[snakeKey]
+		if flagName == "" {
+			flagName = strings.ReplaceAll(snakeKey, "_", "-")
+		}
+		if _, ok := resolvedArgs[flagName]; ok {
+			continue // an explicit flag takes precedence over the request file
+		}
+		if secretFlags[flagName] {
+			resolvedArgs[flagName] = secretMask
+			secretSet[flagName] = true
+			continue
+		}
+		resolvedArgs[flagName] = fmt.Sprintf("%v", value)
+	}
+
+	secretFields := make([]string, 0, len(secretSet))
+	for name := range secretSet {
+		secretFields = append(secretFields, name)
+	}
+	sort.Strings(secretFields)
+	return resolvedArgs, secretFields
+}
+
+// collectRequestFileKeyMap walks a schema struct type, recursing through
+// squashed embedded structs, and maps each field's request-file (snake_case)
+// key to its CLI flag name, so request-file values can be presented and masked
+// under the same names as command-line flags.
+func collectRequestFileKeyMap(t reflect.Type, set map[string]string) {
+	if t == nil {
+		return
+	}
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return
+	}
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if strings.Contains(field.Tag.Get("mapstructure"), ",squash") {
+			collectRequestFileKeyMap(field.Type, set)
+			continue
+		}
+		set[requestFileKeyForField(field)] = flagNameForField(field)
+	}
+}
+
+// requestFileKeyForField derives the snake_case key a request file would use
+// for a schema field, preferring the first `mapstructure` segment and falling
+// back to the flag name with dashes converted to underscores.
+func requestFileKeyForField(field reflect.StructField) string {
+	if v := field.Tag.Get("mapstructure"); v != "" {
+		if idx := strings.Index(v, ","); idx >= 0 {
+			v = v[:idx]
+		}
+		if v != "" && v != "-" {
+			return v
+		}
+	}
+	return strings.ReplaceAll(flagNameForField(field), "-", "_")
+}
+
+// dryRunRequested reports whether --dry-run appears (truthy) in the process
+// arguments. Required-flag validation is skipped in that case.
+func dryRunRequested() bool {
+	for _, arg := range os.Args[1:] {
+		if arg == "--dry-run" {
+			return true
+		}
+		if strings.HasPrefix(arg, "--dry-run=") {
+			if enabled, err := strconv.ParseBool(strings.TrimPrefix(arg, "--dry-run=")); err == nil && enabled {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// dryRunFlagIncluded reports whether a flag should appear in resolved_args: it
+// was changed by the user, or it has a meaningful (non-zero) default value.
+func dryRunFlagIncluded(f *pflag.Flag) bool {
+	if f.Changed {
+		return true
+	}
+	return f.DefValue != "" && !isZeroDefaultValue(f.DefValue)
+}
+
+// effectiveFlagValue returns the value that would actually be sent: the value
+// the user provided when the flag was changed, otherwise the applied default.
+// Unchanged flags carry their zero value in Value while the schema default is
+// mirrored onto DefValue, so DefValue is the effective value in that case.
+func effectiveFlagValue(f *pflag.Flag) string {
+	if f.Changed {
+		return f.Value.String()
+	}
+	return f.DefValue
+}
+
+// isZeroDefaultValue reports whether a pflag default string represents the zero
+// value for its type, so unset fields without a meaningful default are omitted.
+func isZeroDefaultValue(def string) bool {
+	switch def {
+	case "", "0", "false", "[]", "map[]", "0s":
+		return true
+	default:
+		return false
+	}
+}
+
+// collectSecretFlags walks a schema struct type, recursing through squashed
+// embedded structs, and records the flag name of every field marked
+// `secret:"true"`.
+func collectSecretFlags(t reflect.Type, set map[string]bool) {
+	if t == nil {
+		return
+	}
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return
+	}
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if strings.Contains(field.Tag.Get("mapstructure"), ",squash") {
+			collectSecretFlags(field.Type, set)
+			continue
+		}
+		if actions.FieldIsSecret(field) {
+			set[flagNameForField(field)] = true
+		}
+	}
+}
+
+// flagNameForField derives the CLI flag name for a schema field, preferring the
+// `flag` tag, then the first `mapstructure` segment, then the lowercased field
+// name.
+func flagNameForField(field reflect.StructField) string {
+	if v := field.Tag.Get("flag"); v != "" {
+		return v
+	}
+	if v := field.Tag.Get("mapstructure"); v != "" {
+		if idx := strings.Index(v, ","); idx >= 0 {
+			v = v[:idx]
+		}
+		if v != "" && v != "-" {
+			return v
+		}
+	}
+	return strings.ToLower(field.Name)
 }

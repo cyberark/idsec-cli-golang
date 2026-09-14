@@ -63,7 +63,7 @@ All SCA commands use the Identity Security Platform authenticator from your acti
 | `--csp`             | string | **Required.** `AWS`, `AZURE`, or `GCP`.                                                                                          |
 | `--workspace-id`    | string | **Required.** The `workspaceId` of the target from `list-targets`.                                                               |
 | `--role-ids`         | string | **Required.** Comma-separated role IDs. Maximum 1 for AWS, 5 for Azure and GCP.                                                  |
-| `--organization-id` | string | The organization or tenant ID. Required for Azure, GCP, and for AWS accounts in an Organization; omit for single AWS accounts.   |
+| `--organization-id` | string | The organization ID. Required for Azure, GCP, and for AWS accounts in an Organization; omit for standalone AWS IAM accounts.   |
 
 
 
@@ -131,7 +131,7 @@ The output is then grouped by provider, and a failure from one provider does not
         "workspaceId": "subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05",
         "workspaceName": "Payments-Prod-Subscription",
         "role": {
-          "id": "/providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7",
+          "id": "/subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7",
           "name": "Contributor"
         },
         "organizationId": "3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632",
@@ -193,7 +193,7 @@ idsec sca cloud-access list-targets --csp aws
 
 ### Elevate into an AWS account
 
-Omit `--organization-id` — it is not relevant for single accounts. AWS accepts exactly one role ID per elevation:
+Omit `--organization-id` — it is not relevant for standalone AWS IAM accounts. AWS accepts exactly one role ID per elevation:
 
 ```shell linenums="0"
 idsec sca cloud-access elevate --csp aws --workspace-id 123456789012 --role-ids arn:aws:iam::123456789012:role/SCA-ReadOnly
@@ -298,17 +298,17 @@ idsec sca cloud-access list-targets --csp azure
       "workspaceId": "subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05",
       "workspaceName": "Payments-Prod-Subscription",
       "role": {
-        "id": "/providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7",
+        "id": "/subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7",
         "name": "Contributor"
       },
       "organizationId": "3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632",
       "workspaceType": "SUBSCRIPTION"
     },
     {
-      "workspaceId": "/subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/resourcegroups/rg-payments-shared",
+      "workspaceId": "subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/resourcegroups/rg-payments-shared",
       "workspaceName": "rg-payments-shared",
       "role": {
-        "id": "/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7",
+        "id": "/subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7",
         "name": "Reader"
       },
       "organizationId": "3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632",
@@ -319,14 +319,14 @@ idsec sca cloud-access list-targets --csp azure
 }
 ```
 
-An Azure resource role ID is an Azure role definition resource ID of the form `/providers/Microsoft.Authorization/roleDefinitions/<guid>`, not a bare GUID. The `workspaceId` is likewise a resource path rather than a plain UUID. Its structure follows the scope: `subscriptions/<subscription-id>` for a subscription, and a full `/subscriptions/.../resourcegroups/...` path for a resource group or resource. Copy both values verbatim from `list-targets`.
+An Azure resource role ID is an Azure role definition resource ID of the form `/subscriptions/<subscription-id>/providers/Microsoft.Authorization/roleDefinitions/<guid>`, not a bare GUID. The `workspaceId` is a resource path rather than a plain UUID — for example `subscriptions/<subscription-id>` for a subscription scope, or `subscriptions/<subscription-id>/resourcegroups/<rg-name>` for a resource group. Copy both values verbatim from `list-targets`.
 
 ### Elevate into an Azure resource scope
 
 `--organization-id` is required for Azure and holds the Entra tenant ID from `organizationId`. `--workspace-id` is the `workspaceId` of the scope you want, whatever its type:
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7
 ```
 
 
@@ -336,7 +336,7 @@ idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77
 Azure accepts up to five role IDs in one call. All of them are applied to the single workspace provided by `--workspace-id`. To elevate in more than one workspace, run `elevate` once per workspace:
 
 ```shell linenums="0"
-idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
+idsec sca cloud-access elevate --csp azure --workspace-id subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05 --organization-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --role-ids /subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7,/subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7
 ```
 
 Whitespace around the commas is tolerated, so `--role-ids "role-a, role-b"` also works.
@@ -349,12 +349,12 @@ Whitespace around the commas is tolerated, so `--role-ids "role-a, role-b"` also
     "results": [
       {
         "workspaceId": "subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05",
-        "roleId": "/providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7",
+        "roleId": "/subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/3498e952-d568-435e-9b2c-8d77e338d7f7",
         "sessionId": "e91c74a3-5b28-4d60-8f13-6a2be7d94c05"
       },
       {
         "workspaceId": "subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05",
-        "roleId": "/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7",
+        "roleId": "/subscriptions/5a1c8e77-2b93-41d0-8f6e-c94b2d7a1e05/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7",
         "sessionId": "c38a15f6-9d47-4b2e-a70c-51e9f8b32d64"
       }
     ]

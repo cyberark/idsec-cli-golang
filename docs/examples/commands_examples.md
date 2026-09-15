@@ -560,3 +560,66 @@ idsec sca group-access elevate --csp azure --directory-id 3c9f7b2e-51d4-4a86-9f0
 !!! tip "Full SCA workflow"
 
     For the complete SCA workflow — reading `list-targets` output, per-provider flows, partial-success handling, and elevation limits — see [SCA commands in the idsec CLI](../howto/sca_native_cli.md).
+
+## SCA Kubernetes command examples
+
+### List  Amazon Elastic Kubernetes Service (EKS) cluster targets only
+```shell linenums="0"
+idsec sca k8s list-targets --csp aws
+```
+
+### List Azure Kubernetes Service (AKS) cluster targets for Azure only
+```shell linenums="0"
+idsec sca k8s list-targets --csp azure
+```
+
+### Filter cloud-managed Kubernetes cluster targets to a specific workspace
+```shell linenums="0"
+idsec sca k8s list-targets --csp aws --workspace-id 123456789012
+```
+
+### List cloud-managed Kubernetes cluster targets across all providers
+```shell linenums="0"
+idsec sca k8s list-targets
+```
+
+### Generate kubeconfig for Amazon Elastic Kubernetes Service (EKS) only
+```shell linenums="0"
+idsec sca k8s generate-kubeconfig --csp aws
+```
+
+### Generate kubeconfig for Azure Kubernetes Service only
+```shell linenums="0"
+idsec sca k8s generate-kubeconfig --csp azure
+```
+
+### Generate kubeconfig to a custom file path (single cloud provider)
+```shell linenums="0"
+idsec sca k8s generate-kubeconfig --csp azure --kubeconfig-location /tmp/my-aks.yaml
+```
+
+### Generate kubeconfig to a custom directory (all cloud providers)
+Writes `/tmp/kubeconfigs/aws.yaml` and `/tmp/kubeconfigs/azure.yaml`.
+
+```shell linenums="0"
+idsec sca k8s generate-kubeconfig --kubeconfig-location /tmp/kubeconfigs/
+```
+
+### Generate kubeconfig for all cloud providers (default)
+Writes `~/.kube/idsec-cli/aws.yaml` and `~/.kube/idsec-cli/azure.yaml`.
+
+```shell linenums="0"
+idsec sca k8s generate-kubeconfig
+```
+
+### Run kubectl after generating kubeconfig
+
+Point kubectl at the generated file and run any command. The embedded exec plugin handles elevation automatically on every request:
+
+```shell linenums="0"
+export KUBECONFIG=~/.kube/config:~/.kube/idsec-cli/aws.yaml:~/.kube/idsec-cli/azure.yaml
+kubectl get pods
+```
+
+!!! tip "Full cloud-managed Kubernetes cluster workflow"
+    For the complete workflow — discovering clusters, kubeconfig output paths, how the exec credential plugin works, and how to refresh credentials — see [Commands for cloud-managed Kubernetes cluster access](../howto/sca_k8s_cli.md).

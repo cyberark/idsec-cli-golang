@@ -40,6 +40,7 @@ nav:
           - SIA Doctor Check Domain Controller: howto/sia_doctor/check_domain_controller.md
           - SIA Doctor Check: howto/sia_doctor/check.md
       - SCA just-in-time elevation: howto/sca_native_cli.md
+      - SCA Kubernetes access: howto/sca_k8s_cli.md
   - Examples:
       - Commands examples: examples/commands_examples.md
   - CLI commands:

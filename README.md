@@ -296,6 +296,7 @@ The following services and commands are supported:
 - <b>sca</b> - Secure Cloud Access just-in-time elevation
   - <b>cloud-access</b> - Elevate into AWS, Azure, or GCP workspaces with a role
   - <b>group-access</b> - Request just-in-time membership in Microsoft Entra ID groups (Azure only)
+  - <b>k8s</b> - Just-in-time access to Kubernetes clusters (EKS and AKS)
 
 Any command has its own subcommands, with respective arguments
 
@@ -815,7 +816,46 @@ idsec sca group-access elevate --csp azure --directory-id 3c9f7b2e-51d4-4a86-9f0
 
 For the full SCA workflow — reading `list-targets` output, per-provider flows, partial-success handling, and elevation limits — see [`docs/howto/sca_native_cli.md`](docs/howto/sca_native_cli.md).
 
-You can view all of the commands via the --help for each respective exec action
+List only Amazon Elastic Kubernetes Service (EKS) clusters
+```shell
+idsec sca k8s list-targets --csp aws
+```
+
+List only Azure Kubernetes Service (AKS) clusters
+```shell
+idsec sca k8s list-targets --csp azure
+```
+
+List all cloud-managed Kubernetes clusters (EKS, AKS)
+```shell
+idsec sca k8s list-targets
+```
+
+Generate kubeconfig for Amazon Elastic Kubernetes Service (EKS) only
+```shell
+idsec sca k8s generate-kubeconfig --csp aws
+```
+
+Generate kubeconfig for Azure Kubernetes Service only
+```shell
+idsec sca k8s generate-kubeconfig --csp azure
+```
+
+Generate kubeconfig for all cloud-managed Kubernetes services (default — writes `~/.kube/idsec-cli/aws.yaml` and `~/.kube/idsec-cli/azure.yaml`)
+```shell
+idsec sca k8s generate-kubeconfig
+```
+
+Run kubectl commands using the generated kubeconfig
+```shell
+export KUBECONFIG=~/.kube/config:~/.kube/idsec-cli/aws.yaml:~/.kube/idsec-cli/azure.yaml
+kubectl get pods
+kubectl get nodes
+```
+
+For more information about working with cloud-managed Kubernetes, see [Commands for cloud-managed Kubernetes](docs/howto/sca_k8s_cli.md).
+
+Use --help to view all commands for each action
 
 Notes:
 

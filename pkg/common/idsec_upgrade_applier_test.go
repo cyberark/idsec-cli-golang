@@ -84,6 +84,15 @@ func buildZip(t *testing.T, files []archiveFile) []byte {
 func TestExtractExecutableIgnoresBinaryName(t *testing.T) {
 	const payload = "binary-payload"
 
+	formats := []struct {
+		name     string
+		build    func(*testing.T, []archiveFile) []byte
+		assetURL string
+	}{
+		{"tar_gz", buildTarGz, "https://example.com/idsec_1.0.0_darwin_arm64.tar.gz"},
+		{"zip", buildZip, "https://example.com/idsec_1.0.0_windows_amd64.zip"},
+	}
+
 	binaryNames := []string{
 		"idsec-darwin",
 		"idsec-linux",
@@ -92,24 +101,26 @@ func TestExtractExecutableIgnoresBinaryName(t *testing.T) {
 		"idsec-renamed-by-user",
 	}
 
-	for _, binaryName := range binaryNames {
-		t.Run(binaryName, func(t *testing.T) {
-			t.Parallel()
+	for _, format := range formats {
+		for _, binaryName := range binaryNames {
+			t.Run(format.name+"/"+binaryName, func(t *testing.T) {
+				t.Parallel()
 
-			asset := buildTarGz(t, releaseArchiveFiles(binaryName, payload))
+				asset := format.build(t, releaseArchiveFiles(binaryName, payload))
 
-			reader, err := extractExecutable(asset, "https://example.com/idsec_1.0.0_darwin_arm64.tar.gz")
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-			got, err := io.ReadAll(reader)
-			if err != nil {
-				t.Fatalf("Failed reading payload: %v", err)
-			}
-			if string(got) != payload {
-				t.Errorf("Expected payload %q, got %q", payload, string(got))
-			}
-		})
+				reader, err := extractExecutable(asset, format.assetURL)
+				if err != nil {
+					t.Fatalf("Expected no error, got %v", err)
+				}
+				got, err := io.ReadAll(reader)
+				if err != nil {
+					t.Fatalf("Failed reading payload: %v", err)
+				}
+				if string(got) != payload {
+					t.Errorf("Expected payload %q, got %q", payload, string(got))
+				}
+			})
+		}
 	}
 }
 
@@ -135,6 +146,19 @@ func TestExtractExecutable(t *testing.T) {
 			name: "zip_archive",
 			asset: func(t *testing.T) []byte {
 				return buildZip(t, releaseArchiveFiles("idsec-windows.exe", payload))
+			},
+			assetURL:        "https://example.com/idsec_1.0.0_windows_amd64.zip",
+			expectedPayload: payload,
+		},
+		{
+			name: "zip_signature_files_are_not_selected",
+			asset: func(t *testing.T) []byte {
+				return buildZip(t, []archiveFile{
+					{name: "LICENSE.txt", mode: 0o644, content: "license"},
+					{name: "README.md", mode: 0o644, content: "readme"},
+					{name: "idsec-windows.exe.sig", mode: 0o644, content: "signature"},
+					{name: "idsec-windows.exe", mode: 0o755, content: payload},
+				})
 			},
 			assetURL:        "https://example.com/idsec_1.0.0_windows_amd64.zip",
 			expectedPayload: payload,

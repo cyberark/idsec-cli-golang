@@ -6,7 +6,7 @@ require (
 	github.com/Iilun/survey/v2 v2.5.3
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/confluentinc/go-editor v0.11.0
-	github.com/cyberark/idsec-sdk-golang v0.11.0
+	github.com/cyberark/idsec-sdk-golang v0.11.2
 	github.com/fatih/color v1.18.0
 	github.com/google/go-github/v30 v30.1.0
 	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf

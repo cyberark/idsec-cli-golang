@@ -75,6 +75,9 @@ binary_signs:
 archives:
   - id: archive-with-sigs
     formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
     files:
       - LICENSE.txt
       - README.md

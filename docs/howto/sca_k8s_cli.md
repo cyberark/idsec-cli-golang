@@ -23,6 +23,67 @@ idsec login
 
 See [Prerequisites](https://cyberark.github.io/idsec-cli-golang/latest/howto/prerequisites/) for full setup instructions.
 
+### Install kubectl
+
+`kubectl` is what you run against the cluster; the idsec CLI only supplies its credentials. Install it on the machine where you run `kubectl`:
+
+**macOS**
+
+```shell linenums="0"
+brew install kubectl
+```
+
+**Linux**
+
+```shell linenums="0"
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+```
+
+**Windows (PowerShell)**
+
+```powershell linenums="0"
+winget install -e --id Kubernetes.kubectl
+```
+
+Confirm the binary is on PATH:
+
+```shell linenums="0"
+kubectl version --client
+```
+
+The generated kubeconfig uses the `client.authentication.k8s.io/v1beta1` exec credential API, so use a current `kubectl` release. See the [kubectl installation guide](https://kubernetes.io/docs/tasks/tools/) for package-manager alternatives.
+
+### Install the Azure CLI (AKS clusters only)
+
+The Azure path calls `az` to obtain the AKS token, so the `az` CLI must be installed. Skip this section if you only access EKS clusters.
+
+**macOS**
+
+```shell linenums="0"
+brew install azure-cli
+```
+
+**Linux (Debian/Ubuntu)**
+
+```shell linenums="0"
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+```
+
+**Windows (PowerShell)**
+
+```powershell linenums="0"
+winget install -e --id Microsoft.AzureCLI
+```
+
+Confirm the installation:
+
+```shell linenums="0"
+az version
+```
+
+For other Linux distributions, see the [Azure CLI installation guide](https://learn.microsoft.com/cli/azure/install-azure-cli).
+
 ## Command surface
 
 | Command | Purpose |
@@ -353,9 +414,9 @@ kubectl describe deployment my-app
     - If prompted for a PIN code, enter it now to complete the connection.
     - **AWS IAM Identity Center only**: If your browser opens the Connections page during device authorization, click **Go directly to cloud console**. In the device authorization page that opens, complete the authorization. Then continue working with kubectl as usual.
 
-!!! tip "Azure: ensure `az login` matches your idsec identity"
-    
-    The Azure path requires the `az` CLI session to belong to the same user as your idsec profile. If `kubectl-login` reports `az login user does not match elevate user`, run `az login` with the same account you used for `idsec login`.
+!!! tip "Azure: ensure `az login` matches your elevated user identity"
+
+    The Azure path requires the `az` CLI session to belong to the cloud account the elevation was granted to. Where your organization maps identities, that account is not necessarily the one you used for `idsec login`.
 
 ## Output path reference
 

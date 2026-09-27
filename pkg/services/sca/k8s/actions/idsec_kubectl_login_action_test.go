@@ -452,6 +452,8 @@ func TestAddElevateFlags(t *testing.T) {
 					"fqdn",
 					"organization-id",
 					"namespace",
+					"cluster-context",
+					"cluster-token",
 				}
 				for _, flag := range expectedFlags {
 					if cmd.Flags().Lookup(flag) == nil {
@@ -477,6 +479,8 @@ func TestAddElevateFlags(t *testing.T) {
 					"fqdn",
 					"organization-id",
 					"namespace",
+					"cluster-context",
+					"cluster-token",
 				}
 				for _, name := range flagsWithEmptyDefault {
 					flag := cmd.Flags().Lookup(name)
@@ -504,6 +508,64 @@ func TestAddElevateFlags(t *testing.T) {
 	}
 }
 
+func TestResolveClusterContextFlag(t *testing.T) {
+	const (
+		contextValue = "eyJjbHVzdGVySWQiOiJhYmMxMjMiLCJyZWdpb24iOiJ1cy1lYXN0LTEifQ=="
+		legacyValue  = "eyJjbHVzdGVySWQiOiJsZWdhY3kiLCJyZWdpb24iOiJldS13ZXN0LTEifQ=="
+	)
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "neither_flag_set_returns_empty",
+			args: nil,
+			want: "",
+		},
+		{
+			name: "cluster_context_only",
+			args: []string{"--cluster-context", contextValue},
+			want: contextValue,
+		},
+		{
+			name: "legacy_cluster_token_only",
+			args: []string{"--cluster-token", legacyValue},
+			want: legacyValue,
+		},
+		{
+			name: "cluster_context_wins_over_legacy_cluster_token",
+			args: []string{"--cluster-context", contextValue, "--cluster-token", legacyValue},
+			want: contextValue,
+		},
+		{
+			name: "blank_cluster_context_falls_back_to_legacy_cluster_token",
+			args: []string{"--cluster-context", "   ", "--cluster-token", legacyValue},
+			want: legacyValue,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd := &cobra.Command{Use: "kubectl-login"}
+			addElevateFlags(cmd)
+			if err := cmd.Flags().Parse(tt.args); err != nil {
+				t.Fatalf("failed to parse flags: %v", err)
+			}
+
+			if got := resolveClusterContextFlag(cmd); got != tt.want {
+				t.Errorf("resolveClusterContextFlag() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// The kubectl-login command is a kubectl exec credential plugin: stdout is
+// reserved for the ExecCredential JSON, so the --cluster-token deprecation
+// warning must go to stderr.
 func TestKubectlLoginDiagnosticsEnabled(t *testing.T) {
 	tests := []struct {
 		name string
@@ -662,7 +724,7 @@ func TestServeFromUnifiedCache_EmptySessionEarlyReturns(t *testing.T) {
 	cmd := &cobra.Command{Use: "kubectl-login"}
 
 	stderr := captureKubectlLoginStderr(t, func() {
-		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", "", kubectlLoginSession{
+		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", kubectlLoginSession{
 			userUUID: "91ff5db2-24c9-4a2b-b414-ec416dfbd43f",
 		})
 		if served := a.serveFromUnifiedCache(cmd, req); served {
@@ -691,7 +753,7 @@ func TestSaveUnifiedExecCredential_EmptySessionNoOp(t *testing.T) {
 	}
 
 	stderr := captureKubectlLoginStderr(t, func() {
-		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", "", kubectlLoginSession{
+		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", kubectlLoginSession{
 			userUUID: "91ff5db2-24c9-4a2b-b414-ec416dfbd43f",
 		})
 		a.saveUnifiedExecCredential(cmd, req, "direct", cred)
@@ -720,7 +782,7 @@ func TestSaveUnifiedExecCredential_NoExpirationSkipsSave(t *testing.T) {
 	}
 
 	stderr := captureKubectlLoginStderr(t, func() {
-		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", "", kubectlLoginSession{
+		req := buildKubectlLoginRequest("AWS", "role-id", "fqdn.example.com", "", "", "", kubectlLoginSession{
 			userUUID:  "91ff5db2-24c9-4a2b-b414-ec416dfbd43f",
 			sessionID: "sid-not-empty",
 		})

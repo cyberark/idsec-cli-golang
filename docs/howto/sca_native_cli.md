@@ -85,7 +85,7 @@ All SCA commands use the Identity Security Platform authenticator from your acti
 | ---------------- | ------ | ----------------------------------------------------------------- |
 | `--csp`          | string | **Required.** Must be `AZURE`.                                    |
 | `--directory-id` | string | **Required.** The Entra directory (tenant) ID.                    |
-| `--groups`       | string | **Required.** Comma-separated Entra group object IDs. Maximum 50. |
+| `--groups`       | string | **Required.** Comma-separated Entra group object IDs. Maximum 5.  |
 
 
 
@@ -630,7 +630,7 @@ idsec sca group-access elevate --csp azure --directory-id 3c9f7b2e-51d4-4a86-9f0
 
 ### Elevate into multiple groups
 
-Pass a comma-separated list of group object IDs, up to 50 per call. All groups must belong to the directory given by `--directory-id`:
+Pass a comma-separated list of group object IDs, up to 5 per call. All groups must belong to the directory given by `--directory-id`:
 
 ```shell linenums="0"
 idsec sca group-access elevate --csp azure --directory-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --groups 9d3b6f41-8c27-4e59-b1a0-5f7e2c84d913,1f8c5a20-4b76-49e3-9d82-6c015be7f4a9
@@ -678,7 +678,7 @@ Each `elevate` call is capped on the number of roles or groups it can carry. Exc
 | `cloud-access elevate --csp aws`   | 1 role ID    | `maximum 1 role IDs allowed for AWS, got 2`   |
 | `cloud-access elevate --csp azure` | 5 role IDs   | `maximum 5 role IDs allowed for AZURE, got 6` |
 | `cloud-access elevate --csp gcp`   | 5 role IDs   | `maximum 5 role IDs allowed for GCP, got 6`   |
-| `group-access elevate`             | 5 group IDs | `maximum 5 group IDs allowed, got 6`        |
+| `group-access elevate`             | 5 group IDs  | `maximum 5 group IDs allowed, got 6`          |
 
 
 The limit of five applies to Azure resource scopes and Entra ID directory roles, and to GCP projects, folders, and organizations alike. In every case, all role IDs in one call must belong to the same `--workspace-id`.

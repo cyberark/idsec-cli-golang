@@ -39,7 +39,7 @@ type kubectlLoginRequest struct {
 // from CLI flags and the loaded ISP session. cluster.Region, cluster.ClusterID,
 // and cluster.K8sToken are filled in later by the active flow.
 func buildKubectlLoginRequest(
-	csp, roleID, fqdn, organizationID, namespace, elevateToken, clusterToken string,
+	csp, roleID, fqdn, organizationID, namespace, clusterContext string,
 	session kubectlLoginSession,
 ) *kubectlLoginRequest {
 	return &kubectlLoginRequest{
@@ -49,8 +49,7 @@ func buildKubectlLoginRequest(
 			FQDN:           fqdn,
 			OrganizationID: organizationID,
 			Namespace:      namespace,
-			ElevateToken:   elevateToken,
-			ClusterToken:   clusterToken,
+			ClusterContext: clusterContext,
 		},
 		session: session,
 	}
@@ -103,7 +102,24 @@ func addElevateFlags(c *cobra.Command) {
 	c.Flags().String("fqdn", "", "Cluster API endpoint FQDN (e.g. xxxx.gr7.us-east-1.eks.amazonaws.com for EKS, <name>.hcp.<region>.azmk8s.io for AKS)")
 	c.Flags().String("organization-id", "", "Azure Entra Directory ID (tenant) — required for Azure, ignored otherwise")
 	c.Flags().String("namespace", "", "Optional Kubernetes namespace (Azure)")
-	c.Flags().String("cluster-token", "", "Base64-encoded cluster token injected by SIA (optional, backward-compatible)")
+	c.Flags().String("cluster-context", "", "Base64-encoded cluster context injected by SIA (optional, backward-compatible)")
+	c.Flags().String("cluster-token", "", "Legacy alias for --cluster-context")
+}
+
+// resolveClusterContextFlag reads the cluster context from --cluster-context,
+// falling back to the deprecated --cluster-token for kubeconfigs generated
+// before the rename. An explicitly set --cluster-context always wins.
+func resolveClusterContextFlag(cmd *cobra.Command) string {
+	clusterContext, _ := cmd.Flags().GetString("cluster-context")
+	if strings.TrimSpace(clusterContext) != "" {
+		return clusterContext
+	}
+	legacy, _ := cmd.Flags().GetString("cluster-token")
+	if strings.TrimSpace(legacy) != "" {
+		kubectlLoginVerbose("--cluster-context not set; using deprecated --cluster-token value")
+		return legacy
+	}
+	return clusterContext
 }
 
 // loadISPAuthTokenForKubectlLogin loads ISP auth without interactive login.
@@ -195,7 +211,7 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 	fqdn, _ := cmd.Flags().GetString("fqdn")
 	organizationID, _ := cmd.Flags().GetString("organization-id")
 	namespace, _ := cmd.Flags().GetString("namespace")
-	clusterToken, _ := cmd.Flags().GetString("cluster-token")
+	clusterContext := resolveClusterContextFlag(cmd)
 
 	cspUpper := strings.ToUpper(strings.TrimSpace(csp))
 	if cspUpper == "" {
@@ -209,8 +225,8 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 		exitErr("--fqdn is required")
 	}
 
-	kubectlLoginVerbose("flags: csp=%q roleId=%q fqdn=%q organizationId=%q namespace=%q clusterTokenLen=%d",
-		cspUpper, roleID, clusterFQDN, organizationID, namespace, len(clusterToken))
+	kubectlLoginVerbose("flags: csp=%q roleId=%q fqdn=%q organizationId=%q namespace=%q clusterContextLen=%d",
+		cspUpper, roleID, clusterFQDN, organizationID, namespace, len(clusterContext))
 
 	profileName := profiles.DeduceProfileName("")
 	if strings.TrimSpace(profileName) == "" {
@@ -275,7 +291,7 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 		kubectlLoginVerbose("silent refresh SID unchanged sid8=%q…", sid8(ispClaims.SessionID))
 	}
 
-	req := buildKubectlLoginRequest(cspUpper, roleID, clusterFQDN, organizationID, namespace, loadedToken.Token, clusterToken, kubectlLoginSession{
+	req := buildKubectlLoginRequest(cspUpper, roleID, clusterFQDN, organizationID, namespace, clusterContext, kubectlLoginSession{
 		profileName: profileName,
 		userUUID:    ispClaims.UserUUID,
 		sessionID:   ispClaims.SessionID,
@@ -887,12 +903,11 @@ func (a *IdsecKubectlLoginAction) acquireAzureAKSToken(
 	elevateResult, elevateFromCache, elevateExpiresAt := a.resolveElevateResult(cmd, svc, req)
 
 	getActiveProgress().update("Signing in to Azure...")
-	subscriptionID := k8sservice.AzureSubscriptionFromTargetID(elevateResult.TargetID)
 	kubectlLoginInfo("acquiring AKS token via az (fresh elevate=%v)", !elevateFromCache)
 	var err error
-	accessToken, err = k8sservice.EnsureAzureCLISession(req.cluster.OrganizationID, req.cluster.ElevateToken, subscriptionID, req.cluster.Diagnostics)
+	accessToken, err = k8sservice.EnsureAzureCLISession(req.cluster.OrganizationID, elevateResult, req.cluster.Diagnostics)
 	if err != nil {
-		exitErr(fmt.Sprintf("azure CLI session required: %v", err))
+		exitErr(err.Error())
 	}
 
 	switch {
@@ -1009,8 +1024,8 @@ func proxyJWEFields(cluster *k8sservice.IdsecSCAK8sClusterContext) string {
 		if strings.TrimSpace(cluster.RootCA) != "" {
 			fields = append(fields, "root_ca")
 		}
-		if strings.TrimSpace(cluster.ClusterToken) != "" {
-			fields = append(fields, "cluster_token")
+		if strings.TrimSpace(cluster.ClusterContext) != "" {
+			fields = append(fields, "cluster_context")
 		}
 	}
 	if len(fields) == 0 {

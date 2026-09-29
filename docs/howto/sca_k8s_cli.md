@@ -84,6 +84,32 @@ az version
 
 For other Linux distributions, see the [Azure CLI installation guide](https://learn.microsoft.com/cli/azure/install-azure-cli).
 
+!!! note "Windows: `az login` uses your default browser"
+
+    On Windows, Azure CLI 2.61 and later sign in through Web Account Manager (WAM), the built-in Windows account picker. For AKS cluster access, `kubectl-login` disables WAM for the `az login` it runs, so sign-in opens in your default browser instead. This applies only to that sign-in; your own `az` commands are unaffected.
+
+    If your organization requires WAM, set `AZURE_CORE_ENABLE_BROKER_ON_WINDOWS` to `true` and run `kubectl` again.
+
+    To apply it to the current terminal only, in PowerShell:
+
+    ```powershell linenums="0"
+    $env:AZURE_CORE_ENABLE_BROKER_ON_WINDOWS = "true"
+    ```
+
+    Or in Command Prompt:
+
+    ```bat linenums="0"
+    set AZURE_CORE_ENABLE_BROKER_ON_WINDOWS=true
+    ```
+
+    To apply it to every future terminal, set it for your Windows user account:
+
+    ```powershell linenums="0"
+    setx AZURE_CORE_ENABLE_BROKER_ON_WINDOWS true
+    ```
+
+    `setx` takes effect in new terminals only, so open a new one before running `kubectl`.
+
 ## Command surface
 
 | Command | Purpose |

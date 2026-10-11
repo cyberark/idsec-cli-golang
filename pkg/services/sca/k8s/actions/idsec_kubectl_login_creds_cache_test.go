@@ -1670,3 +1670,178 @@ func TestExecCredTTLCandidates_AWSIDCProxy_IncludesCertEKSAndElevate(t *testing.
 		}
 	}
 }
+
+func TestLoadCachedAWSOIDCAccessToken_RefreshTokenBoundToElevate(t *testing.T) {
+	const (
+		profile = "prod"
+		uuid    = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+		sid     = "sid-1"
+	)
+	now := time.Now().UTC()
+	elevateExp := now.Add(8 * time.Hour)
+
+	tests := []struct {
+		name         string
+		entry        cachedAWSOIDCAccessToken
+		current      time.Time // Elevate expiry passed to Load; defaults to elevateExp
+		wantAccessOK bool
+		wantRefresh  string
+		wantKept     bool
+	}{
+		{
+			name:         "same elevate, valid access token",
+			entry:        cachedAWSOIDCAccessToken{AccessToken: "a", RefreshToken: "r", ExpiresAt: now.Add(time.Hour), ElevateExpiresAt: elevateExp},
+			wantAccessOK: true, wantRefresh: "r", wantKept: true,
+		},
+		{
+			name:        "same elevate, expired access token keeps refresh token",
+			entry:       cachedAWSOIDCAccessToken{AccessToken: "a", RefreshToken: "r", ExpiresAt: now.Add(-time.Minute), ElevateExpiresAt: elevateExp},
+			wantRefresh: "r", wantKept: true,
+		},
+		{
+			name:  "different elevate drops entry",
+			entry: cachedAWSOIDCAccessToken{AccessToken: "a", RefreshToken: "r", ExpiresAt: now.Add(time.Hour), ElevateExpiresAt: elevateExp.Add(-time.Hour)},
+		},
+		{
+			name:    "same elevate that already ended drops entry",
+			entry:   cachedAWSOIDCAccessToken{AccessToken: "a", RefreshToken: "r", ExpiresAt: now.Add(time.Hour), ElevateExpiresAt: now.Add(-time.Minute)},
+			current: now.Add(-time.Minute),
+		},
+		{
+			name:  "legacy entry without stamp drops entry",
+			entry: cachedAWSOIDCAccessToken{AccessToken: "a", RefreshToken: "r", ExpiresAt: now.Add(time.Hour)},
+		},
+		{
+			name:         "no refresh token is unaffected by elevate change",
+			entry:        cachedAWSOIDCAccessToken{AccessToken: "a", ExpiresAt: now.Add(time.Hour), ElevateExpiresAt: elevateExp.Add(-time.Hour)},
+			wantAccessOK: true, wantKept: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			primary, basic := newMemoryKeyring(), newMemoryKeyring()
+			withAllCacheKeyrings(t, primary, basic)
+			key := buildSCAK8sCacheKey(profile, "AWS", "role", "c.example.com", uuid, "", sid)
+			payload, err := json.Marshal(tc.entry)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if err := primary.SetPassword(awsIDCOIDCCredsServiceName, key, string(payload)); err != nil {
+				t.Fatalf("seed cache: %v", err)
+			}
+			current := elevateExp
+			if !tc.current.IsZero() {
+				current = tc.current
+			}
+
+			token, refresh, _, ok := LoadCachedAWSOIDCAccessToken(profile, "AWS", "role", "c.example.com", uuid, "", sid, current)
+			if ok != tc.wantAccessOK {
+				t.Errorf("ok = %v, want %v", ok, tc.wantAccessOK)
+			}
+			if refresh != tc.wantRefresh {
+				t.Errorf("refresh = %q, want %q", refresh, tc.wantRefresh)
+			}
+			if tc.wantAccessOK && token != "a" {
+				t.Errorf("token = %q, want %q", token, "a")
+			}
+			if data, _ := primary.GetPassword(awsIDCOIDCCredsServiceName, key); (data != "") != tc.wantKept {
+				t.Errorf("entry kept = %v, want %v", data != "", tc.wantKept)
+			}
+		})
+	}
+}
+
+func TestSaveAWSOIDCAccessToken_ElevateStamp(t *testing.T) {
+	const (
+		profile = "prod"
+		uuid    = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+		sid     = "sid-1"
+	)
+	now := time.Now().UTC()
+	elevate1 := now.Add(8 * time.Hour)
+	elevate2 := elevate1.Add(8 * time.Hour)
+	load := func(elevateExp time.Time) (string, bool) {
+		_, refresh, _, ok := LoadCachedAWSOIDCAccessToken(profile, "AWS", "role", "c.example.com", uuid, "", sid, elevateExp)
+		return refresh, ok
+	}
+	save := func(refresh string, elevateExp time.Time) {
+		t.Helper()
+		if err := SaveAWSOIDCAccessToken(profile, "AWS", "role", "c.example.com", uuid, "", sid, "a", refresh, now.Add(time.Hour), elevateExp); err != nil {
+			t.Fatalf("save: %v", err)
+		}
+	}
+
+	t.Run("round trip within one elevate", func(t *testing.T) {
+		withAllCacheKeyrings(t, newMemoryKeyring(), newMemoryKeyring())
+		save("r", elevate1)
+		if refresh, ok := load(elevate1); !ok || refresh != "r" {
+			t.Fatalf("got refresh=%q ok=%v, want r/true", refresh, ok)
+		}
+	})
+
+	t.Run("new elevate never sees the old refresh token", func(t *testing.T) {
+		withAllCacheKeyrings(t, newMemoryKeyring(), newMemoryKeyring())
+		save("r", elevate1)
+		if refresh, _ := load(elevate2); refresh != "" {
+			t.Fatalf("refresh = %q, want empty", refresh)
+		}
+		// Hydrate saves after load; a stripped refresh token must not be resurrected.
+		save("", elevate2)
+		if refresh, _ := load(elevate2); refresh != "" {
+			t.Fatalf("refresh = %q after resave, want empty", refresh)
+		}
+	})
+
+	t.Run("zero elevate expiry stores no refresh token", func(t *testing.T) {
+		withAllCacheKeyrings(t, newMemoryKeyring(), newMemoryKeyring())
+		save("r", time.Time{})
+		if refresh, ok := load(elevate1); refresh != "" || !ok {
+			t.Fatalf("got refresh=%q ok=%v, want empty/true", refresh, ok)
+		}
+	})
+}
+
+func TestCachedAWSOIDCAccessToken_OutlivedElevateReason(t *testing.T) {
+	now := time.Now().UTC()
+	exp := now.Add(time.Hour)
+	ended := now.Add(-time.Minute)
+	tests := []struct {
+		name    string
+		entry   cachedAWSOIDCAccessToken
+		current time.Time
+		want    string
+	}{
+		{"no refresh token", cachedAWSOIDCAccessToken{}, exp, ""},
+		{"legacy entry", cachedAWSOIDCAccessToken{RefreshToken: "r"}, exp, "entry predates Elevate binding"},
+		{"other elevate", cachedAWSOIDCAccessToken{RefreshToken: "r", ElevateExpiresAt: exp.Add(time.Hour)}, exp, "Elevate session changed"},
+		{"elevate ended", cachedAWSOIDCAccessToken{RefreshToken: "r", ElevateExpiresAt: ended}, ended, "Elevate session ended"},
+		{"same elevate", cachedAWSOIDCAccessToken{RefreshToken: "r", ElevateExpiresAt: exp}, exp, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.entry.outlivedElevateReason(tc.current, now); got != tc.want {
+				t.Errorf("reason = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNewAWSIDCOIDCCache_BindsHooksToElevate(t *testing.T) {
+	withAllCacheKeyrings(t, newMemoryKeyring(), newMemoryKeyring())
+	const uuid = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	elevate1 := time.Now().UTC().Add(2 * time.Hour)
+	newCache := func(elevateExp time.Time) *k8sservice.AWSIDCOIDCCache {
+		return NewAWSIDCOIDCCache("prod", "AWS", "role", "c.example.com", uuid, "", "sid-1", elevateExp)
+	}
+
+	first := newCache(elevate1)
+	if err := first.SaveAccessToken("a", "r", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if _, refresh, _, ok := first.LoadAccessToken(); !ok || refresh != "r" {
+		t.Fatalf("same elevate: got refresh=%q ok=%v, want r/true", refresh, ok)
+	}
+	if _, refresh, _, ok := newCache(elevate1.Add(time.Hour)).LoadAccessToken(); ok || refresh != "" {
+		t.Fatalf("other elevate: got refresh=%q ok=%v, want empty/false", refresh, ok)
+	}
+}

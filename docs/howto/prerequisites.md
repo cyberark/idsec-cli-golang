@@ -15,19 +15,17 @@ Install the CLI with Homebrew:
 
 ```shell linenums="0"
 brew tap cyberark/tools
+brew trust cyberark/tools
 brew install idsec
 ```
 
 ### Go
 
-For private repositories, configure Git credentials.
-
 **macOS / Linux**
 
+
 ```shell linenums="0"
-# Requires Go 1.25+ and git 2.24+
-export GOPRIVATE=github.com
-git config --global url."https://<username>:<token>@github.com".insteadOf "https://github.com"
+# Requires Go 1.25+
 go install github.com/cyberark/idsec-cli-golang/cmd/idsec@latest
 ```
 
@@ -39,10 +37,9 @@ export PATH=$PATH:$(go env GOPATH)/bin
 
 **Windows (PowerShell)**
 
+
 ```powershell linenums="0"
 # Requires Go 1.25+ and Git for Windows 2.24+ on PATH
-$env:GOPRIVATE = "github.com"
-git config --global url."https://<username>:<token>@github.com".insteadOf "https://github.com"
 go install github.com/cyberark/idsec-cli-golang/cmd/idsec@latest
 ```
 

@@ -61,7 +61,28 @@ type cachedAWSOIDCAccessToken struct {
 	AccessToken  string    `json:"accessToken"`
 	RefreshToken string    `json:"refreshToken,omitempty"`
 	ExpiresAt    time.Time `json:"expiresAt"`
-	SavedAt      time.Time `json:"savedAt"`
+	// ElevateExpiresAt is the Elevate sessionExpTime the entry was issued under;
+	// an entry holding a refresh token is evicted once that session changes or ends.
+	ElevateExpiresAt time.Time `json:"elevateExpiresAt,omitzero"`
+	SavedAt          time.Time `json:"savedAt"`
+}
+
+// outlivedElevateReason explains why a cached SSO token entry holding a refresh token
+// must be evicted: unstamped (legacy), issued under another Elevate session, or that
+// session has ended. "" keeps the entry; access-token-only entries are always kept
+// because the SDK already caps their expiry to the Elevate session.
+func (c cachedAWSOIDCAccessToken) outlivedElevateReason(currentElevateExp, now time.Time) string {
+	switch {
+	case strings.TrimSpace(c.RefreshToken) == "":
+		return ""
+	case c.ElevateExpiresAt.IsZero():
+		return "entry predates Elevate binding"
+	case !c.ElevateExpiresAt.Equal(currentElevateExp):
+		return "Elevate session changed"
+	case !now.Before(c.ElevateExpiresAt):
+		return "Elevate session ended"
+	}
+	return ""
 }
 
 // cachedExecCredential is the value persisted in the OS keyring by the unified
@@ -937,8 +958,9 @@ func SaveElevateCreds(profileName, csp, roleID, fqdn, userUUID, namespace, sessi
 // token is expired or empty) so the SDK can run the refresh_token grant instead
 // of the interactive device flow. The cache entry is therefore NOT deleted merely
 // because the access token expired — doing so would discard a still-usable refresh
-// token; it is only removed when the stored JSON is corrupt.
-func LoadCachedAWSOIDCAccessToken(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID string) (token, refreshToken string, expiresAt time.Time, ok bool) {
+// token. It is removed when the stored JSON is corrupt, or when its refresh token
+// was issued under a different (or finished) Elevate session than elevateExpiresAt.
+func LoadCachedAWSOIDCAccessToken(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID string, elevateExpiresAt time.Time) (token, refreshToken string, expiresAt time.Time, ok bool) {
 	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(userUUID) == "" {
 		return "", "", time.Time{}, false
 	}
@@ -953,6 +975,11 @@ func LoadCachedAWSOIDCAccessToken(profileName, csp, roleID, fqdn, userUUID, name
 	}
 	var cached cachedAWSOIDCAccessToken
 	if err := json.Unmarshal([]byte(data), &cached); err != nil {
+		_ = impl.DeletePassword(awsIDCOIDCCredsServiceName, key)
+		return "", "", time.Time{}, false
+	}
+	if reason := cached.outlivedElevateReason(elevateExpiresAt, time.Now()); reason != "" {
+		kubectlLoginVerbose("AWS IDC OIDC cache entry evicted (%s); device authorization will be required", reason)
 		_ = impl.DeletePassword(awsIDCOIDCCredsServiceName, key)
 		return "", "", time.Time{}, false
 	}
@@ -971,19 +998,25 @@ func LoadCachedAWSOIDCAccessToken(profileName, csp, roleID, fqdn, userUUID, name
 // SaveAWSOIDCAccessToken stores the SSO OIDC access token and refresh token from
 // the AWS IDC device registration (or a subsequent refresh_token grant). AWS may
 // rotate the refresh token, so callers pass the latest value on every save.
-func SaveAWSOIDCAccessToken(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID, token, refreshToken string, expiresAt time.Time) error {
+// elevateExpiresAt stamps the entry; with a zero value no refresh token is persisted.
+func SaveAWSOIDCAccessToken(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID, token, refreshToken string, expiresAt, elevateExpiresAt time.Time) error {
 	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(userUUID) == "" || strings.TrimSpace(token) == "" {
 		return nil
+	}
+	refreshToken = strings.TrimSpace(refreshToken)
+	if elevateExpiresAt.IsZero() {
+		refreshToken = ""
 	}
 	impl, err := krAWSIDCOIDC.get()
 	if err != nil {
 		return fmt.Errorf("failed to open AWS IDC OIDC cache: %w", err)
 	}
 	payload, err := json.Marshal(cachedAWSOIDCAccessToken{
-		AccessToken:  token,
-		RefreshToken: strings.TrimSpace(refreshToken),
-		ExpiresAt:    expiresAt.UTC(),
-		SavedAt:      time.Now().UTC(),
+		AccessToken:      token,
+		RefreshToken:     refreshToken,
+		ExpiresAt:        expiresAt.UTC(),
+		ElevateExpiresAt: elevateExpiresAt.UTC(),
+		SavedAt:          time.Now().UTC(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal AWS IDC OIDC cache: %w", err)
@@ -996,14 +1029,15 @@ func SaveAWSOIDCAccessToken(profileName, csp, roleID, fqdn, userUUID, namespace,
 }
 
 // NewAWSIDCOIDCCache builds SDK cache hooks backed by the CLI keyring using the
-// same cache key shape as Elevate/ExecCredential.
-func NewAWSIDCOIDCCache(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID string) *k8sservice.AWSIDCOIDCCache {
+// same cache key shape as Elevate/ExecCredential. elevateExpiresAt is the current
+// Elevate sessionExpTime; it bounds the cached refresh token to that session.
+func NewAWSIDCOIDCCache(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID string, elevateExpiresAt time.Time) *k8sservice.AWSIDCOIDCCache {
 	return &k8sservice.AWSIDCOIDCCache{
 		LoadAccessToken: func() (string, string, time.Time, bool) {
-			return LoadCachedAWSOIDCAccessToken(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID)
+			return LoadCachedAWSOIDCAccessToken(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID, elevateExpiresAt)
 		},
 		SaveAccessToken: func(token, refreshToken string, expiresAt time.Time) error {
-			return SaveAWSOIDCAccessToken(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID, token, refreshToken, expiresAt)
+			return SaveAWSOIDCAccessToken(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID, token, refreshToken, expiresAt, elevateExpiresAt)
 		},
 	}
 }

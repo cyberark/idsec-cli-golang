@@ -688,7 +688,7 @@ func (a *IdsecKubectlLoginAction) runAWSDirectFlow(
 //  1. Cached Elevate (sessionExpTime-based) or Elevate API
 //  2. Parse EKS ARN from targetId → region + cluster name
 //  3. HydrateAWSAccessCredentialsFromElevate (device registration → GetRoleCredentials)
-//  4. GenerateToken (client-side STS presign) → ExecCredential bearer token
+//  4. provider.GenerateToken (client-side STS presign, since eksToken is absent) → ExecCredential
 func (a *IdsecKubectlLoginAction) runAWSIDCDirectFlow(
 	cmd *cobra.Command,
 	svc *k8sservice.IdsecSCAK8sService,
@@ -720,6 +720,7 @@ func (a *IdsecKubectlLoginAction) runAWSIDCDirectFlow(
 		req.session.userUUID,
 		req.resolvedNamespace(),
 		req.session.sessionID,
+		elevateExpiresAt,
 	)
 	if err := k8sservice.HydrateAWSAccessCredentialsFromElevate(
 		elevateResult,
@@ -730,7 +731,7 @@ func (a *IdsecKubectlLoginAction) runAWSIDCDirectFlow(
 	}
 
 	getActiveProgress().update("Acquiring cloud credentials...")
-	kubectlLoginInfo("generating AWS token via direct provider")
+	kubectlLoginInfo("generating AWS token via client-side STS presign")
 	generateStartedAt := time.Now()
 	execCred, err := provider.GenerateToken(elevateResult, req.cluster)
 	if err != nil {
@@ -741,20 +742,18 @@ func (a *IdsecKubectlLoginAction) runAWSIDCDirectFlow(
 	return execCred
 }
 
-// runAWSIAMDirectFlow implements the AWS IAM role direct path with two sub-paths
-// determined by which Elevate API format is cached:
+// runAWSIAMDirectFlow implements the AWS IAM role direct path:
+//  1. Load Elevate cache → extract cachedSessionId (empty on miss/expired).
+//  2. Always call Elevate API, passing sessionId to continue an existing SCA session.
+//  3. Parse EKS ARN from targetId → region + cluster name.
+//  4. Persist the fresh Elevate result (sessionId reuse on the next invocation).
+//  5. GenerateToken (server-side eksToken) → ExecCredential bearer token.
 //
-//  1. Check the Elevate cache via LoadCachedElevateKeyringWithReason.
-//  2. Old format (accessCredentials present, eksToken absent): cache hit → skip Elevate API
-//     entirely and generate the EKS token client-side from the cached STS credentials.
-//     STS credentials are valid for ~1 hour, so this is safe until sessionExpTime.
-//  3. New format (eksToken present): eksToken has a 15-min hard ceiling, so always call the
-//     Elevate API for a fresh token. Pass the cached sessionId (if any) to continue the
-//     existing SCA session without starting a new one.
-//  4. Cache miss → call Elevate API without a sessionId (cold start).
-//  5. Parse EKS ARN from targetId → region + cluster name.
-//  6. Persist the fresh Elevate result for reuse on the next invocation.
-//  7. GenerateToken → ExecCredential bearer token.
+// Unlike runAWSIDCDirectFlow (which calls resolveElevateResult and can skip the
+// Elevate API entirely on a cache hit), this flow always calls Elevate. The
+// eksToken itself is never cached/reused — only sessionId is, purely to keep
+// continuing the same SCA session — because each cached eksToken carries its own
+// fixed presigned expiry and cannot be refreshed without a new server round trip.
 func (a *IdsecKubectlLoginAction) runAWSIAMDirectFlow(
 	cmd *cobra.Command,
 	svc *k8sservice.IdsecSCAK8sService,
@@ -765,7 +764,7 @@ func (a *IdsecKubectlLoginAction) runAWSIAMDirectFlow(
 	getActiveProgress().update("Requesting session elevation...")
 	namespace := req.resolvedNamespace()
 
-	cached, hitReason, missReason, cacheErr := LoadCachedElevateKeyringWithReason(
+	cached, _, missReason, cacheErr := LoadCachedElevateKeyringWithReason(
 		req.session.profileName, req.cluster.CSP, req.cluster.RoleID, req.cluster.FQDN,
 		req.session.userUUID, namespace, req.session.sessionID,
 	)
@@ -773,37 +772,6 @@ func (a *IdsecKubectlLoginAction) runAWSIAMDirectFlow(
 		kubectlLoginVerbose("failed to read Elevate cache: %v", cacheErr)
 	}
 
-	// Old Elevate API (accessCredentials, no eksToken): cached STS credentials are valid for ~1 hour.
-	// Skip the Elevate API and generate the EKS token client-side — restores pre-eksToken behaviour.
-	if cached != nil && strings.TrimSpace(cached.EKSToken) == "" {
-		kubectlLoginInfo("Elevate cache HIT (accessCredentials format — skipping Elevate API): %s", hitReason)
-		elevateExpiresAt, expErr := deriveElevateExpiry(cached)
-		if expErr != nil {
-			exitErr(expErr.Error())
-		}
-		if cached.TargetID != "" {
-			region, clusterName, parseErr := k8sservice.ParseEKSARN(cached.TargetID)
-			if parseErr != nil {
-				exitErr(fmt.Sprintf("failed to parse EKS ARN from cached Elevate targetId %q: %v", cached.TargetID, parseErr))
-			}
-			req.cluster.Region = region
-			req.cluster.ClusterID = clusterName
-			kubectlLoginVerbose("parsed EKS ARN — region=%q cluster=%q", region, clusterName)
-		}
-		getActiveProgress().update("Acquiring cloud credentials...")
-		generateStartedAt := time.Now()
-		execCred, err := provider.GenerateToken(cached, req.cluster)
-		if err != nil {
-			exitErr(fmt.Sprintf("failed to generate AWS token: %v", err))
-		}
-		a.applyFlowExecCredentialTTL(cmd, execCredFlowAWSDirect, execCred, elevateExpiresAt, "")
-		kubectlLoginVerboseDuration("AWS IAM direct token generation", generateStartedAt)
-		return execCred
-	}
-
-	// New Elevate API (eksToken): 15-min hard ceiling means the cached token is unusable by the time
-	// the ExecCredential cache expires. Always call the API for a fresh token; pass the cached
-	// sessionId (if available) so the server continues the existing SCA session.
 	cachedSessionID := ""
 	elevateCacheKey := buildSCAK8sCacheKey(req.session.profileName, req.cluster.CSP, req.cluster.RoleID,
 		req.cluster.FQDN, req.session.userUUID, namespace, req.session.sessionID)
@@ -875,7 +843,7 @@ func (a *IdsecKubectlLoginAction) runAWSIAMDirectFlow(
 	}
 
 	getActiveProgress().update("Acquiring cloud credentials...")
-	kubectlLoginInfo("generating AWS token via direct provider")
+	kubectlLoginInfo("generating EKS token from server-provided eksToken")
 	generateStartedAt := time.Now()
 	execCred, err := provider.GenerateToken(elevateResult, req.cluster)
 	if err != nil {
@@ -941,7 +909,6 @@ func (a *IdsecKubectlLoginAction) acquireAzureAKSToken(
 func (a *IdsecKubectlLoginAction) acquireAWSIDCSTSCredentials(
 	cmd *cobra.Command,
 	svc *k8sservice.IdsecSCAK8sService,
-	provider k8sservice.IdsecSCAK8sTokenProvider,
 	req *kubectlLoginRequest,
 ) (elevateResult *k8smodels.IdsecSCAK8sElevateResult, elevateFromCache bool, elevateExpiresAt time.Time) {
 	getActiveProgress().update("Requesting session elevation...")
@@ -966,6 +933,7 @@ func (a *IdsecKubectlLoginAction) acquireAWSIDCSTSCredentials(
 		req.session.userUUID,
 		req.resolvedNamespace(),
 		req.session.sessionID,
+		elevateExpiresAt,
 	)
 	if err := k8sservice.HydrateAWSAccessCredentialsFromElevate(
 		elevateResult,
@@ -1069,12 +1037,13 @@ func (a *IdsecKubectlLoginAction) runAWSProxyFlow(
 	keyFuture := svc.BeginProxyKeyPrefetch(kubectlLoginDiagnosticsEnabled())
 
 	kubectlLoginInfo("aws idc proxy flow [1/3]: acquiring AWS IDC STS credentials (Elevate → device auth)")
+	elevateResult, _, elevateExpiresAt := a.acquireAWSIDCSTSCredentials(cmd, svc, req)
+	kubectlLoginInfo("aws idc proxy flow [1/3]: AWS IDC STS credentials acquired")
+
 	provider, err := k8sservice.GetTokenProvider(k8smodels.CSPAWS)
 	if err != nil {
 		exitErr(fmt.Sprintf("unsupported CSP %q: %v", k8smodels.CSPAWS, err))
 	}
-	elevateResult, _, elevateExpiresAt := a.acquireAWSIDCSTSCredentials(cmd, svc, provider, req)
-	kubectlLoginInfo("aws idc proxy flow [1/3]: AWS IDC STS credentials acquired")
 
 	getActiveProgress().update("Acquiring cloud credentials...")
 	kubectlLoginInfo("aws idc proxy flow [2/3]: generating EKS bearer token (K8sToken)")

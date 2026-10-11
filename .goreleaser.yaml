@@ -60,17 +60,21 @@ builds:
     binary: idsec-windows
 
 binary_signs:
-  - id: filesigner
+  - id: filesigner-unix
     cmd: ./filesigner/filesigner-linux
-    args:
-      - "sign"
-      - "/same-dir"
-      - "${artifact}"
+    args: ["sign", "/csp", "/same-dir", "${artifact}"]
     artifacts: binary
-    ids:
-      - unix
-      - mac
-      - win
+    ids: [unix]
+  - id: filesigner-mac
+    cmd: ./filesigner/filesigner-linux
+    args: ["sign", "/csp", "/same-dir", "${artifact}"]
+    artifacts: binary
+    ids: [mac]
+  - id: filesigner-win
+    cmd: ./filesigner/filesigner-linux
+    args: ["sign", "/csp", "/same-dir", "${artifact}"]
+    artifacts: binary
+    ids: [win]
 
 archives:
   - id: archive-with-sigs

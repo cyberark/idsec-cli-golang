@@ -174,9 +174,10 @@ func (a *IdsecBaseExecAction) DefineAction(cmd *cobra.Command) {
 //   - cmd: The root command being executed
 //   - execArgs: Command line arguments passed to the exec action
 //
-// The method prints failure messages and returns early if any critical step fails,
-// including profile loading, authentication, or API client creation.
-func (a *IdsecBaseExecAction) runExecAction(cmd *cobra.Command, execArgs []string) {
+// The method prints failure messages and returns ErrActionFailed if any critical
+// step fails, including profile loading, authentication, API client creation, or
+// the action itself (after retries). It returns nil on success.
+func (a *IdsecBaseExecAction) runExecAction(cmd *cobra.Command, execArgs []string) error {
 	a.CommonActionsExecution(cmd, execArgs, false)
 	var execCmd *cobra.Command
 	currentCmd := cmd
@@ -189,13 +190,13 @@ func (a *IdsecBaseExecAction) runExecAction(cmd *cobra.Command, execArgs []strin
 	}
 	if execCmd == nil {
 		args.PrintFailure("Failed to find exec command")
-		return
+		return ErrActionFailed
 	}
 	profileName, _ := execCmd.Flags().GetString("profile-name")
 	profile, err := (*a.profilesLoader).LoadProfile(profiles.DeduceProfileName(profileName))
 	if err != nil || profile == nil {
 		args.PrintFailure("Please configure a profile before trying to execute actions")
-		return
+		return ErrActionFailed
 	}
 
 	var authenticators []auth.IdsecAuth
@@ -214,17 +215,17 @@ func (a *IdsecBaseExecAction) runExecAction(cmd *cobra.Command, execArgs []strin
 
 	if len(authenticators) == 0 {
 		args.PrintFailure("Failed to load authenticators, tokens are either expired or authenticators are not logged in, please login first")
-		return
+		return ErrActionFailed
 	}
 	if len(authenticators) != len(profile.AuthProfiles) && config.IsInteractive() {
-		args.PrintColored("Not all authenticators are logged in, some of the functionality will be disabled", color.New())
+		args.PrintColoredStderr("Not all authenticators are logged in, some of the functionality will be disabled", color.New())
 	}
 
 	// Create the CLI API with the authenticators
 	api, err := cli.NewIdsecCLIAPI(authenticators, profile)
 	if err != nil {
 		args.PrintFailure(fmt.Sprintf("Failed to create CLI API: %s", err))
-		return
+		return ErrActionFailed
 	}
 	reportStatus := "success"
 	reportMessage := ""
@@ -238,14 +239,16 @@ func (a *IdsecBaseExecAction) runExecAction(cmd *cobra.Command, execArgs []strin
 	err = common.RetryCall(func() error {
 		return (*a.execAction).RunExecAction(api, cmd, execCmd, execArgs)
 	}, retryCount, 1, nil, 1, 0, func(err error, delay int) {
-		args.PrintFailure(fmt.Sprintf("Retrying in %d seconds", delay))
+		args.PrintColoredStderr(fmt.Sprintf("Retrying in %d seconds", delay), color.New(color.FgRed))
 	})
 
 	if err != nil {
 		reportStatus = "failure"
 		reportMessage = err.Error()
 		args.PrintFailure(fmt.Sprintf("Failed to execute action: %s", err))
+		return ErrActionFailed
 	}
+	return nil
 }
 
 // buildCLIContextTags extracts CLI context and returns compact FAS tags:

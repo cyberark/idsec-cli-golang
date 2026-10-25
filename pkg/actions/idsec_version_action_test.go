@@ -154,6 +154,7 @@ func TestIdsecVersionAction_runVersionAction(t *testing.T) {
 		// (including the bounded timeout).
 		stubLatest     *semver.Version
 		expectedOutput string
+		expectedStderr string
 	}{
 		{
 			name:            "success_default_mode_prints_full_metadata_block",
@@ -179,12 +180,13 @@ func TestIdsecVersionAction_runVersionAction(t *testing.T) {
 			stubGitCommit:   "abc123",
 			stubGitBranch:   "release",
 			stubLatest:      &outdatedLatest,
+			// The version block stays on stdout; the upgrade warning now goes to stderr.
 			expectedOutput: "Idsec v0.4.0\n" +
 				"Build Number: 1\n" +
 				"Build Date: 2026-01-01T00:00:00Z\n" +
 				"Git Commit: abc123\n" +
-				"Git Branch: release\n" +
-				"\nA newer version of idsec is available. Run `idsec upgrade` to upgrade to version 0.5.0.\n",
+				"Git Branch: release\n",
+			expectedStderr: "\nA newer version of idsec is available. Run `idsec upgrade` to upgrade to version 0.5.0.\n",
 		},
 		{
 			name:            "success_silent_mode_strips_idsec_and_v_prefix",
@@ -284,6 +286,15 @@ func TestIdsecVersionAction_runVersionAction(t *testing.T) {
 
 			if output != tt.expectedOutput {
 				t.Errorf("Expected output to be %q, got %q", tt.expectedOutput, output)
+			}
+
+			if tt.expectedStderr != "" {
+				stderrOutput := testutils.CaptureStderr(func() {
+					action.runVersionAction(versionCmd, nil)
+				})
+				if stderrOutput != tt.expectedStderr {
+					t.Errorf("Expected stderr to be %q, got %q", tt.expectedStderr, stderrOutput)
+				}
 			}
 		})
 	}

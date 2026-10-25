@@ -551,11 +551,11 @@ func (a *IdsecKubectlLoginAction) resolveElevateResult(
 		if k8sservice.IsAWSIDCPermissionSetRole(cached.RoleID) {
 			if vErr := k8sservice.ValidateAWSIDCDeviceRegistration(cached); vErr != nil {
 				kubectlLoginWarning(
-					"cached Elevate result missing required AWS IDC fields (%v) — calling Elevate API for fresh data",
+					"cached Elevate result failed AWS IDC validation (%v) — calling Elevate API for fresh data",
 					vErr,
 				)
 				cached = nil
-				missReason = "cached entry missing required AWS IDC fields"
+				missReason = "cached entry failed AWS IDC validation"
 			}
 		}
 	}

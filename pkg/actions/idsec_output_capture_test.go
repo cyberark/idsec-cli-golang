@@ -17,3 +17,16 @@ func withCapturedOutput(fn func()) string {
 	}()
 	return testutils.CaptureOutput(fn)
 }
+
+// withCapturedStderr enables plain (non-colored) output, captures stderr while fn runs,
+// and restores the previous config afterwards. It is intentionally not run in parallel
+// because it mutates global config and os.Stderr.
+func withCapturedStderr(fn func()) string {
+	config.AllowOutput()
+	config.DisableColor()
+	defer func() {
+		config.DisallowOutput()
+		config.EnableColor()
+	}()
+	return testutils.CaptureStderr(fn)
+}

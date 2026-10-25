@@ -20,6 +20,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strconv"
@@ -70,6 +71,15 @@ func main() {
 	rootCmd := createRootCommand()
 	registerActions(rootCmd, profilesLoader)
 	setupCustomHelp(rootCmd)
+	// Force Cobra to register its built-in "help" and "completion" subcommands
+	// before validateCommandPathBeforeExecution runs. Without this, those
+	// commands aren't in cmd.Commands() yet and get mistakenly routed to exec.
+	rootCmd.InitDefaultHelpCmd()
+	rootCmd.InitDefaultCompletionCmd()
+	// Register transparent exec aliases on the root so that tab-completion
+	// works for the "idsec <service> ..." shorthand in addition to the
+	// explicit "idsec exec <service> ..." form.
+	setupTransparentExecCompletion(rootCmd)
 	setupDefaultRouting(rootCmd)
 	rerouteHelpToExecIfNeeded(rootCmd)
 	handleCommandExecution(rootCmd)
@@ -111,40 +121,115 @@ func registerActions(rootCmd *cobra.Command, profilesLoader *profiles.ProfileLoa
 	}
 }
 
-// setupCustomHelp extends the help function to include available services from exec command.
+// setupCustomHelp extends the root help to show exec's global flags (profile-name,
+// output-path, etc.) which are persistent on the exec command rather than on root.
+// The available-services list is no longer printed here because
+// setupTransparentExecCompletion registers each service as a root-level command
+// in its own labelled group, so Cobra's built-in help already shows them.
 func setupCustomHelp(rootCmd *cobra.Command) {
 	originalHelpFunc := rootCmd.HelpFunc()
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		// Call the original help function
 		originalHelpFunc(cmd, args)
 
-		// Only append available services information for the root command, not for subcommands
-		// Check if this is the root command by checking if it has no parent or is the root itself
+		// Only append exec global flags for the root command, not for subcommands.
 		if cmd.Parent() == nil || cmd == rootCmd {
 			execCmd, _, err := cmd.Find([]string{"exec"})
-			if err == nil && execCmd != nil {
-				if execCmd.HasAvailableLocalFlags() {
-					fmt.Println("\nGlobal Flags:")
-					fmt.Print(execCmd.LocalFlags().FlagUsages())
-				}
-
-				if len(execCmd.Commands()) > 0 {
-					fmt.Println("\nAvailable services (use 'idsec <service>' or 'idsec exec <service>'):")
-					for _, serviceCmd := range execCmd.Commands() {
-						description := serviceCmd.Short
-						if description == "" {
-							description = serviceCmd.Long
-						}
-						fmt.Printf("  %-15s %s\n", serviceCmd.Name(), description)
-					}
-				}
+			if err == nil && execCmd != nil && execCmd.HasAvailableLocalFlags() {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "\nGlobal Flags:")
+				_, _ = fmt.Fprint(cmd.OutOrStdout(), execCmd.LocalFlags().FlagUsages())
 			}
 		}
 	})
 }
 
+// execServiceGroupID is the Cobra group ID used to label transparent exec aliases in help.
+const execServiceGroupID = "services"
+
+// setupTransparentExecCompletion mirrors every service command that lives under
+// "exec" as a top-level root command so that tab-completion works for the
+// shorthand "idsec <service> ..." form in addition to "idsec exec <service> ...".
+//
+// Each mirrored command:
+//   - Is non-hidden so Cobra includes it in shell completions.
+//   - Belongs to the "services" group so it appears under its own labelled
+//     section in `idsec help` rather than mixed into "Available Commands".
+//   - Carries the same flags as the exec counterpart (leaf nodes only) so that
+//     flag-level completion (e.g. --profile-name) also works.
+//   - Has a RunE that re-inserts "exec" into os.Args and re-runs the root
+//     command, preserving the full exec execution path (auth, retries, etc.).
+func setupTransparentExecCompletion(rootCmd *cobra.Command) {
+	execCmd := findSubcommand(rootCmd, "exec")
+	if execCmd == nil {
+		return
+	}
+	rootCmd.AddGroup(&cobra.Group{
+		ID:    execServiceGroupID,
+		Title: "Available Services (use 'idsec <service>' or 'idsec exec <service>'):",
+	})
+	for _, svcCmd := range execCmd.Commands() {
+		alias := buildExecAlias(svcCmd, rootCmd)
+		alias.GroupID = execServiceGroupID
+		rootCmd.AddCommand(alias)
+	}
+}
+
+// buildExecAlias recursively clones a command subtree from exec for use as a
+// transparent root-level alias. Leaf commands get a RunE that routes execution
+// back through exec so the full exec lifecycle (auth, profile, retries) runs.
+//
+// Schema flags are copied from the exec counterpart so that flag-level
+// tab-completion (e.g. --safe-name, --description) works on the shorthand form.
+// FParseErrWhitelist.UnknownFlags=true lets Cobra silently ignore exec's
+// persistent flags (--profile-name, --dry-run, etc.) that are not registered
+// on the phantom command — they are forwarded correctly through os.Args anyway.
+func buildExecAlias(src *cobra.Command, rootCmd *cobra.Command) *cobra.Command {
+	dst := &cobra.Command{
+		Use:     src.Use,
+		Aliases: src.Aliases,
+		Short:   src.Short,
+		Long:    src.Long,
+	}
+
+	if !src.HasSubCommands() {
+		// Leaf: copy schema flags so Cobra can offer them in tab-completion.
+		dst.Flags().AddFlagSet(src.Flags())
+		// Silently ignore exec persistent flags (profile-name, dry-run, …)
+		// that aren't registered here; they are passed through via os.Args.
+		dst.FParseErrWhitelist = cobra.FParseErrWhitelist{UnknownFlags: true}
+
+		capturedRoot := rootCmd
+		dst.RunE = func(_ *cobra.Command, _ []string) error {
+			// Re-insert "exec" after the program name so the real exec command
+			// tree handles authentication, profile loading and retry logic.
+			original := make([]string, len(os.Args))
+			copy(original, os.Args)
+			defer func() { os.Args = original }()
+
+			os.Args = append([]string{os.Args[0], "exec"}, os.Args[1:]...)
+			// Temporarily clear root's Run so that it doesn't trigger the
+			// default-routing fallback and cause infinite recursion.
+			savedRun := capturedRoot.Run
+			capturedRoot.Run = nil
+			err := capturedRoot.Execute()
+			capturedRoot.Run = savedRun
+			return err
+		}
+	}
+
+	for _, child := range src.Commands() {
+		dst.AddCommand(buildExecAlias(child, rootCmd))
+	}
+	return dst
+}
+
 // isKnownSubcommand checks if the given argument matches a known subcommand or its alias.
+// Args with a "__" prefix are always treated as known because they are Cobra's internal
+// commands (e.g. __complete, __completeNoDesc) that are registered lazily inside Execute().
 func isKnownSubcommand(cmd *cobra.Command, arg string) bool {
+	if strings.HasPrefix(arg, "__") {
+		return true
+	}
 	return findSubcommand(cmd, arg) != nil
 }
 
@@ -249,7 +334,8 @@ func setupDefaultRouting(rootCmd *cobra.Command) {
 			// If NOT a known subcommand, route to exec
 			// (If it was a known subcommand, Cobra would have matched it and we wouldn't be here)
 			if err := routeToExec(cmd); err != nil {
-				fmt.Println(err)
+				exitIfExitCodeError(err)
+				_, _ = fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
 		}
@@ -330,6 +416,13 @@ func findUnknownCommandInArgs(rootCmd *cobra.Command, argv []string) (string, st
 			return token, current.CommandPath()
 		}
 		current = next
+		// Leaf commands (no subcommands) handle all remaining tokens themselves
+		// as flags and positional args. Stop traversal here to avoid
+		// mis-classifying flag values (e.g. "--profile-name dudu") as unknown
+		// subcommands when the flag is not registered on the phantom command.
+		if !current.HasSubCommands() {
+			break
+		}
 	}
 	return "", ""
 }
@@ -342,6 +435,13 @@ func validateCommandPathBeforeExecution(rootCmd *cobra.Command) error {
 	argv := os.Args[1:]
 	firstArg := firstPositionalArg(argv)
 	if firstArg == "" {
+		return nil
+	}
+
+	// Cobra's internal shell-completion commands (e.g. __complete, __completeNoDesc)
+	// are registered lazily inside Execute(), so they are never present in
+	// cmd.Commands() at this point. Skip pre-validation for them entirely.
+	if strings.HasPrefix(firstArg, "__") {
 		return nil
 	}
 
@@ -359,21 +459,25 @@ func validateCommandPathBeforeExecution(rootCmd *cobra.Command) error {
 	return fmt.Errorf("unknown command %q for %q", unknownToken, failedPath)
 }
 
+// exitIfExitCodeError exits with the carried code when err is an
+// *actions.ExitCodeError. The action already reported its failure to the user;
+// only a specific non-zero exit code is required, so nothing further is printed.
+func exitIfExitCodeError(err error) {
+	var exitErr *actions.ExitCodeError
+	if errors.As(err, &exitErr) {
+		os.Exit(exitErr.Code)
+	}
+}
+
 // handleCommandExecution executes the root command and handles errors, including routing unknown commands to exec.
 func handleCommandExecution(rootCmd *cobra.Command) {
 	if validationErr := validateCommandPathBeforeExecution(rootCmd); validationErr != nil {
-		fmt.Println(validationErr)
+		_, _ = fmt.Fprintln(os.Stderr, validationErr)
 		os.Exit(1)
 	}
 
 	if err := rootCmd.Execute(); err != nil {
-		// The action already reported its failure to the user; only a specific
-		// non-zero exit code is required, so exit with it without printing
-		// anything further.
-		var exitErr *actions.ExitCodeError
-		if errors.As(err, &exitErr) {
-			os.Exit(exitErr.Code)
-		}
+		exitIfExitCodeError(err)
 
 		errStr := err.Error()
 
@@ -390,21 +494,29 @@ func handleCommandExecution(rootCmd *cobra.Command) {
 
 				// Re-execute with exec prepended
 				if retryErr := rootCmd.Execute(); retryErr != nil {
-					fmt.Println(retryErr)
+					exitIfExitCodeError(retryErr)
+					_, _ = fmt.Fprintln(os.Stderr, retryErr)
 					os.Exit(1)
 				}
 				return
 			}
 		}
 
-		// Show help for root command usage errors to include available services
-		// This helps users see available services when they make a mistake
-		if isRootCommandError(rootCmd) && shouldShowHelpForError(errStr) {
-			// Show our custom help with services section
-			_ = rootCmd.Help()
-			fmt.Println()
-		}
-		fmt.Println(err)
+		reportCommandError(rootCmd, err, os.Stderr)
 		os.Exit(1)
 	}
+}
+
+// reportCommandError writes err to w. For root command usage errors it first
+// writes the root help (which lists the available services) and a blank line,
+// so the help and the error it explains always share a stream.
+func reportCommandError(rootCmd *cobra.Command, err error, w io.Writer) {
+	if isRootCommandError(rootCmd) && shouldShowHelpForError(err.Error()) {
+		originalOut := rootCmd.OutOrStdout()
+		rootCmd.SetOut(w)
+		_ = rootCmd.Help()
+		rootCmd.SetOut(originalOut)
+		_, _ = fmt.Fprintln(w)
+	}
+	_, _ = fmt.Fprintln(w, err)
 }

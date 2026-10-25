@@ -95,7 +95,7 @@ func NewIdsecBaseAction() *IdsecBaseAction {
 func (a *IdsecBaseAction) CommonActionsConfiguration(cmd *cobra.Command) {
 	cmd.PersistentFlags().Bool("raw", false, "Raw output: disable colored output; with --query, also print string results unquoted (like jq -r)")
 	cmd.PersistentFlags().Bool("silent", false, "Silent execution, no interactiveness")
-	cmd.PersistentFlags().Bool("allow-output", false, "Allow stdout / stderr even when silent and not interactive")
+	cmd.PersistentFlags().Bool("allow-output", false, "Allow informational output even when silent and not interactive (failures are always printed to stderr)")
 	cmd.PersistentFlags().Bool("verbose", false, "Whether to verbose log")
 	cmd.PersistentFlags().String("logger-style", "default", "Which verbose logger style to use")
 	cmd.PersistentFlags().String("log-level", "INFO", "Log level to use while verbose")

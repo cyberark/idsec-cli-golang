@@ -163,7 +163,7 @@ func TestIdsecStatusAction_runStatusAction_ProfileNotFound(t *testing.T) {
 	cmd.Flags().Bool("json", false, "")
 	_ = cmd.Flags().Set("profile-name", "missing-profile")
 
-	output := withCapturedOutput(func() {
+	output := withCapturedStderr(func() {
 		action.runStatusAction(cmd, []string{})
 	})
 
@@ -219,7 +219,7 @@ func TestIdsecStatusAction_runStatusAction_LoadError(t *testing.T) {
 	cmd.Flags().Bool("json", false, "")
 	_ = cmd.Flags().Set("profile-name", "broken")
 
-	output := withCapturedOutput(func() {
+	output := withCapturedStderr(func() {
 		action.runStatusAction(cmd, []string{})
 	})
 
@@ -243,15 +243,18 @@ func TestIdsecStatusAction_runStatusAction_EmptyAuthProfiles(t *testing.T) {
 	cmd.Flags().Bool("json", false, "")
 	_ = cmd.Flags().Set("profile-name", "empty")
 
-	output := withCapturedOutput(func() {
+	stdout := withCapturedOutput(func() {
+		action.runStatusAction(cmd, []string{})
+	})
+	stderr := withCapturedStderr(func() {
 		action.runStatusAction(cmd, []string{})
 	})
 
-	if !strings.Contains(output, "empty") {
-		t.Errorf("Expected the profile name in the output, got %q", output)
+	if !strings.Contains(stdout, "empty") {
+		t.Errorf("Expected the profile name in the output, got %q", stdout)
 	}
-	if !strings.Contains(output, "No authenticators") {
-		t.Errorf("Expected a 'No authenticators' message, got %q", output)
+	if !strings.Contains(stderr, "No authenticators") {
+		t.Errorf("Expected a 'No authenticators' message, got %q", stderr)
 	}
 }
 
@@ -494,10 +497,11 @@ func TestIdsecStatusAction_printHumanReadable(t *testing.T) {
 	action := NewIdsecStatusAction(testutils.NewMockProfileLoader().AsProfileLoader())
 
 	tests := []struct {
-		name        string
-		status      profileStatus
-		wantContain []string
-		wantAbsent  []string
+		name              string
+		status            profileStatus
+		wantContain       []string
+		wantContainStderr []string
+		wantAbsent        []string
 	}{
 		{
 			name: "authenticated_with_expiry",
@@ -538,7 +542,7 @@ func TestIdsecStatusAction_printHumanReadable(t *testing.T) {
 					},
 				},
 			},
-			wantContain: []string{"Token Expired", "idsec login"},
+			wantContainStderr: []string{"Token Expired", "idsec login"},
 		},
 		{
 			name: "not_authenticated",
@@ -553,7 +557,7 @@ func TestIdsecStatusAction_printHumanReadable(t *testing.T) {
 					},
 				},
 			},
-			wantContain: []string{"Not Authenticated", "idsec login"},
+			wantContainStderr: []string{"Not Authenticated", "idsec login"},
 		},
 		{
 			name: "no_authenticators",
@@ -562,7 +566,7 @@ func TestIdsecStatusAction_printHumanReadable(t *testing.T) {
 				Authenticated:  false,
 				Authenticators: []authenticatorStatus{},
 			},
-			wantContain: []string{"No authenticators"},
+			wantContainStderr: []string{"No authenticators"},
 		},
 	}
 
@@ -579,6 +583,16 @@ func TestIdsecStatusAction_printHumanReadable(t *testing.T) {
 			for _, absent := range tt.wantAbsent {
 				if strings.Contains(output, absent) {
 					t.Errorf("Expected output NOT to contain %q, got %q", absent, output)
+				}
+			}
+			if len(tt.wantContainStderr) > 0 {
+				stderrOutput := withCapturedStderr(func() {
+					action.printHumanReadable(tt.status)
+				})
+				for _, want := range tt.wantContainStderr {
+					if !strings.Contains(stderrOutput, want) {
+						t.Errorf("Expected stderr to contain %q, got %q", want, stderrOutput)
+					}
 				}
 			}
 		})

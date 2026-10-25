@@ -357,10 +357,12 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 		setupAction  func() *IdsecBaseExecAction
 		setupCmd     func() *cobra.Command
 		execArgs     []string
+		wantErr      error
 		validateFunc func(t *testing.T, action *IdsecBaseExecAction, cmd *cobra.Command)
 	}{
 		{
-			name: "error_exec_command_not_found",
+			name:    "error_exec_command_not_found",
+			wantErr: ErrActionFailed,
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockExec := &mockExecAction{}
@@ -380,7 +382,8 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			},
 		},
 		{
-			name: "error_profile_not_found",
+			name:    "error_profile_not_found",
+			wantErr: ErrActionFailed,
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
@@ -408,7 +411,8 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			},
 		},
 		{
-			name: "error_nil_profile",
+			name:    "error_nil_profile",
+			wantErr: ErrActionFailed,
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
@@ -436,7 +440,8 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			},
 		},
 		{
-			name: "error_no_authenticators_available",
+			name:    "error_no_authenticators_available",
+			wantErr: ErrActionFailed,
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
@@ -464,7 +469,8 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			},
 		},
 		{
-			name: "success_valid_profile_and_authenticators",
+			name:    "error_no_valid_authenticators_with_profile",
+			wantErr: ErrActionFailed,
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
@@ -492,12 +498,13 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			},
 			execArgs: []string{},
 			validateFunc: func(t *testing.T, action *IdsecBaseExecAction, cmd *cobra.Command) {
-				// This test validates successful execution with valid authenticators
-				// Note: This will attempt to create CLI API which might fail without proper auth setup
+				// The test profile has no stored token, so authenticator loading fails
+				// before the CLI API is created
 			},
 		},
 		{
-			name: "success_retry_count_respected",
+			name:    "error_no_valid_authenticators_retry_count_flag_read",
+			wantErr: ErrActionFailed,
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
@@ -536,7 +543,8 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			},
 		},
 		{
-			name: "success_refresh_auth_flag_set",
+			name:    "error_no_valid_authenticators_refresh_auth_flag_read",
+			wantErr: ErrActionFailed,
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
@@ -577,8 +585,10 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			action := tt.setupAction()
 			cmd := tt.setupCmd()
 
-			// Execute the function
-			action.runExecAction(cmd, tt.execArgs)
+			err := action.runExecAction(cmd, tt.execArgs)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("runExecAction() error = %v, want %v", err, tt.wantErr)
+			}
 
 			// Custom validation
 			if tt.validateFunc != nil {

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -811,6 +813,132 @@ func TestSetupDefaultRouting(t *testing.T) {
 
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, cmd)
+			}
+		})
+	}
+}
+
+func TestReportCommandError(t *testing.T) {
+	// Avoid t.Parallel() – tests mutate process-global os.Args.
+	tests := []struct {
+		name         string
+		setupArgs    func() func() // returns cleanup
+		setupCmd     func() *cobra.Command
+		err          error
+		wantHelp     bool // true when help content must appear before the error
+		wantErrInBuf bool // true when error message must appear in the buffer
+		onlyErrInBuf bool // true when buffer must contain ONLY the error line (no help)
+	}{
+		{
+			// isRootCommandError=true + shouldShowHelpForError=true → help + blank + error
+			name: "success_root_usage_error_writes_help_then_error",
+			setupArgs: func() func() {
+				orig := make([]string, len(os.Args))
+				copy(orig, os.Args)
+				// No known subcommand → isRootCommandError returns true.
+				os.Args = []string{"idsec", "unknown-xyz"}
+				return func() { os.Args = orig }
+			},
+			setupCmd: func() *cobra.Command {
+				cmd := &cobra.Command{Use: "idsec", Short: "Idsec CLI"}
+				cmd.AddCommand(&cobra.Command{Use: "version"})
+				cmd.SilenceUsage = true
+				return cmd
+			},
+			err:          fmt.Errorf("unknown command %q for %q", "foo", "idsec"),
+			wantHelp:     true,
+			wantErrInBuf: true,
+		},
+		{
+			// shouldShowHelpForError=false → only the error line, no help
+			name: "success_non_usage_error_writes_error_only",
+			setupArgs: func() func() {
+				orig := make([]string, len(os.Args))
+				copy(orig, os.Args)
+				// No known subcommand → isRootCommandError returns true, but
+				// the error keyword doesn't match shouldShowHelpForError.
+				os.Args = []string{"idsec", "network-timeout"}
+				return func() { os.Args = orig }
+			},
+			setupCmd: func() *cobra.Command {
+				cmd := &cobra.Command{Use: "idsec", Short: "Idsec CLI"}
+				cmd.SilenceUsage = true
+				return cmd
+			},
+			err:          fmt.Errorf("network timeout"),
+			wantHelp:     false,
+			wantErrInBuf: true,
+			onlyErrInBuf: true,
+		},
+		{
+			// isRootCommandError=false (known subcommand) → no help even for a
+			// usage-style error keyword like "required".
+			name: "success_known_subcommand_sets_isrootcmd_false",
+			setupArgs: func() func() {
+				orig := make([]string, len(os.Args))
+				copy(orig, os.Args)
+				os.Args = []string{"idsec", "version"}
+				return func() { os.Args = orig }
+			},
+			setupCmd: func() *cobra.Command {
+				cmd := &cobra.Command{Use: "idsec", Short: "Idsec CLI"}
+				cmd.AddCommand(&cobra.Command{Use: "version"})
+				cmd.SilenceUsage = true
+				return cmd
+			},
+			err:          fmt.Errorf("required flag --profile-name not provided"),
+			wantHelp:     false,
+			wantErrInBuf: true,
+			onlyErrInBuf: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cleanup := tt.setupArgs()
+			defer cleanup()
+
+			rootCmd := tt.setupCmd()
+
+			// Save the original Out writer so we can verify it's restored.
+			originalOut := rootCmd.OutOrStdout()
+
+			var buf bytes.Buffer
+			reportCommandError(rootCmd, tt.err, &buf)
+
+			got := buf.String()
+
+			// Verify the error message is present.
+			if tt.wantErrInBuf && !strings.Contains(got, tt.err.Error()) {
+				t.Errorf("expected buffer to contain error %q, got:\n%s", tt.err.Error(), got)
+			}
+
+			// Verify help content is (or is not) present.
+			// Cobra's default help output always contains "Usage:" for a command
+			// that has Use set, so that's a reliable marker.
+			hasHelp := strings.Contains(got, "Usage:")
+			if tt.wantHelp && !hasHelp {
+				t.Errorf("expected buffer to contain help (Usage:), got:\n%s", got)
+			}
+			if !tt.wantHelp && hasHelp {
+				t.Errorf("expected buffer to NOT contain help (Usage:), got:\n%s", got)
+			}
+
+			// For the "error only" case the buffer should be exactly
+			// "<error>\n" (nothing else).
+			if tt.onlyErrInBuf {
+				expected := tt.err.Error() + "\n"
+				if got != expected {
+					t.Errorf("expected buffer to be exactly %q, got %q", expected, got)
+				}
+			}
+
+			// rootCmd.OutOrStdout() must be restored to the original writer
+			// after reportCommandError returns (it temporarily sets Out to &buf
+			// while writing help).
+			restoredOut := rootCmd.OutOrStdout()
+			if restoredOut != originalOut {
+				t.Errorf("expected rootCmd.OutOrStdout() to be restored to original after call")
 			}
 		})
 	}

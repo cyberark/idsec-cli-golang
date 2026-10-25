@@ -545,21 +545,33 @@ idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-45821
 idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --role-ids roles/iam.securityReviewer,roles/compute.admin
 ```
 
-### List SCA group-access targets (Azure only)
+### List group-access targets (Entra ID or Google groups)
 ```shell linenums="0"
 idsec sca group-access list-targets --csp azure
+idsec sca group-access list-targets --csp gcp
 ```
 
-### Elevate into one or more Microsoft Entra ID groups
+### Elevate access to one or more Entra ID groups
 Pass a comma-separated list of group object IDs (not display names), up to 5 per call. All groups must belong to the directory given by `--directory-id`.
 
 ```shell linenums="0"
 idsec sca group-access elevate --csp azure --directory-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --groups 9d3b6f41-8c27-4e59-b1a0-5f7e2c84d913,1f8c5a20-4b76-49e3-9d82-6c015be7f4a9
 ```
 
-!!! tip "Full SCA workflow"
+### Elevate access to one or more Google groups
+Pass the full `groups/<id>` values from `list-targets`, up to five per call. All groups must be members of the specified organization (`--organization-id`).
 
-    For the complete SCA workflow — reading `list-targets` output, per-provider flows, partial-success handling, and elevation limits — see [SCA commands in the idsec CLI](../howto/sca_native_cli.md).
+!!! info "Google groups access"
+
+    The capability of defining Google group access is available upon request. Contact support to enable this capability for your tenant.
+
+```shell linenums="0"
+idsec sca group-access elevate --csp gcp --organization-id 123456789012 --groups groups/03b2xy4k1q9z7mn
+```
+
+!!! tip "Full group access workflow"
+
+    For the complete group access workflow — listing available targets (`list-targets`), per-provider flows, partial-success handling, and elevation limits — see [the idsec CLI reference](../howto/sca_native_cli.md).
 
 ## SCA Kubernetes command examples
 

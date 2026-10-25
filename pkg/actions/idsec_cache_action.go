@@ -1,9 +1,18 @@
 package actions
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
+	commonargs "github.com/cyberark/idsec-cli-golang/pkg/common/args"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common/keyring"
 )
+
+// resolveCacheKeyring resolves the keyring the cache is cleared from. It is a var so tests
+// can swap in a stub keyring.
+var resolveCacheKeyring = func() (keyring.IdsecKeyringImpl, error) {
+	return keyring.NewIdsecKeyring("").GetKeyring(false)
+}
 
 // IdsecCacheAction is a struct that implements the IdsecAction interface for cache management.
 //
@@ -11,8 +20,8 @@ import (
 // It embeds IdsecBaseAction to inherit common CLI functionality and adds specific cache
 // management commands such as clearing cached profiles and credentials.
 //
-// The action specifically supports clearing cache for basic keyring implementations,
-// which store credentials and profile information in local files.
+// Clearing removes every idsec entry stored in the OS keystore, as well as the file-backed
+// keyring.
 type IdsecCacheAction struct {
 	// IdsecBaseAction provides common action functionality
 	*IdsecBaseAction
@@ -39,8 +48,8 @@ func NewIdsecCacheAction() *IdsecCacheAction {
 // DefineAction defines the CLI cache action and adds cache management subcommands.
 //
 // DefineAction creates a "cache" command with subcommands for cache management operations.
-// Currently, it provides a "clear" subcommand that removes cached credentials and profile
-// information from the basic keyring implementation.
+// Currently, it provides a "clear" subcommand that removes cached credentials from the OS
+// keystore and from the file-backed keyring.
 //
 // The function sets up:
 //  1. A parent "cache" command for cache management
@@ -70,9 +79,10 @@ func (a *IdsecCacheAction) DefineAction(cmd *cobra.Command) {
 	a.CommonActionsConfiguration(cacheCmd)
 
 	clearCmd := &cobra.Command{
-		Use:   "clear",
-		Short: "Clears all profiles cache",
-		Run:   a.runClearCacheAction,
+		Use:          "clear",
+		Short:        "Clears all profiles cache",
+		RunE:         a.runClearCacheAction,
+		SilenceUsage: true,
 	}
 
 	cacheCmd.AddCommand(clearCmd)
@@ -82,10 +92,10 @@ func (a *IdsecCacheAction) DefineAction(cmd *cobra.Command) {
 // runClearCacheAction clears the cached credentials held by whichever keyring the SDK resolves.
 //
 // runClearCacheAction resolves the keyring and delegates the removal to it, so the cache is
-// cleared wherever it happens to live: the OS keystore removes the entries the SDK owns, and the
-// file-backed keyring removes its stored file. The key material protecting the file-backed cache
-// is deliberately left in place, since removing the cache is enough to forget the credentials and
-// the key on its own decrypts nothing.
+// cleared wherever it happens to live: the OS keystore removes every idsec entry it holds, and
+// the file-backed keyring removes its stored file. The key material protecting the file-backed
+// cache is deliberately left in place, since removing the cache is enough to forget the
+// credentials and the key on its own decrypts nothing.
 //
 // Clearing a cache that is already empty succeeds, and so does clearing one written by an earlier
 // version whose contents this build can no longer read.
@@ -94,14 +104,16 @@ func (a *IdsecCacheAction) DefineAction(cmd *cobra.Command) {
 //   - cmd: The cobra command (not currently used)
 //   - args: Command line arguments (not currently used)
 //
-// A keyring that cannot be resolved leaves nothing to clear and is not reported: the cache is
-// unreachable for reading too, so the credentials are already unusable. A removal that does fail
-// is logged as a warning rather than returned, following the pattern of best-effort cleanup.
-func (a *IdsecCacheAction) runClearCacheAction(cmd *cobra.Command, args []string) {
-	if keyring, err := keyring.NewIdsecKeyring("").GetKeyring(false); err == nil {
-		err = keyring.ClearAllPasswords()
-		if err != nil {
-			a.logger.Warning("Failed to clear keyring passwords: %v", err)
-		}
+// Returns an error if the keyring cannot be opened or the clear fails. On success a
+// confirmation is printed.
+func (a *IdsecCacheAction) runClearCacheAction(cmd *cobra.Command, args []string) error {
+	kr, err := resolveCacheKeyring()
+	if err != nil {
+		return fmt.Errorf("failed to open credential cache: %w", err)
 	}
+	if err := kr.ClearAllPasswords(); err != nil {
+		return fmt.Errorf("failed to clear credential cache: %w", err)
+	}
+	commonargs.PrintSuccess("Credential cache cleared")
+	return nil
 }

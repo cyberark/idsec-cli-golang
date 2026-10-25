@@ -2,6 +2,7 @@ package actions
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"reflect"
@@ -1016,6 +1017,93 @@ func TestDefineServiceExecAction_UnwrapsSchemaAndMarksLeafDeprecated(t *testing.
 		if got := strings.Contains(cmd.Short, "[DEPRECATED]"); got != want {
 			t.Errorf("%s: want deprecated=%v, got Short=%q", leaf, want, cmd.Short)
 		}
+	}
+}
+
+func newLeafRunETestActionDef() *actions.IdsecServiceCLIActionDefinition {
+	return &actions.IdsecServiceCLIActionDefinition{
+		IdsecServiceBaseActionDefinition: actions.IdsecServiceBaseActionDefinition{
+			ActionName: "secrets-db",
+			Schemas:    map[string]interface{}{"create": testutils.CreateTestSchema()},
+		},
+	}
+}
+
+func TestDefineServiceExecAction_LeafUsesRunE(t *testing.T) {
+	t.Parallel()
+
+	parent := &cobra.Command{Use: "parent"}
+	if _, err := NewIdsecServiceExecAction(nil).defineServiceExecAction(newLeafRunETestActionDef(), parent, nil); err != nil {
+		t.Fatalf("defineServiceExecAction: %v", err)
+	}
+	leaf, _, err := parent.Find([]string{"secrets-db", "create"})
+	if err != nil {
+		t.Fatalf("leaf not found: %v", err)
+	}
+	if leaf.Run != nil {
+		t.Error("leaf should use RunE, not Run")
+	}
+	if leaf.RunE == nil {
+		t.Error("leaf RunE must not be nil")
+	}
+}
+
+// Not parallel: runExecAction calls CommonActionsExecution, which mutates
+// process-wide config and environment.
+func TestDefineServiceExecAction_LeafPropagatesFailureThroughExecute(t *testing.T) {
+	root := &cobra.Command{Use: "idsec", SilenceErrors: true, SilenceUsage: true}
+	parent := &cobra.Command{Use: "parent"}
+	root.AddCommand(parent)
+	if _, err := NewIdsecServiceExecAction(nil).defineServiceExecAction(newLeafRunETestActionDef(), parent, nil); err != nil {
+		t.Fatalf("defineServiceExecAction: %v", err)
+	}
+
+	root.SetArgs([]string{"parent", "secrets-db", "create", "--name", "n"})
+	err := root.Execute()
+	var exitErr *ExitCodeError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("Execute() error = %v, want *ExitCodeError", err)
+	}
+	if exitErr.Code != 1 {
+		t.Errorf("exit code = %d, want 1", exitErr.Code)
+	}
+}
+
+func TestDefineServiceExecAction_LeafDryRunFailureReturnsErrActionFailed(t *testing.T) {
+	t.Parallel()
+
+	root := &cobra.Command{Use: "idsec", SilenceErrors: true, SilenceUsage: true}
+	root.PersistentFlags().Bool("dry-run", false, "")
+	parent := &cobra.Command{Use: "parent"}
+	root.AddCommand(parent)
+	if _, err := NewIdsecServiceExecAction(nil).defineServiceExecAction(newLeafRunETestActionDef(), parent, nil); err != nil {
+		t.Fatalf("defineServiceExecAction: %v", err)
+	}
+
+	root.SetArgs([]string{"--dry-run", "parent", "secrets-db", "create", "--name", "n"})
+	if err := root.Execute(); !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("Execute() = %v, want ErrActionFailed", err)
+	}
+}
+
+func TestDefineServiceExecAction_LeafHelpReturnsNil(t *testing.T) {
+	t.Parallel()
+
+	parent := &cobra.Command{Use: "parent"}
+	if _, err := NewIdsecServiceExecAction(nil).defineServiceExecAction(newLeafRunETestActionDef(), parent, nil); err != nil {
+		t.Fatalf("defineServiceExecAction: %v", err)
+	}
+	leaf, _, err := parent.Find([]string{"secrets-db", "create"})
+	if err != nil {
+		t.Fatalf("leaf not found: %v", err)
+	}
+	leaf.SetOut(io.Discard)
+	leaf.InitDefaultHelpFlag()
+	if err := leaf.Flags().Set("help", "true"); err != nil {
+		t.Fatalf("set help flag: %v", err)
+	}
+	if got := leaf.RunE(leaf, nil); got != nil {
+		t.Errorf("RunE with --help = %v, want nil", got)
 	}
 }
 

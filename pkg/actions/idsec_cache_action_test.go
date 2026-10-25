@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -146,8 +147,8 @@ func TestIdsecCacheAction_DefineAction(t *testing.T) {
 					t.Errorf("Expected to find cache clear command, got error: %v", err)
 					return
 				}
-				if clearCmd.Run == nil {
-					t.Error("Expected clear command to have Run function")
+				if clearCmd.RunE == nil {
+					t.Error("Expected clear command to have RunE function")
 				}
 			},
 		},
@@ -353,8 +354,10 @@ func TestIdsecCacheAction_runClearCacheAction(t *testing.T) {
 			action := NewIdsecCacheAction()
 			cmd := &cobra.Command{}
 
-			// Execute the function - should not panic
-			action.runClearCacheAction(cmd, []string{})
+			// Execute the function - should succeed without error
+			if err := action.runClearCacheAction(cmd, []string{}); err != nil {
+				t.Errorf("runClearCacheAction returned unexpected error: %v", err)
+			}
 
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, testDir)
@@ -472,6 +475,93 @@ func TestIdsecCacheAction_IntegrationWithIdsecAction(t *testing.T) {
 
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, action)
+			}
+		})
+	}
+}
+
+// stubKeyring is a minimal IdsecKeyringImpl whose ClearAllPasswords behaviour is configurable.
+type stubKeyring struct {
+	clearErr error
+}
+
+func (s *stubKeyring) SetPassword(_, _, _ string) error        { return nil }
+func (s *stubKeyring) GetPassword(_, _ string) (string, error) { return "", nil }
+func (s *stubKeyring) DeletePassword(_, _ string) error        { return nil }
+func (s *stubKeyring) ListKeys(_ string) ([]string, error)     { return nil, nil }
+func (s *stubKeyring) ClearAllPasswords() error                { return s.clearErr }
+
+func TestIdsecCacheAction_runClearCacheAction_Seams(t *testing.T) {
+	tests := []struct {
+		name       string
+		setup      func()
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "resolve_error_is_reported",
+			setup: func() {
+				resolveCacheKeyring = func() (keyring.IdsecKeyringImpl, error) {
+					return nil, fmt.Errorf("resolve failed")
+				}
+			},
+			wantErr:    true,
+			wantErrMsg: "failed to open credential cache",
+		},
+		{
+			name: "clear_error_is_reported",
+			setup: func() {
+				resolveCacheKeyring = func() (keyring.IdsecKeyringImpl, error) {
+					return &stubKeyring{clearErr: fmt.Errorf("clear failed")}, nil
+				}
+			},
+			wantErr:    true,
+			wantErrMsg: "failed to clear credential cache",
+		},
+		{
+			name: "success_prints_confirmation",
+			setup: func() {
+				resolveCacheKeyring = func() (keyring.IdsecKeyringImpl, error) {
+					return &stubKeyring{}, nil
+				}
+			},
+			wantErr: false,
+		},
+	}
+
+	originalResolve := resolveCacheKeyring
+	t.Cleanup(func() { resolveCacheKeyring = originalResolve })
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup()
+
+			action := NewIdsecCacheAction()
+			cmd := &cobra.Command{}
+
+			err := action.runClearCacheAction(cmd, []string{})
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantErrMsg)
+				}
+				if tt.wantErrMsg != "" {
+					got := err.Error()
+					found := false
+					for i := 0; i <= len(got)-len(tt.wantErrMsg); i++ {
+						if got[i:i+len(tt.wantErrMsg)] == tt.wantErrMsg {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("expected error to contain %q, got %q", tt.wantErrMsg, got)
+					}
+				}
+			} else {
+				if err != nil {
+					t.Errorf("expected no error, got %v", err)
+				}
 			}
 		})
 	}

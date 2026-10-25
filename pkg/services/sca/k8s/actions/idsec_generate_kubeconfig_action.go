@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
@@ -159,12 +160,13 @@ func logDecodedResult(cmd *cobra.Command, result map[string]string) {
 	printVerbose(cmd, "SDK decoded HTTP body — %d entries: %s", len(result), strings.Join(parts, ", "))
 }
 
+// printVerbose writes --verbose diagnostics to stderr so stdout carries only the command result.
 func printVerbose(cmd *cobra.Command, format string, v ...any) {
 	verbose, err := cmd.Root().PersistentFlags().GetBool("verbose")
 	if err != nil || !verbose {
 		return
 	}
-	args.PrintNormal(fmt.Sprintf("[generate-kubeconfig] "+format, v...))
+	args.PrintColoredStderr(fmt.Sprintf("[generate-kubeconfig] "+format, v...), color.New())
 }
 
 func genKubeconfigExitErr(msg string) {

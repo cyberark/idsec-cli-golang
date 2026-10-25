@@ -1,7 +1,6 @@
 package actions
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -147,17 +146,9 @@ func TestRunLoginActionSilentMissingSecretMessage(t *testing.T) {
 	action := NewIdsecLoginAction(mockLoader.AsProfileLoader())
 	cmd := newSilentLoginCmd("test-profile")
 
-	originalStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	_ = action.runLoginAction(cmd, []string{})
-
-	_ = w.Close()
-	os.Stdout = originalStdout
-	var out bytes.Buffer
-	_, _ = out.ReadFrom(r)
-	output := out.String()
+	output := testutils.CaptureStderr(func() {
+		_ = action.runLoginAction(cmd, []string{})
+	})
 
 	for _, want := range []string{"IDSEC_PVWA_SECRET", "IDSEC_PVWA_SECRET_FILE", "--pvwa-secret", "pvwa_secret"} {
 		if !strings.Contains(output, want) {
@@ -182,15 +173,9 @@ func TestRunLoginActionSilentUsernameResolution(t *testing.T) {
 	}
 
 	capture := func(action *IdsecLoginAction, cmd *cobra.Command) string {
-		originalStdout := os.Stdout
-		r, w, _ := os.Pipe()
-		os.Stdout = w
-		_ = action.runLoginAction(cmd, []string{})
-		_ = w.Close()
-		os.Stdout = originalStdout
-		var out bytes.Buffer
-		_, _ = out.ReadFrom(r)
-		return out.String()
+		return testutils.CaptureStderr(func() {
+			_ = action.runLoginAction(cmd, []string{})
+		})
 	}
 
 	t.Run("no_username_anywhere", func(t *testing.T) {

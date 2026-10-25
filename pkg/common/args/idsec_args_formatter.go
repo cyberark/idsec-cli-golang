@@ -7,6 +7,7 @@ package args
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	survey "github.com/Iilun/survey/v2"
@@ -58,12 +59,37 @@ func ColorText(text string, color *color.Color) string {
 //	PrintColored("Error occurred", red)
 func PrintColored(text any, color *color.Color) {
 	if config.IsInteractive() || config.IsAllowingOutput() {
-		if config.IsColoring() {
-			_, _ = color.Fprintf(os.Stdout, "%s\n", text)
-		} else {
-			_, _ = fmt.Fprintf(os.Stdout, "%s\n", text)
-		}
+		fprintColored(os.Stdout, text, color)
 	}
+}
+
+// PrintColoredStderr prints the given text in the specified color to stderr.
+//
+// It is the stderr counterpart of PrintColored for informational diagnostics
+// (notices, verbose traces) that must not mix with command results on stdout.
+// It uses the same interactive/output gate as PrintColored.
+func PrintColoredStderr(text any, color *color.Color) {
+	if config.IsInteractive() || config.IsAllowingOutput() {
+		fprintColored(os.Stderr, text, stderrColor(color))
+	}
+}
+
+// fprintColored writes text and a newline to w, colored when coloring is enabled.
+func fprintColored(w io.Writer, text any, color *color.Color) {
+	if config.IsColoring() {
+		_, _ = color.Fprintf(w, "%s\n", text)
+	} else {
+		_, _ = fmt.Fprintf(w, "%s\n", text)
+	}
+}
+
+// stderrColor disables color on c when stderr is not a terminal. fatih/color
+// decides its global default from stdout, which is wrong for stderr output.
+func stderrColor(c *color.Color) *color.Color {
+	if !IsStderrTTY() {
+		c.DisableColor()
+	}
+	return c
 }
 
 // PrintSuccess prints the given text in green color to stdout.
@@ -96,10 +122,13 @@ func PrintSuccessBright(text any) {
 	PrintColored(text, color.New(color.FgGreen, color.Bold))
 }
 
-// PrintFailure prints the given text in red color to stdout.
+// PrintFailure prints the given text in red color to stderr.
 //
 // This is a convenience function that prints text using red color formatting
 // to indicate errors, failures, or critical issues.
+//
+// Failures are printed regardless of the interactive/output settings so that a
+// non-interactive caller (--silent) always learns why the command failed.
 //
 // Parameters:
 //   - text: The failure or error message to print (can be any type that can be formatted)
@@ -108,10 +137,10 @@ func PrintSuccessBright(text any) {
 //
 //	PrintFailure("Authentication failed")
 func PrintFailure(text any) {
-	PrintColored(text, color.New(color.FgRed))
+	fprintColored(os.Stderr, text, stderrColor(color.New(color.FgRed)))
 }
 
-// PrintWarning prints the given text in yellow color to stdout.
+// PrintWarning prints the given text in yellow color to stderr.
 //
 // This is a convenience function that prints text using yellow color formatting
 // to indicate warnings, cautions, or non-critical issues that require attention.
@@ -123,7 +152,7 @@ func PrintFailure(text any) {
 //
 //	PrintWarning("Configuration file not found, using defaults")
 func PrintWarning(text any) {
-	PrintColored(text, color.New(color.FgYellow))
+	PrintColoredStderr(text, color.New(color.FgYellow))
 }
 
 // PrintNormal prints the given text in default color to stdout.

@@ -86,3 +86,28 @@ The CLI has the following basic commands:
     ```
 
     You can also use `idsec exec sia sso short-lived-password` — both forms are equivalent.
+
+## Exit codes
+
+`idsec` exits with `0` on success and non-zero on failure. Since v0.14.0,
+this includes `idsec exec` (and implicit `idsec <service> …` invocations):
+a failed action, missing profile, expired login, or failed `--dry-run` now
+exits `1`. Previously these exited `0`.
+
+## Output streams
+
+Since v0.14.0, `idsec` writes only command results to stdout:
+
+- **stdout** - results: action output (JSON, tables, text), `--dry-run` plans,
+  `--query` results, and help you asked for with `--help` or `idsec help`.
+- **stderr** - everything else: failure messages, warnings (including the
+  "newer version available" notice), retry notices, `--verbose` logs, and
+  usage errors together with the help shown alongside them.
+
+A failing command leaves stdout empty, so `idsec exec ... | jq` never receives
+an error message as input. Failure messages are printed to stderr even with
+`--silent`. Warnings and notices still follow `--silent` and `--allow-output`.
+
+Before v0.14.0, failure messages and `--verbose` logs were written to stdout.
+Scripts that searched stdout for messages such as `Failed to...` should check
+the exit code instead, or read stderr (for example with `2>&1`).

@@ -411,16 +411,18 @@ func (s *IdsecServiceExecAction) defineServiceExecAction(
 			schema, schemaDep := actions.UnwrapSchema(rawSchema)
 			subCmd := &cobra.Command{
 				Use: actionName,
-				Run: func(cmd *cobra.Command, args []string) {
+				RunE: func(cmd *cobra.Command, args []string) error {
 					if help, _ := cmd.Flags().GetBool("help"); help {
 						_ = cmd.Help()
-						return
+						return nil
 					}
 					if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
-						_ = s.dryRunExecAction(cmd)
-						return
+						if err := s.dryRunExecAction(cmd); err != nil {
+							return ErrActionFailed
+						}
+						return nil
 					}
-					s.runExecAction(cmd, args)
+					return s.runExecAction(cmd, args)
 				},
 			}
 			applySchemaEntryDeprecation(subCmd, schemaDep)
@@ -1300,8 +1302,9 @@ func (s *IdsecServiceExecAction) RunExecAction(api *cli.IdsecCLIAPI, cmd *cobra.
 // as indented JSON to stdout. It performs no authentication, profile loading,
 // or SDK invocation. When --query is given, the jq expression is applied to the
 // plan instead of the plan being dumped whole, so the same expression can be
-// rehearsed against a plan before it is run for real. The returned error is also
-// surfaced to the user; the caller may ignore it.
+// rehearsed against a plan before it is run for real. Every returned error has
+// already been printed to the user; callers should only translate it into a
+// non-zero exit (ErrActionFailed), not print it again.
 func (s *IdsecServiceExecAction) dryRunExecAction(cmd *cobra.Command) error {
 	plan, err := s.buildDryRunPlan(cmd)
 	if err != nil {

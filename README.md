@@ -294,7 +294,7 @@ The following services and commands are supported:
   - <b>vm</b> - virtual machines access policies management
 - <b>sca</b> - Secure Cloud Access just-in-time elevation
   - <b>cloud-access</b> - Elevate into AWS, Azure, or GCP workspaces with a role
-  - <b>group-access</b> - Request just-in-time membership in Microsoft Entra ID groups (Azure only)
+  - <b>group-access</b> - Request just-in-time membership to Entra ID groups or Google groups
   - <b>k8s</b> - Just-in-time access to Kubernetes clusters (EKS and AKS)
 
 Any command has its own subcommands, with respective arguments
@@ -803,17 +803,23 @@ Elevate into a GCP project, folder, or organization (organization ID always requ
 idsec sca cloud-access elevate --csp gcp --workspace-id acme-prod-payments-458213 --organization-id 884271936502 --role-ids roles/iam.securityReviewer
 ```
 
-List SCA group-access targets (Azure only)
+List group-access targets
 ```shell
 idsec sca group-access list-targets --csp azure
+idsec sca group-access list-targets --csp gcp
 ```
 
-Elevate into one or more Microsoft Entra ID groups (up to 5 per call)
+Elevate access to one or more Entra ID groups (up to 5 per call)
 ```shell
 idsec sca group-access elevate --csp azure --directory-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --groups 9d3b6f41-8c27-4e59-b1a0-5f7e2c84d913,1f8c5a20-4b76-49e3-9d82-6c015be7f4a9
 ```
 
-For the full SCA workflow — reading `list-targets` output, per-provider flows, partial-success handling, and elevation limits — see [`docs/howto/sca_native_cli.md`](docs/howto/sca_native_cli.md).
+Elevate access to one or more Google groups (up to 5 per call)
+```shell
+idsec sca group-access elevate --csp gcp --organization-id 123456789012 --groups groups/03b2xy4k1q9z7mn
+```
+
+For the full elevation workflow — listing available targets (`list-targets`), per-provider flows, partial-success handling, and elevation limits — see [`docs/howto/sca_native_cli.md`](docs/howto/sca_native_cli.md).
 
 List only Amazon Elastic Kubernetes Service (EKS) clusters
 ```shell

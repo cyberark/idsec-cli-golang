@@ -12,7 +12,7 @@ The feature is built around a consistent two-step workflow. First you **discover
 This workflow describes two command groups:
 
 - `idsec sca cloud-access` — elevate into a cloud workspace with a role, across AWS, Azure, and GCP. This covers single AWS IAM accounts, AWS accounts managed by an AWS organization, Azure resource scopes (subscription, resource group, resource, management group), Microsoft Entra ID directory roles, and GCP projects, folders, and organizations.
-- `idsec sca group-access` — request just-in-time membership in Microsoft Entra ID groups. This command group is Azure-only.
+- `idsec sca group-access` — request just-in-time membership to Entra ID groups or Google groups
 
 The sections below are organized by cloud provider and flow — AWS IAM, AWS organization, Azure resource, Azure Entra ID, GCP, and Group membership.
 
@@ -27,8 +27,8 @@ All SCA commands use the Identity Security Platform authenticator from your acti
 | ------------------------------------- | -------------------------------------------------------------- |
 | `idsec sca cloud-access list-targets` | List the workspaces and roles you are eligible to elevate into |
 | `idsec sca cloud-access elevate`      | Activate access to a workspace with one or more roles          |
-| `idsec sca group-access list-targets` | List the Entra ID groups you are eligible to join              |
-| `idsec sca group-access elevate`      | Request just-in-time membership in one or more Entra ID groups |
+| `idsec sca group-access list-targets` | List the Entra ID or Google groups you are eligible to join              |
+| `idsec sca group-access elevate`      | Request just-in-time membership to one or more Entra ID or Google groups |
 
 
 
@@ -74,18 +74,19 @@ All SCA commands use the Identity Security Platform authenticator from your acti
 
 #### list-targets
 
-`list-targets` accepts the same flags as its cloud-access counterpart, but `--csp AZURE` is effectively mandatory because group access is Azure-only. `--all` does not satisfy it, and `--workspace-id` has no meaning for Entra groups.
+`list-targets` accepts the same flags as its cloud-access counterpart, but `--csp` is mandatory and must be `AZURE` or `GCP`. `--all` does not satisfy it, and `--workspace-id` has no meaning for groups.
 
 #### elevate
 
-`elevate` requires all three of its flags:
+`elevate` requires `--csp`, `--groups`, and the scope flag for the chosen provider:
 
 
-| Flag             | Type   | Description                                                       |
-| ---------------- | ------ | ----------------------------------------------------------------- |
-| `--csp`          | string | **Required.** Must be `AZURE`.                                    |
-| `--directory-id` | string | **Required.** The Entra directory (tenant) ID.                    |
-| `--groups`       | string | **Required.** Comma-separated Entra group object IDs. Maximum 5.  |
+| Flag                | Type   | Description                                                                                       |
+| ------------------- | ------ | --------------------------------------------------------------------------------------------------- |
+| `--csp`             | string | **Required.** `AZURE` or `GCP`.                                                                     |
+| `--directory-id`    | string | **Required for Azure.** The Entra directory (tenant) ID.                                            |
+| `--organization-id` | string | **Required for GCP.** The Google Cloud organization ID.                                             |
+| `--groups`          | string | **Required.** List of group IDs (comma-separated). Maximum: 5. Format: For Azure, use the Entra ID group object IDs; For Google Cloud, use `groups/<id>`. |
 
 
 
@@ -564,11 +565,15 @@ Like Azure, GCP elevation grants an IAM role binding to your existing identity r
 
 ## Group Access
 
-Use `idsec sca group-access` to request just-in-time membership in Microsoft Entra ID groups. Instead of granting a role on a cloud scope, this adds you to a group for a policy-defined period, so you inherit whatever that group confers.
+Use `idsec sca group-access` to request just-in-time membership to Entra ID groups or Google groups. Instead of granting a role on a cloud scope, this adds you to a group for a policy-defined period, so you inherit whatever access that group grants.
 
-This command group is **Azure-only**; `--csp AZURE` is required and any other provider is rejected.
+`--csp` is required; Allowed values: `AZURE`, `GCP`
 
-### List eligible groups
+!!! info "Google groups access"
+
+    The capability of defining Google group access is available upon request. Contact support to enable this capability for your tenant.
+
+### List eligible Entra ID groups
 
 ```shell linenums="0"
 idsec sca group-access list-targets --csp azure
@@ -604,7 +609,7 @@ idsec sca group-access list-targets --csp azure --limit 20
 
 
 
-### Elevate into a single group
+### Elevate access to a single Entra ID group
 
 ```shell linenums="0"
 idsec sca group-access elevate --csp azure --directory-id 3c9f7b2e-51d4-4a86-9f0c-7e15d8a4b632 --groups 9d3b6f41-8c27-4e59-b1a0-5f7e2c84d913
@@ -628,7 +633,7 @@ idsec sca group-access elevate --csp azure --directory-id 3c9f7b2e-51d4-4a86-9f0
 
 
 
-### Elevate into multiple groups
+### Elevate access to multiple Entra ID groups
 
 Pass a comma-separated list of group object IDs, up to 5 per call. All groups must belong to the directory given by `--directory-id`:
 
@@ -640,6 +645,53 @@ idsec sca group-access elevate --csp azure --directory-id 3c9f7b2e-51d4-4a86-9f0
 
 **NOTE - Group membership propagation:**  
 Entra ID group membership changes are not always instantaneous, and tokens issued before the elevation do not carry the new membership. If a downstream tool still reports insufficient permissions, sign in again so a fresh token picks up the group.
+
+### List eligible Google groups
+
+```shell linenums="0"
+idsec sca group-access list-targets --csp gcp
+```
+
+```json
+{
+  "response": [
+    {
+      "organizationId": "123456789012",
+      "groupId": "groups/03b2xy4k1q9z7mn",
+      "groupName": "payments-prod-operators@example.com"
+    }
+  ],
+  "total": 1
+}
+```
+
+Google Cloud targets carry `organizationId` instead of `directoryId`: `organizationId` becomes `--organization-id` and `groupId` becomes `--groups`.
+
+### Elevate access to Google groups
+
+Pass the full `groups/<id>` value from `groupId`, up to five per call. All groups must belong to the specified organization (`--organization-id`):
+
+```shell linenums="0"
+idsec sca group-access elevate --csp gcp --organization-id 123456789012 --groups groups/03b2xy4k1q9z7mn
+```
+
+```json
+{
+  "response": {
+    "organizationId": "123456789012",
+    "csp": "GCP",
+    "results": [
+      {
+        "sessionId": "0f6d2c18-7a4b-4e39-8c51-9b3e7d20a6f4",
+        "groupId": "groups/03b2xy4k1q9z7mn",
+        "groupName": "payments-prod-operators@example.com"
+      }
+    ]
+  }
+}
+```
+
+A Google group ID without the `groups/` prefix is rejected before any API call is made.
 
 ## Partial success and error handling
 

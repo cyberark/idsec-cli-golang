@@ -163,7 +163,7 @@ func TestIdsecQueryAction_runQueryAction_MissingFile(t *testing.T) {
 	cmd := newQueryCmd(filepath.Join(t.TempDir(), "does-not-exist.json"), ".", false)
 
 	var err error
-	out := withCapturedOutput(func() { err = action.runQueryAction(cmd, []string{}) })
+	out := withCapturedStderr(func() { err = action.runQueryAction(cmd, []string{}) })
 
 	var exitErr *ExitCodeError
 	if !errors.As(err, &exitErr) {
@@ -183,7 +183,7 @@ func TestIdsecQueryAction_runQueryAction_InvalidJSON(t *testing.T) {
 	cmd := newQueryCmd(path, ".", false)
 
 	var err error
-	out := withCapturedOutput(func() { err = action.runQueryAction(cmd, []string{}) })
+	out := withCapturedStderr(func() { err = action.runQueryAction(cmd, []string{}) })
 
 	var exitErr *ExitCodeError
 	if !errors.As(err, &exitErr) {

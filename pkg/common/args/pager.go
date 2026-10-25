@@ -16,6 +16,12 @@ var IsStdoutTTY = func() bool {
 	return isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
 }
 
+// IsStderrTTY reports whether stderr is connected to an interactive terminal.
+// It is a var so tests can override it.
+var IsStderrTTY = func() bool {
+	return isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())
+}
+
 // PromptContinue waits for a single keypress from the controlling terminal and
 // returns false when the user asks to stop (q, Q, Esc, Ctrl-C, Ctrl-D). It
 // returns true otherwise, so callers advance to the next page on space, enter,

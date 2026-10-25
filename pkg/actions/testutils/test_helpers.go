@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -244,6 +245,81 @@ func CaptureOutput(fn func()) string {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	return buf.String()
+}
+
+// CaptureStderr executes fn while capturing os.Stderr and returns what was written.
+//
+// CaptureStderr redirects os.Stderr to an in-memory buffer for the duration of
+// the captured content as a string. This is useful for testing functions
+// that print to stderr.
+//
+// Parameters:
+//   - fn: Function to execute while capturing output
+//
+// Returns the captured stderr content as a string.
+//
+// Example:
+//
+//	output := CaptureStderr(func() {
+//	    fmt.Fprintln(os.Stderr, "test error")
+//	})
+//	// output contains "test error\n"
+func CaptureStderr(fn func()) string {
+	old := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	fn()
+
+	_ = w.Close()
+	os.Stderr = old
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	return buf.String()
+}
+
+// CaptureStreams executes fn while capturing both os.Stdout and os.Stderr.
+// Both pipes are drained concurrently to prevent deadlock on large output.
+//
+// Parameters:
+//   - fn: Function to execute while capturing output
+//
+// Returns the captured stdout and stderr content as strings.
+//
+// Example:
+//
+//	stdout, stderr := CaptureStreams(func() {
+//	    fmt.Println("hello")
+//	    fmt.Fprintln(os.Stderr, "error")
+//	})
+func CaptureStreams(fn func()) (stdout, stderr string) {
+	oldOut, oldErr := os.Stdout, os.Stderr
+	rOut, wOut, _ := os.Pipe()
+	rErr, wErr, _ := os.Pipe()
+	os.Stdout, os.Stderr = wOut, wErr
+
+	var bufOut, bufErr bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&bufOut, rOut)
+		close(done)
+	}()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		_, _ = io.Copy(&bufErr, rErr)
+		wg.Done()
+	}()
+
+	fn()
+
+	_ = wOut.Close()
+	_ = wErr.Close()
+	<-done
+	wg.Wait()
+	os.Stdout, os.Stderr = oldOut, oldErr
+	return bufOut.String(), bufErr.String()
 }
 
 // CreateTestCommand creates a test cobra command with required setup.

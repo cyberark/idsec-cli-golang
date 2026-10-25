@@ -10,7 +10,7 @@ import (
 var CLIAction = &actions.IdsecServiceCLIActionDefinition{
 	IdsecServiceBaseActionDefinition: actions.IdsecServiceBaseActionDefinition{
 		ActionName:        "group-access",
-		ActionDescription: "List and elevate Microsoft Entra ID groups that the authenticated user is eligible to request just-in-time membership for via Secure Cloud Access.",
+		ActionDescription: "List and elevate Entra ID groups and Google groups that the authenticated user is eligible to request just-in-time membership for via Idira.",
 		ActionVersion:     1,
 		Schemas:           sdkactions.ActionToSchemaMap,
 	},

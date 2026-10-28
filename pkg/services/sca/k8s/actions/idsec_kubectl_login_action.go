@@ -74,13 +74,16 @@ func NewIdsecKubectlLoginAction(profilesLoader *profiles.ProfileLoader) *IdsecKu
 }
 
 // DefineAction runs after exec SCA K8s actions are registered so findNestedCommand sees `elevate`.
+// NOTE: the SDK framework registers subcommands with RunE (not Run), so overrides must also use RunE —
+// Cobra prioritises RunE over Run and silently ignores a Run assignment when RunE is set.
 func (a *IdsecKubectlLoginAction) DefineAction(cmd *cobra.Command) {
 	if elevateCmd := findNestedCommand(cmd, "exec", "sca", "k8s", "elevate"); elevateCmd != nil {
 		elevateCmd.Hidden = true
 		elevateCmd.SilenceUsage = true
-		elevateCmd.Run = func(cmd *cobra.Command, _ []string) {
+		elevateCmd.RunE = func(cmd *cobra.Command, _ []string) error {
 			kubectlLoginError("'exec sca k8s elevate' is not supported.")
 			os.Exit(1)
+			return nil
 		}
 	}
 

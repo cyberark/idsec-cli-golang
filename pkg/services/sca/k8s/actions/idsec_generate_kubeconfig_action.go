@@ -26,11 +26,16 @@ func NewIdsecGenerateKubeconfigAction(profilesLoader *profiles.ProfileLoader) *I
 	return &IdsecGenerateKubeconfigAction{profilesLoader: profilesLoader}
 }
 
-// DefineAction replaces Run on generate-kubeconfig; call after NewIdsecServiceExecAction.DefineAction.
+// DefineAction replaces RunE on generate-kubeconfig; call after NewIdsecServiceExecAction.DefineAction.
+// The SDK framework registers subcommands with RunE (not Run), so the override must also
+// use RunE — Cobra prioritises RunE over Run and silently ignores a Run assignment when RunE is set.
 func (a *IdsecGenerateKubeconfigAction) DefineAction(cmd *cobra.Command) {
 	if genCmd := findNestedCommand(cmd, "exec", "sca", "k8s", "generate-kubeconfig"); genCmd != nil {
 		genCmd.SilenceUsage = true
-		genCmd.Run = a.runGenerateKubeconfigAction
+		genCmd.RunE = func(cmd *cobra.Command, args []string) error {
+			a.runGenerateKubeconfigAction(cmd, args)
+			return nil
+		}
 		if f := genCmd.Flags().Lookup("all"); f != nil {
 			f.NoOptDefVal = "true"
 		}

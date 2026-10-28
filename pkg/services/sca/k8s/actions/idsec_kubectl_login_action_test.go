@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -62,6 +63,8 @@ func TestNewIdsecKubectlLoginAction(t *testing.T) {
 }
 
 func TestIdsecKubectlLoginAction_DefineAction(t *testing.T) {
+	genericElevateRunE := func(*cobra.Command, []string) error { return nil }
+
 	tests := []struct {
 		name         string
 		setupRoot    func() *cobra.Command
@@ -173,8 +176,8 @@ func TestIdsecKubectlLoginAction_DefineAction(t *testing.T) {
 				execCmd := &cobra.Command{Use: "exec"}
 				scaCmd := &cobra.Command{Use: "sca"}
 				k8sCmd := &cobra.Command{Use: "k8s"}
-				elevateCmd := &cobra.Command{Use: "elevate"}
-				// Register all elevate flags so flag reads in Run won't fail.
+				elevateCmd := &cobra.Command{Use: "elevate", RunE: genericElevateRunE}
+				// Register all elevate flags so flag reads in RunE won't fail.
 				addElevateFlags(elevateCmd)
 				k8sCmd.AddCommand(elevateCmd)
 				scaCmd.AddCommand(k8sCmd)
@@ -187,8 +190,14 @@ func TestIdsecKubectlLoginAction_DefineAction(t *testing.T) {
 				if elevate == nil {
 					t.Fatal("elevate command not found in tree after DefineAction")
 				}
-				if elevate.Run == nil {
-					t.Error("expected Run to be overridden on elevate command")
+				if elevate.RunE == nil {
+					t.Fatal("expected RunE to be set on elevate command")
+				}
+				if reflect.ValueOf(elevate.RunE).Pointer() == reflect.ValueOf(genericElevateRunE).Pointer() {
+					t.Error("expected generic exec RunE to be replaced by the not-supported handler")
+				}
+				if elevate.Run != nil {
+					t.Error("expected Run to stay nil so RunE is the only handler")
 				}
 				if !elevate.SilenceUsage {
 					t.Error("expected SilenceUsage to be true on elevate command after override")

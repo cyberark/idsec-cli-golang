@@ -127,6 +127,7 @@ idsec sia doctor check-target
 
 ### Explicit target hostnames
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check-target --targets '[
   {"hostname": "db.example.com"},
@@ -136,6 +137,7 @@ idsec sia doctor check-target --targets '[
 
 ### Linux target with SSH credentials (enables address resolution and SSH CA check)
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check-target --targets '[
   {
@@ -149,6 +151,7 @@ idsec sia doctor check-target --targets '[
 
 ### Windows target with WinRM (enables address resolution and ZSP-domain port checks)
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check-target --targets '[
   {
@@ -163,6 +166,7 @@ idsec sia doctor check-target --targets '[
 
 ### Multiple targets, filter to specific protocols
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check-target \
   --targets '[

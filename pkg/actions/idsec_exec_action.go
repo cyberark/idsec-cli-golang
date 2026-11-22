@@ -6,18 +6,23 @@ package actions
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/cyberark/idsec-cli-golang/internal/featureadoption"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 
 	"github.com/cyberark/idsec-cli-golang/pkg/cli"
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
+	authcommon "github.com/cyberark/idsec-sdk-golang/pkg/auth/common"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common"
+	"github.com/cyberark/idsec-sdk-golang/pkg/models"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 )
 
@@ -189,48 +194,63 @@ func (a *IdsecBaseExecAction) runExecAction(cmd *cobra.Command, execArgs []strin
 		currentCmd = currentCmd.Parent()
 	}
 	if execCmd == nil {
-		args.PrintFailure("Failed to find exec command")
-		return ErrActionFailed
+		return reportFailure(agentmode.CodeInternalError, "Failed to find exec command", nil)
 	}
 	profileName, _ := execCmd.Flags().GetString("profile-name")
-	profile, err := (*a.profilesLoader).LoadProfile(profiles.DeduceProfileName(profileName))
-	if err != nil || profile == nil {
-		args.PrintFailure("Please configure a profile before trying to execute actions")
-		return ErrActionFailed
+	deducedProfileName := profiles.DeduceProfileName(profileName)
+	profile, err := (*a.profilesLoader).LoadProfile(deducedProfileName)
+	if err != nil {
+		return reportFailure(agentmode.CodeConfigError, profileRequiredMessage, err,
+			agentmode.WithDetail("profile", deducedProfileName),
+			agentmode.WithDetail("source", "profile"),
+			agentmode.WithHint(hintProfileUnreadable))
+	}
+	if profile == nil {
+		return reportFailure(agentmode.CodeProfileNotFound, profileRequiredMessage, nil,
+			agentmode.WithDetail("profile", deducedProfileName),
+			agentmode.WithHint(hintProfilesList),
+			agentmode.WithHint(hintProfileCreate))
 	}
 
 	var authenticators []auth.IdsecAuth
+	authStates := map[string]string{}
 	for authenticatorName := range profile.AuthProfiles {
 		authenticator := auth.SupportedAuthenticators[authenticatorName]
 		refreshAuth, _ := cmd.Flags().GetBool("refresh-auth")
-		token, err := authenticator.LoadAuthentication(profile, refreshAuth)
+		token, err := loadAuthentication(authenticator, profile, refreshAuth)
 		if err != nil || token == nil {
+			authStates[authenticatorName] = authenticatorState(err)
 			continue
 		}
 		if time.Now().After(time.Time(token.ExpiresIn)) {
+			authStates[authenticatorName] = authStateTokenExpired
 			continue
 		}
 		authenticators = append(authenticators, authenticator)
 	}
 
 	if len(authenticators) == 0 {
-		args.PrintFailure("Failed to load authenticators, tokens are either expired or authenticators are not logged in, please login first")
-		return ErrActionFailed
+		return reportFailure(agentmode.CodeNotAuthenticated, notAuthenticatedMessage, nil,
+			notAuthenticatedOptions(deducedProfileName, authStates)...)
 	}
-	if len(authenticators) != len(profile.AuthProfiles) && config.IsInteractive() {
-		args.PrintColoredStderr("Not all authenticators are logged in, some of the functionality will be disabled", color.New())
+	if len(authenticators) != len(profile.AuthProfiles) {
+		if config.IsInteractive() {
+			args.PrintColoredStderr(partialAuthMessage, color.New())
+		} else if agentmode.IsEnabled() {
+			agentmode.AddWarning(partialAuthMessage)
+		}
 	}
 
 	// Create the CLI API with the authenticators
-	api, err := cli.NewIdsecCLIAPI(authenticators, profile)
+	api, err := newCLIAPI(authenticators, profile)
 	if err != nil {
-		args.PrintFailure(fmt.Sprintf("Failed to create CLI API: %s", err))
-		return ErrActionFailed
+		return reportFailure(classifiedOr(err, agentmode.CodeInternalError), fmt.Sprintf("Failed to create CLI API: %s", err), err)
 	}
 	reportStatus := "success"
 	reportMessage := ""
 	fasTags := buildCLIContextTags(cmd, execCmd)
 	a.cliContextTags = fasTags
+	a.cliContextTags[featureadoption.TagKeyCLIAgent] = claValue()
 	defer featureadoption.ReportOperationDefer(cmd.Context(), &api.IdsecAPI, a.logger, &reportStatus, &reportMessage, fasTags)()
 
 	// Run the actual exec fitting action with the api
@@ -245,10 +265,66 @@ func (a *IdsecBaseExecAction) runExecAction(cmd *cobra.Command, execArgs []strin
 	if err != nil {
 		reportStatus = "failure"
 		reportMessage = err.Error()
-		args.PrintFailure(fmt.Sprintf("Failed to execute action: %s", err))
-		return ErrActionFailed
+		return reportFailure(classifiedOr(err, agentmode.CodeActionFailed), fmt.Sprintf("Failed to execute action: %s", err), err,
+			agentmode.WithDetail("command", cmd.CommandPath()))
 	}
 	return nil
+}
+
+const (
+	profileRequiredMessage  = "Please configure a profile before trying to execute actions"
+	notAuthenticatedMessage = "Failed to load authenticators, tokens are either expired or authenticators are not logged in, please login first"
+	partialAuthMessage      = "Not all authenticators are logged in, some of the functionality will be disabled"
+)
+
+// details.authenticators states that are not authcommon.Classify reasons.
+const (
+	authStateNotAuthenticated = "NOT_AUTHENTICATED"
+	authStateTokenExpired     = "TOKEN_EXPIRED"
+)
+
+var (
+	loadAuthentication = func(authenticator auth.IdsecAuth, profile *models.IdsecProfile, refreshAuth bool) (*authmodels.IdsecToken, error) {
+		return authenticator.LoadAuthentication(profile, refreshAuth)
+	}
+	newCLIAPI = cli.NewIdsecCLIAPI
+)
+
+// authenticatorState is the details.authenticators state for an authenticator
+// that has no usable token.
+func authenticatorState(loadErr error) string {
+	if reason, ok := authcommon.Classify(loadErr); ok {
+		return string(reason)
+	}
+	return authStateNotAuthenticated
+}
+
+// notAuthenticatedOptions builds the NOT_AUTHENTICATED details and hints. When
+// every authenticator failed with the same Classify reason, that reason's hint
+// comes first. states keys are supported-authenticator keys.
+func notAuthenticatedOptions(profileName string, states map[string]string) []agentmode.FailureOption {
+	opts := []agentmode.FailureOption{
+		agentmode.WithDetail("profile", profileName),
+		agentmode.WithDetail("authenticators", states),
+	}
+	names := make([]string, 0, len(states))
+	shared := ""
+	for name, state := range states {
+		names = append(names, name)
+		if len(names) == 1 {
+			shared = state
+		} else if state != shared {
+			shared = ""
+		}
+	}
+	if shared != "" {
+		opts = append(opts, withDefaultHints(agentmode.Code(shared)))
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		opts = append(opts, agentmode.WithHint(loginHint(name)))
+	}
+	return opts
 }
 
 // buildCLIContextTags extracts CLI context and returns compact FAS tags:
@@ -289,6 +365,19 @@ func cliVersion() string {
 	return string(config.IdsecVersion())
 }
 
+// claValue returns the cla tag value for the current invocation.
+// It mirrors the logic in internal/featureadoption.buildTags so that the
+// X-Cybr-Telemetry header and the FAS report always carry the same value.
+func claValue() string {
+	if agentmode.IsEnabled() {
+		if slug := agentmode.DetectedAgent(); slug != "" {
+			return slug
+		}
+		return featureadoption.AgentUnknownSlug
+	}
+	return featureadoption.AgentHumanSlug
+}
+
 // cliContextFullName maps a FAS short tag key to its descriptive long name for
 // use as the human-readable field name in the X-Cybr-Telemetry extra context.
 func cliContextFullName(shortKey string) string {
@@ -301,6 +390,8 @@ func cliContextFullName(shortKey string) string {
 		return "cli_resource"
 	case featureadoption.TagKeyCLIVersion:
 		return "cli_version"
+	case featureadoption.TagKeyCLIAgent:
+		return "cli_agent"
 	default:
 		return "cli_" + shortKey
 	}

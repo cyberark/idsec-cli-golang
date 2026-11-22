@@ -11,9 +11,13 @@ package actions
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"runtime/debug"
 	"strings"
+
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
+	authcommon "github.com/cyberark/idsec-sdk-golang/pkg/auth/common"
 )
 
 const (
@@ -36,20 +40,44 @@ func RecoverFromPanic() {
 		return
 	}
 
+	reportPanic(r, os.Stdout, os.Stderr)
+	os.Exit(1)
+}
+
+// reportPanic writes the panic report to stderr and, in agent mode, one error
+// envelope to stdout.
+func reportPanic(r any, stdout, stderr io.Writer) {
 	errMsg := extractErrorMessage(r)
 	friendlyMsg := categorizeError(errMsg)
 
 	// Write directly to stderr — never gated by --silent or --raw flags,
 	// because if the CLI panicked the user must always see the error.
-	fmt.Fprintf(os.Stderr, "[ERROR] %s: %s\n", friendlyMsg, errMsg)
+	_, _ = fmt.Fprintf(stderr, "[ERROR] %s: %s\n", friendlyMsg, errMsg)
 
 	if strings.EqualFold(os.Getenv(idsecDebugEnvVar), "true") {
-		fmt.Fprintf(os.Stderr, "\nStack trace:\n%s\n", debug.Stack())
+		_, _ = fmt.Fprintf(stderr, "\nStack trace:\n%s\n", debug.Stack())
 	} else {
-		fmt.Fprintln(os.Stderr, "\nFor detailed error information, run with IDSEC_DEBUG=true")
+		_, _ = fmt.Fprintln(stderr, "\nFor detailed error information, run with IDSEC_DEBUG=true")
 	}
 
-	os.Exit(1)
+	if agentmode.IsEnabled() {
+		WriteErrorEnvelope(stdout, panicFailure(r, errMsg, friendlyMsg))
+	}
+}
+
+// panicFailure classifies an error-valued panic by its SDK reason, so a
+// network outage is not reported as a CLI bug; anything else is INTERNAL_ERROR.
+func panicFailure(r any, errMsg, friendlyMsg string) *agentmode.Failure {
+	err, _ := r.(error)
+	if err != nil {
+		if reason, ok := authcommon.Classify(err); ok {
+			return agentmode.NewFailure(agentmode.Code(reason), err)
+		}
+	}
+	return agentmode.NewFailure(agentmode.CodeInternalError, err,
+		agentmode.WithMessage(friendlyMsg+": "+errMsg),
+		agentmode.WithDetail("category", friendlyMsg),
+		agentmode.WithHint(hintInternalError))
 }
 
 // extractErrorMessage converts the recovered panic value to a string.

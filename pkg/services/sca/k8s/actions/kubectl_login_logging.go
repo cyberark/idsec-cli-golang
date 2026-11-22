@@ -2,17 +2,25 @@ package actions
 
 // Kubectl-login CLI logging. See SDK idsec_sca_k8s_kubectl_login_diagnostics.go.
 // Call sites: kubectlLoginVerbose/Info/Warning/Error.
+//
+// All log levels are written to ~/.idsec/logs/idsec-cli.log via IdsecLogger.
+// WARNING and ERROR also appear on stderr. INFO/DEBUG appear on terminal only
+// when IDSEC_VERBOSE=true.
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/cyberark/idsec-sdk-golang/pkg/common"
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 	k8sservice "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s"
 )
 
 const idsecVerboseEnvVar = "IDSEC_VERBOSE"
+
+var k8sLogger *common.IdsecLogger
 
 func kubectlLoginDiagnosticsEnabled() bool {
 	switch strings.TrimSpace(strings.ToLower(os.Getenv(idsecVerboseEnvVar))) {
@@ -24,6 +32,20 @@ func kubectlLoginDiagnosticsEnabled() bool {
 }
 
 func kubectlLoginLog(level k8sservice.KubectlLoginLogLevel, format string, args ...any) {
+	if k8sLogger != nil {
+		msg := fmt.Sprintf(format, args...)
+		switch level {
+		case k8sservice.KubectlLoginLogLevelDebug:
+			k8sLogger.Debug("%s", msg)
+		case k8sservice.KubectlLoginLogLevelInfo:
+			k8sLogger.Info("%s", msg)
+		case k8sservice.KubectlLoginLogLevelWarning:
+			k8sLogger.Warning("%s", msg)
+		case k8sservice.KubectlLoginLogLevelError:
+			k8sLogger.Error("%s", msg)
+		}
+	}
+
 	switch level {
 	case k8sservice.KubectlLoginLogLevelWarning, k8sservice.KubectlLoginLogLevelError:
 		k8sservice.KubectlLoginLogLine(os.Stderr, level, format, args...)
@@ -32,6 +54,18 @@ func kubectlLoginLog(level k8sservice.KubectlLoginLogLevel, format string, args 
 			return
 		}
 		k8sservice.KubectlLoginLog(level, format, args...)
+	}
+}
+
+// K8sFileLogError writes an ERROR line to idsec-cli.log through the shared k8sLogger without
+// echoing to the terminal, for commands that print their own failure message (e.g. generate-kubeconfig).
+// It initialises k8sLogger on first use, since only kubectl-login sets it up at startup.
+func K8sFileLogError(format string, args ...any) {
+	if k8sLogger == nil {
+		k8sLogger = common.GetLogger("kubectl-login", common.Unknown)
+	}
+	if k8sLogger != nil {
+		k8sLogger.Error("%s", fmt.Sprintf(format, args...))
 	}
 }
 
@@ -124,6 +158,12 @@ func setupKubectlLoginLogging() func() {
 		_ = os.Setenv(k8sservice.KubectlLoginLogLevelEnvVar, originalLogLevel)
 	}
 	_ = os.Setenv(config.IdsecLogLevelEnvVar, "CRITICAL")
+
+	k8sLogger = common.GetLogger("kubectl-login", common.Unknown)
+	if k8sLogger != nil {
+		k8sLogger.Info("=== kubectl-login session started (pid=%d verbose=%v) ===",
+			os.Getpid(), kubectlLoginDiagnosticsEnabled())
+	}
 
 	// kubectl reads this plugin's stdout as the ExecCredential JSON only; reserve
 	// stdout so any informational auth prompts (e.g. the ISP browser-redirect

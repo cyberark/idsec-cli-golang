@@ -1,10 +1,13 @@
 package actions
 
 import (
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/spf13/pflag"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 )
 
 // TestApplyGojqQuery exercises the shared query helper used by every command's
@@ -250,4 +253,72 @@ func TestApplyQueryAndPrintNoValueRunsAgainstNull(t *testing.T) {
 			t.Errorf("expected null, got %q", out)
 		}
 	})
+}
+
+func TestApplyGojqQuery_InvalidQueryStages(t *testing.T) {
+	cases := []struct {
+		name       string
+		query      string
+		wantStage  string
+		wantPrefix string
+	}{
+		{name: "parse", query: ".[", wantStage: "parse", wantPrefix: `invalid jq query ".[": `},
+		{name: "compile", query: "$undefined", wantStage: "compile", wantPrefix: "failed to compile jq query: "},
+		{name: "run", query: `error("x")`, wantStage: "run", wantPrefix: "query failed: "},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var err error
+			_ = withCapturedOutput(func() { err = applyGojqQuery(map[string]any{}, c.query, false) })
+			if err == nil || !strings.HasPrefix(err.Error(), c.wantPrefix) {
+				t.Fatalf("applyGojqQuery(%q) = %v, want prefix %q", c.query, err, c.wantPrefix)
+			}
+			var f *agentmode.Failure
+			if !errors.As(err, &f) {
+				t.Fatalf("applyGojqQuery(%q) = %#v, want *agentmode.Failure", c.query, err)
+			}
+			if f.Error() != err.Error() {
+				t.Errorf("Failure text %q differs from error text %q", f.Error(), err.Error())
+			}
+			want := map[string]any{"kind": agentmode.KindInvalidQuery, "flag": "query", "stage": c.wantStage}
+			if f.Code != agentmode.CodeInvalidInput || !reflect.DeepEqual(f.Details, want) {
+				t.Errorf("Failure = %q %#v, want INVALID_INPUT %#v", f.Code, f.Details, want)
+			}
+			if !reflect.DeepEqual(f.Hints, []string{hintInvalidQuery}) {
+				t.Errorf("Hints = %#v", f.Hints)
+			}
+		})
+	}
+}
+
+func TestParseQueryVars_InvalidValue(t *testing.T) {
+	cases := []struct {
+		name     string
+		arg      []string
+		argjson  []string
+		wantFlag string
+		wantText string
+	}{
+		{name: "bad_arg_name", arg: []string{"1x=2"}, wantFlag: "arg", wantText: `invalid --arg "1x=2", expected name=value with a valid variable name`},
+		{name: "arg_without_equals", arg: []string{"x"}, wantFlag: "arg", wantText: `invalid --arg "x", expected name=value with a valid variable name`},
+		{name: "bad_argjson_name", argjson: []string{"x"}, wantFlag: "argjson", wantText: `invalid --argjson "x", expected name=json with a valid variable name`},
+		{name: "bad_argjson_json", argjson: []string{"x=nope"}, wantFlag: "argjson", wantText: "invalid JSON for --argjson x: invalid character 'o' in literal null (expecting 'u')"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := parseQueryVars(c.arg, c.argjson)
+			if err == nil || err.Error() != c.wantText {
+				t.Fatalf("parseQueryVars() = %v, want %q", err, c.wantText)
+			}
+			var f *agentmode.Failure
+			if !errors.As(err, &f) {
+				t.Fatalf("parseQueryVars() = %#v, want *agentmode.Failure", err)
+			}
+			want := map[string]any{"kind": agentmode.KindInvalidValue, "flag": c.wantFlag}
+			if f.Code != agentmode.CodeInvalidInput || !reflect.DeepEqual(f.Details, want) {
+				t.Errorf("Failure = %q %#v, want INVALID_INPUT %#v", f.Code, f.Details, want)
+			}
+		})
+	}
 }

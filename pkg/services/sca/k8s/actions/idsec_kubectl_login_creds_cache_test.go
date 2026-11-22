@@ -717,16 +717,31 @@ func TestLoadUnifiedExecCredential_UpdatesParentMarkerOnCacheHit(t *testing.T) {
 func TestLoadUnifiedExecCredential_SameParentUnexpiredPurgesAsProbable401(t *testing.T) {
 	primary := newMemoryKeyring()
 	basic := newMemoryKeyring()
-	withExecCredentialKeyrings(t, primary, basic)
+	withAllCacheKeyrings(t, primary, basic)
 	withParentPID(t, 5150)
 
 	const testUUID = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+	key := buildSCAK8sCacheKey("prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1")
+
 	expiresAt := time.Now().Add(15 * time.Minute)
 	if err := SaveUnifiedExecCredential(
 		"prod", "AWS", "role", "fqdn.example.com", testUUID, "",
 		"sid-1", ExecCredMethodDirect, `{"status":{"token":"redacted"}}`, expiresAt, "",
 	); err != nil {
 		t.Fatalf("save unified credential: %v", err)
+	}
+
+	// Seed elevate and OIDC entries that the parent-PID path must also clear.
+	const elevateJSON = `{"elevateResult":{},"savedAt":"2026-01-01T00:00:00Z"}`
+	const oidcJSON = `{"accessToken":"tok","expiresAt":"2099-01-01T00:00:00Z","savedAt":"2026-01-01T00:00:00Z"}`
+	if err := primary.SetPassword(elevateCredsServiceName, key, elevateJSON); err != nil {
+		t.Fatalf("seed elevate primary: %v", err)
+	}
+	if err := basic.SetPassword(elevateCredsServiceName, key, elevateJSON); err != nil {
+		t.Fatalf("seed elevate basic: %v", err)
+	}
+	if err := primary.SetPassword(awsIDCOIDCCredsServiceName, key, oidcJSON); err != nil {
+		t.Fatalf("seed OIDC: %v", err)
 	}
 
 	entry, hitReason, missReason, err := LoadUnifiedExecCredential(
@@ -745,12 +760,23 @@ func TestLoadUnifiedExecCredential_SameParentUnexpiredPurgesAsProbable401(t *tes
 		t.Fatalf("expected missReason to include parent PID and cold-path decision, got %q", missReason)
 	}
 
-	key := buildSCAK8sCacheKey("prod", "AWS", "role", "fqdn.example.com", testUUID, "", "sid-1")
+	// exec-credential: both backends cleared.
 	if _, ok := loadCachedExecCredentialForTest(t, primary, key); ok {
-		t.Fatal("expected probable 401 path to delete primary cache entry")
+		t.Fatal("expected probable 401 path to delete primary exec-credential cache entry")
 	}
 	if _, ok := loadCachedExecCredentialForTest(t, basic, key); ok {
-		t.Fatal("expected probable 401 path to delete basic fallback cache entry")
+		t.Fatal("expected probable 401 path to delete basic fallback exec-credential cache entry")
+	}
+	// elevate: both backends cleared.
+	if data, _ := primary.GetPassword(elevateCredsServiceName, key); data != "" {
+		t.Fatal("expected probable 401 path to delete elevate primary cache entry")
+	}
+	if data, _ := basic.GetPassword(elevateCredsServiceName, key); data != "" {
+		t.Fatal("expected probable 401 path to delete elevate basic fallback cache entry")
+	}
+	// AWS IDC OIDC: primary cleared.
+	if data, _ := primary.GetPassword(awsIDCOIDCCredsServiceName, key); data != "" {
+		t.Fatal("expected probable 401 path to delete AWS IDC OIDC cache entry")
 	}
 }
 
@@ -1242,6 +1268,78 @@ func TestSaveElevateCreds_EmptyClaimsReturnsError(t *testing.T) {
 			t.Errorf("error %q does not contain 'userUUID is empty'", err.Error())
 		}
 	})
+}
+
+func TestSaveAndLoadElevateEntry_RoundTripsEvalContextAndSupportsLegacy(t *testing.T) {
+	primary := newMemoryKeyring()
+	withAllCacheKeyrings(t, primary, newMemoryKeyring())
+
+	const (
+		profileName = "prod"
+		csp         = "AWS"
+		roleID      = "arn:aws:iam::123456789012:role/eks-role"
+		fqdn        = "cluster.eks.amazonaws.com"
+		userUUID    = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+		namespace   = "team-a"
+		sessionID   = "sid-roundtrip"
+	)
+	exp := time.Now().UTC().Add(45 * time.Minute).Format(time.RFC3339)
+	elevateRes := &k8smodels.IdsecSCAK8sElevateResult{
+		SessionID:      "sca-session-1",
+		SessionExpTime: exp,
+		RoleID:         roleID,
+	}
+
+	if err := SaveElevateCreds(
+		profileName, csp, roleID, fqdn, userUUID, namespace, sessionID, elevateRes,
+		elevateEvalContext{ConnectionMethod: "  DIRECT ", CertificateData: "  LS0tLS1CRUdJTi...  "},
+	); err != nil {
+		t.Fatalf("SaveElevateCreds failed: %v", err)
+	}
+
+	entry, hitReason, missReason, err := loadCachedElevateEntry(
+		profileName, csp, roleID, fqdn, userUUID, namespace, sessionID,
+	)
+	if err != nil {
+		t.Fatalf("loadCachedElevateEntry failed: %v", err)
+	}
+	if entry == nil || entry.ElevateResult == nil {
+		t.Fatalf("expected non-nil entry; hitReason=%q missReason=%q", hitReason, missReason)
+	}
+	if entry.ConnectionMethod != "direct" {
+		t.Errorf("ConnectionMethod = %q, want %q", entry.ConnectionMethod, "direct")
+	}
+	if entry.CertificateData != "LS0tLS1CRUdJTi..." {
+		t.Errorf("CertificateData = %q, want trimmed value", entry.CertificateData)
+	}
+	if entry.ElevateResult.SessionID != "sca-session-1" {
+		t.Errorf("SessionID = %q, want sca-session-1", entry.ElevateResult.SessionID)
+	}
+
+	legacyKey := buildSCAK8sCacheKey(profileName, csp, roleID, fqdn, userUUID, namespace, "sid-legacy")
+	legacyPayload := fmt.Sprintf(
+		`{"elevateResult":{"sessionId":"legacy-sess","sessionExpTime":%q,"roleId":%q},"savedAt":%q}`,
+		exp, roleID, time.Now().UTC().Format(time.RFC3339),
+	)
+	if err := primary.SetPassword(elevateCredsServiceName, legacyKey, legacyPayload); err != nil {
+		t.Fatalf("seed legacy entry: %v", err)
+	}
+	legacyRes, _, _, err := LoadCachedElevateKeyringWithReason(
+		profileName, csp, roleID, fqdn, userUUID, namespace, "sid-legacy",
+	)
+	if err != nil || legacyRes == nil || legacyRes.SessionID != "legacy-sess" {
+		t.Fatalf("expected legacy entry to load via LoadCachedElevateKeyringWithReason; got res=%v err=%v", legacyRes, err)
+	}
+	legacyEntry, _, _, err := loadCachedElevateEntry(
+		profileName, csp, roleID, fqdn, userUUID, namespace, "sid-legacy",
+	)
+	if err != nil || legacyEntry == nil {
+		t.Fatalf("expected legacy entry to load via loadCachedElevateEntry; got entry=%v err=%v", legacyEntry, err)
+	}
+	if legacyEntry.ConnectionMethod != "" || legacyEntry.CertificateData != "" {
+		t.Errorf("expected empty eval context on legacy entry; got method=%q cert=%q",
+			legacyEntry.ConnectionMethod, legacyEntry.CertificateData)
+	}
 }
 
 func TestDeriveElevateExpiry_UnparseableSessionExpTimeErrors(t *testing.T) {

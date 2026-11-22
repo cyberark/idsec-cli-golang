@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/cyberark/idsec-cli-golang/internal/featureadoption"
 	"github.com/cyberark/idsec-cli-golang/pkg/actions/testutils"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	"github.com/cyberark/idsec-cli-golang/pkg/cli"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
@@ -358,11 +359,15 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 		setupCmd     func() *cobra.Command
 		execArgs     []string
 		wantErr      error
+		wantCode     agentmode.Code
+		wantDetails  map[string]any
+		wantKeys     []string
 		validateFunc func(t *testing.T, action *IdsecBaseExecAction, cmd *cobra.Command)
 	}{
 		{
-			name:    "error_exec_command_not_found",
-			wantErr: ErrActionFailed,
+			name:     "error_exec_command_not_found",
+			wantErr:  ErrActionFailed,
+			wantCode: agentmode.CodeInternalError,
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockExec := &mockExecAction{}
@@ -382,8 +387,11 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			},
 		},
 		{
-			name:    "error_profile_not_found",
-			wantErr: ErrActionFailed,
+			name:        "error_profile_not_found",
+			wantErr:     ErrActionFailed,
+			wantCode:    agentmode.CodeConfigError,
+			wantDetails: map[string]any{"source": "profile"},
+			wantKeys:    []string{"profile"},
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
@@ -411,8 +419,10 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			},
 		},
 		{
-			name:    "error_nil_profile",
-			wantErr: ErrActionFailed,
+			name:     "error_nil_profile",
+			wantErr:  ErrActionFailed,
+			wantCode: agentmode.CodeProfileNotFound,
+			wantKeys: []string{"profile"},
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
@@ -440,8 +450,10 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			},
 		},
 		{
-			name:    "error_no_authenticators_available",
-			wantErr: ErrActionFailed,
+			name:     "error_no_authenticators_available",
+			wantErr:  ErrActionFailed,
+			wantCode: agentmode.CodeNotAuthenticated,
+			wantKeys: []string{"profile", "authenticators"},
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
@@ -469,8 +481,9 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			},
 		},
 		{
-			name:    "error_no_valid_authenticators_with_profile",
-			wantErr: ErrActionFailed,
+			name:     "error_no_valid_authenticators_with_profile",
+			wantErr:  ErrActionFailed,
+			wantCode: agentmode.CodeNotAuthenticated,
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
@@ -503,8 +516,9 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			},
 		},
 		{
-			name:    "error_no_valid_authenticators_retry_count_flag_read",
-			wantErr: ErrActionFailed,
+			name:     "error_no_valid_authenticators_retry_count_flag_read",
+			wantErr:  ErrActionFailed,
+			wantCode: agentmode.CodeNotAuthenticated,
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
@@ -543,8 +557,9 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			},
 		},
 		{
-			name:    "error_no_valid_authenticators_refresh_auth_flag_read",
-			wantErr: ErrActionFailed,
+			name:     "error_no_valid_authenticators_refresh_auth_flag_read",
+			wantErr:  ErrActionFailed,
+			wantCode: agentmode.CodeNotAuthenticated,
 			setupAction: func() *IdsecBaseExecAction {
 				mockLoader := testutils.NewMockProfileLoader()
 				mockLoader.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
@@ -588,6 +603,23 @@ func TestIdsecBaseExecAction_runExecAction(t *testing.T) {
 			err := action.runExecAction(cmd, tt.execArgs)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("runExecAction() error = %v, want %v", err, tt.wantErr)
+			}
+			var failure *agentmode.Failure
+			if !errors.As(err, &failure) {
+				t.Fatalf("runExecAction() error = %#v, want it to carry an agentmode.Failure", err)
+			}
+			if failure.Code != tt.wantCode {
+				t.Errorf("Failure.Code = %q, want %q", failure.Code, tt.wantCode)
+			}
+			for k, v := range tt.wantDetails {
+				if failure.Details[k] != v {
+					t.Errorf("Failure.Details[%q] = %#v, want %#v", k, failure.Details[k], v)
+				}
+			}
+			for _, k := range tt.wantKeys {
+				if _, ok := failure.Details[k]; !ok {
+					t.Errorf("Failure.Details missing %q: %#v", k, failure.Details)
+				}
 			}
 
 			// Custom validation

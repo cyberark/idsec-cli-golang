@@ -2,12 +2,18 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/cyberark/idsec-cli-golang/pkg/actions"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 )
 
@@ -941,5 +947,532 @@ func TestReportCommandError(t *testing.T) {
 				t.Errorf("expected rootCmd.OutOrStdout() to be restored to original after call")
 			}
 		})
+	}
+}
+
+// setAgentMode resolves agent mode with every agent env var cleared. Tests
+// using it mutate process-global state and must not call t.Parallel.
+func setAgentMode(t *testing.T, agent bool) {
+	t.Helper()
+	// Registered first so it runs last (LIFO), after t.Setenv restores the env.
+	t.Cleanup(func() {
+		agentmode.Resolve(false, false)
+		agentmode.ResetEnvelopeState()
+	})
+	t.Setenv(agentmode.EnvVar, "")
+	t.Setenv(agentmode.ForceEnvVar, "")
+	for _, v := range agentmode.DetectorEnvVars() {
+		t.Setenv(v, "")
+	}
+	agentmode.Resolve(agent, false)
+	agentmode.ResetEnvelopeState()
+}
+
+func setOSArgs(t *testing.T, args ...string) {
+	t.Helper()
+	originalArgs := make([]string, len(os.Args))
+	copy(originalArgs, os.Args)
+	t.Cleanup(func() { os.Args = originalArgs })
+	os.Args = append([]string{}, args...)
+}
+
+// stubOSExit records exit codes instead of exiting.
+func stubOSExit(t *testing.T) *[]int {
+	t.Helper()
+	original := osExit
+	t.Cleanup(func() { osExit = original })
+	codes := &[]int{}
+	osExit = func(code int) { *codes = append(*codes, code) }
+	return codes
+}
+
+// captureStdio runs fn with os.Stdout and os.Stderr redirected to pipes.
+func captureStdio(t *testing.T, fn func()) (stdout, stderr string) {
+	t.Helper()
+	read := func(f **os.File) (restore func() string) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe: %v", err)
+		}
+		original := *f
+		*f = w
+		done := make(chan string)
+		go func() {
+			b, _ := io.ReadAll(r)
+			done <- string(b)
+		}()
+		return func() string {
+			*f = original
+			_ = w.Close()
+			return <-done
+		}
+	}
+	restoreOut := read(&os.Stdout)
+	restoreErr := read(&os.Stderr)
+	defer func() {
+		stdout, stderr = restoreOut(), restoreErr()
+	}()
+	fn()
+	return
+}
+
+func decodeEnvelope(t *testing.T, stdout string) agentmode.Envelope {
+	t.Helper()
+	if strings.Count(stdout, "\n") != 1 || !strings.HasSuffix(stdout, "\n") {
+		t.Fatalf("stdout = %q, want exactly one envelope line", stdout)
+	}
+	var env agentmode.Envelope
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("unmarshal %q: %v", stdout, err)
+	}
+	if env.Status != agentmode.StatusError || env.Error == nil {
+		t.Fatalf("envelope = %+v, want an error envelope", env)
+	}
+	return env
+}
+
+// newReportRoot builds a small fixed tree so help output is stable.
+func newReportRoot() *cobra.Command {
+	root := createRootCommand()
+	root.AddCommand(&cobra.Command{Use: "version", Short: "Print the version", RunE: func(*cobra.Command, []string) error { return nil }})
+	execCmd := &cobra.Command{Use: "exec", Short: "Execute service actions"}
+	execCmd.AddCommand(&cobra.Command{Use: "pcloud", Short: "PCloud", RunE: func(*cobra.Command, []string) error { return nil }})
+	root.AddCommand(execCmd)
+	return root
+}
+
+type reportCase struct {
+	name     string
+	args     []string
+	err      func(t *testing.T, root *cobra.Command) error
+	showHelp bool
+	// Human mode, captured from the pre-OLY-21331 exit sites.
+	wantHumanStderr string
+	wantExit        int
+	// Agent mode.
+	wantCode     agentmode.Code
+	wantReported bool
+}
+
+func reportCases() []reportCase {
+	return []reportCase{
+		{
+			name: "unknown_command",
+			args: []string{"idsec", "exec", "nosuch"},
+			err: func(t *testing.T, root *cobra.Command) error {
+				return validateCommandPathBeforeExecution(root)
+			},
+			wantHumanStderr: "unknown command \"nosuch\" for \"idsec exec\"\n",
+			wantExit:        1,
+			wantCode:        agentmode.CodeUnknownCommand,
+		},
+		{
+			name: "unknown_flag_known_subcommand",
+			args: []string{"idsec", "version", "--bogus"},
+			err: func(t *testing.T, root *cobra.Command) error {
+				root.SetArgs([]string{"version", "--bogus"})
+				return root.Execute()
+			},
+			showHelp:        true,
+			wantHumanStderr: "unknown flag: --bogus\n",
+			wantExit:        1,
+			wantCode:        agentmode.CodeInvalidInput,
+		},
+		{
+			name: "root_usage_error_with_help",
+			args: []string{"idsec", "unknown-xyz"},
+			err: func(*testing.T, *cobra.Command) error {
+				return fmt.Errorf("unknown command %q for %q", "unknown-xyz", "idsec")
+			},
+			showHelp: true,
+			wantHumanStderr: "Idsec CLI\n\nUsage:\n  idsec [command]\n\nAvailable Commands:\n" +
+				"  exec        Execute service actions\n  version     Print the version\n\n" +
+				"Flags:\n      --config string   Path to configuration file (default ~/.idsec/config.yaml)\n\n" +
+				"Use \"idsec [command] --help\" for more information about a command.\n\n" +
+				"unknown command \"unknown-xyz\" for \"idsec\"\n",
+			wantExit: 1,
+			wantCode: agentmode.CodeUnknownCommand,
+		},
+		{
+			name:            "exit_code_1",
+			args:            []string{"idsec", "version"},
+			err:             func(*testing.T, *cobra.Command) error { return &actions.ExitCodeError{Code: 1} },
+			showHelp:        true,
+			wantHumanStderr: "",
+			wantExit:        1,
+			wantCode:        agentmode.CodeActionFailed,
+			wantReported:    true,
+		},
+		{
+			name:            "exit_code_4",
+			args:            []string{"idsec", "version"},
+			err:             func(*testing.T, *cobra.Command) error { return &actions.ExitCodeError{Code: 4} },
+			showHelp:        true,
+			wantHumanStderr: "",
+			wantExit:        4,
+			wantCode:        agentmode.CodeActionFailed,
+			wantReported:    true,
+		},
+		{
+			name:            "plain_error",
+			args:            []string{"idsec", "version"},
+			err:             func(*testing.T, *cobra.Command) error { return errors.New("network timeout") },
+			wantHumanStderr: "network timeout\n",
+			wantExit:        1,
+			wantCode:        agentmode.CodeActionFailed,
+		},
+	}
+}
+
+func TestReportError_HumanGolden(t *testing.T) {
+	cases := append(reportCases(), reportCase{
+		name:            "quiet_exit_4",
+		args:            []string{"idsec", "version"},
+		err:             func(*testing.T, *cobra.Command) error { return &actions.ExitCodeError{Code: 4, Quiet: true} },
+		showHelp:        true,
+		wantHumanStderr: "",
+		wantExit:        4,
+	})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setAgentMode(t, false)
+			setOSArgs(t, tc.args...)
+			root := newReportRoot()
+			err := tc.err(t, root)
+
+			var stdout, stderr bytes.Buffer
+			code := reportError(root, err, tc.showHelp, &stdout, &stderr)
+
+			if code != tc.wantExit {
+				t.Errorf("exit = %d, want %d", code, tc.wantExit)
+			}
+			if stderr.String() != tc.wantHumanStderr {
+				t.Errorf("stderr = %q, want %q", stderr.String(), tc.wantHumanStderr)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want empty", stdout.String())
+			}
+		})
+	}
+}
+
+func TestReportError_Agent(t *testing.T) {
+	for _, tc := range reportCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			setAgentMode(t, true)
+			setOSArgs(t, tc.args...)
+			root := newReportRoot()
+			err := tc.err(t, root)
+
+			var stdout, stderr bytes.Buffer
+			code := reportError(root, err, tc.showHelp, &stdout, &stderr)
+
+			if code != tc.wantExit {
+				t.Errorf("exit = %d, want %d", code, tc.wantExit)
+			}
+			env := decodeEnvelope(t, stdout.String())
+			if env.Error.Code != tc.wantCode {
+				t.Errorf("code = %q, want %q", env.Error.Code, tc.wantCode)
+			}
+			wantStderr := err.Error() + "\n"
+			if tc.wantReported {
+				wantStderr = ""
+			}
+			if stderr.String() != wantStderr {
+				t.Errorf("stderr = %q, want %q", stderr.String(), wantStderr)
+			}
+			if strings.Contains(stderr.String(), "Available Commands") {
+				t.Errorf("stderr contains the help dump: %q", stderr.String())
+			}
+		})
+	}
+}
+
+func TestReportError_AgentQuiet(t *testing.T) {
+	setAgentMode(t, true)
+	root := newReportRoot()
+	for code := 2; code <= 5; code++ {
+		var stdout, stderr bytes.Buffer
+		got := reportError(root, &actions.ExitCodeError{Code: code, Quiet: true}, true, &stdout, &stderr)
+		if got != code || stdout.Len() != 0 || stderr.Len() != 0 {
+			t.Errorf("quiet %d: exit = %d, stdout = %q, stderr = %q", code, got, stdout.String(), stderr.String())
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	if got := reportError(root, errors.New("status failed"), false, &stdout, &stderr); got != 1 {
+		t.Errorf("plain error exit = %d, want 1", got)
+	}
+	if env := decodeEnvelope(t, stdout.String()); env.Error.Message != "status failed" {
+		t.Errorf("message = %q", env.Error.Message)
+	}
+}
+
+func TestReportError_AgentAlreadyReported(t *testing.T) {
+	setAgentMode(t, true)
+	failure := agentmode.NewFailure(agentmode.CodeProfileNotFound, errors.New("profile \"dev\" not found"),
+		agentmode.WithDetail("profile", "dev"))
+
+	var stdout, stderr bytes.Buffer
+	code := reportError(newReportRoot(), &actions.ExitCodeError{Code: 1, Failure: failure}, true, &stdout, &stderr)
+
+	if code != 1 {
+		t.Errorf("exit = %d, want 1", code)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty (the action already printed)", stderr.String())
+	}
+	env := decodeEnvelope(t, stdout.String())
+	if env.Error.Code != agentmode.CodeProfileNotFound || env.Error.Message != failure.Message {
+		t.Errorf("error = %q %q", env.Error.Code, env.Error.Message)
+	}
+}
+
+func TestValidateCommandPath_UnknownCommandFailure(t *testing.T) {
+	setAgentMode(t, false)
+	setOSArgs(t, "idsec", "exec", "nosuch")
+	rootCmd := createRootCommand()
+	registerActions(rootCmd, profiles.DefaultProfilesLoader())
+
+	err := validateCommandPathBeforeExecution(rootCmd)
+
+	if err == nil || err.Error() != `unknown command "nosuch" for "idsec exec"` {
+		t.Fatalf("err = %v", err)
+	}
+	var f *agentmode.Failure
+	if !errors.As(err, &f) {
+		t.Fatalf("err = %#v, want *agentmode.Failure", err)
+	}
+	if f.Code != agentmode.CodeUnknownCommand || f.Details["kind"] != agentmode.KindUnknownCommand ||
+		f.Details["token"] != "nosuch" || f.Details["parent"] != "idsec exec" {
+		t.Errorf("Failure = %q %#v", f.Code, f.Details)
+	}
+	available, _ := f.Details["available"].([]string)
+	if len(available) == 0 || !slicesSorted(available) {
+		t.Errorf("available = %#v, want non-empty sorted names", f.Details["available"])
+	}
+	if !reflect.DeepEqual(f.Hints, []string{"run `idsec exec --help` to list available commands"}) {
+		t.Errorf("hints = %#v", f.Hints)
+	}
+}
+
+func TestValidateCommandPath_UnknownCommandAfterUnknownFlag(t *testing.T) {
+	const secret = "S3CRET-pw"
+	cases := []struct {
+		name       string
+		args       []string
+		wantText   string
+		wantParent string
+		wantToken  any
+	}{
+		{
+			name:       "undefined_flag_before_subcommand",
+			args:       []string{"exec", "pcloud", "--bogus-flag", secret, "accounts", "list"},
+			wantText:   `unknown command "` + secret + `" for "idsec exec pcloud"`,
+			wantParent: "idsec exec pcloud",
+		},
+		{
+			name:       "known_bool_flag_keeps_token",
+			args:       []string{"exec", "--verbose", "nosuch"},
+			wantText:   `unknown command "nosuch" for "idsec exec"`,
+			wantParent: "idsec exec",
+			wantToken:  "nosuch",
+		},
+		{
+			name:       "inline_value_keeps_token",
+			args:       []string{"exec", "pcloud", "--bogus-flag=x", "acounts"},
+			wantText:   `unknown command "acounts" for "idsec exec pcloud"`,
+			wantParent: "idsec exec pcloud",
+			wantToken:  "acounts",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setAgentMode(t, false)
+			setOSArgs(t, append([]string{"idsec"}, tc.args...)...)
+			rootCmd := createRootCommand()
+			registerActions(rootCmd, profiles.DefaultProfilesLoader())
+
+			err := validateCommandPathBeforeExecution(rootCmd)
+
+			if err == nil || err.Error() != tc.wantText {
+				t.Fatalf("err = %v, want unchanged human text %q", err, tc.wantText)
+			}
+			f := actions.ClassifyError(err)
+			if f.Details["parent"] != tc.wantParent || f.Details["token"] != tc.wantToken {
+				t.Errorf("parent, token = %#v, %#v; want %q, %#v", f.Details["parent"], f.Details["token"], tc.wantParent, tc.wantToken)
+			}
+			var buf bytes.Buffer
+			if werr := agentmode.Write(&buf, agentmode.NewErrorEnvelope(f)); werr != nil {
+				t.Fatalf("Write: %v", werr)
+			}
+			if strings.Contains(buf.String(), secret) {
+				t.Errorf("envelope leaks the flag value: %s", buf.String())
+			}
+			if tc.wantToken == nil && f.Message != `unknown command for "`+tc.wantParent+`"` {
+				t.Errorf("Message = %q", f.Message)
+			}
+		})
+	}
+}
+
+func TestValidateCommandPath_InheritedValueFlagBeforeSubcommand(t *testing.T) {
+	setAgentMode(t, false)
+	setOSArgs(t, "idsec", "exec", "pcloud", "accounts", "--proxy-password", "S3CRET-pw", "list")
+	rootCmd := createRootCommand()
+	registerActions(rootCmd, profiles.DefaultProfilesLoader())
+
+	if err := validateCommandPathBeforeExecution(rootCmd); err != nil {
+		t.Errorf("err = %v, want nil: an inherited value flag's value is not a command", err)
+	}
+}
+
+func slicesSorted(s []string) bool {
+	for i := 1; i < len(s); i++ {
+		if s[i-1] > s[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// newMainRoot builds the command tree the way main does before validation.
+func newMainRoot() *cobra.Command {
+	rootCmd := createRootCommand()
+	registerActions(rootCmd, profiles.DefaultProfilesLoader())
+	rootCmd.InitDefaultHelpCmd()
+	rootCmd.InitDefaultCompletionCmd()
+	setupTransparentExecCompletion(rootCmd)
+	return rootCmd
+}
+
+func TestValidateCommandPath_IncompleteCommand(t *testing.T) {
+	cases := []struct {
+		args       []string
+		wantParent string
+	}{
+		{args: []string{"exec", "pcloud"}, wantParent: "idsec exec pcloud"},
+		{args: []string{"pcloud"}, wantParent: "idsec pcloud"},
+		{args: []string{"exec"}, wantParent: "idsec exec"},
+		{args: nil, wantParent: "idsec"},
+		{args: []string{"--agent"}, wantParent: "idsec"},
+	}
+	for _, tc := range cases {
+		name := strings.Join(append([]string{"idsec"}, tc.args...), "_")
+		t.Run(name+"/agent", func(t *testing.T) {
+			setAgentMode(t, true)
+			setOSArgs(t, append([]string{"idsec"}, tc.args...)...)
+
+			err := validateCommandPathBeforeExecution(newMainRoot())
+
+			var f *agentmode.Failure
+			if !errors.As(err, &f) {
+				t.Fatalf("err = %#v, want *agentmode.Failure", err)
+			}
+			if err.Error() != fmt.Sprintf("%q requires a subcommand", tc.wantParent) {
+				t.Errorf("text = %q", err.Error())
+			}
+			if f.Code != agentmode.CodeUnknownCommand || f.Details["kind"] != agentmode.KindIncompleteCommand ||
+				f.Details["parent"] != tc.wantParent {
+				t.Errorf("Failure = %q %#v", f.Code, f.Details)
+			}
+			if available, _ := f.Details["available"].([]string); len(available) == 0 || !slicesSorted(available) {
+				t.Errorf("available = %#v", f.Details["available"])
+			}
+			if want := []string{"run `" + tc.wantParent + " --help` to list available commands"}; !reflect.DeepEqual(f.Hints, want) {
+				t.Errorf("hints = %#v, want %#v", f.Hints, want)
+			}
+		})
+		t.Run(name+"/agent_help", func(t *testing.T) {
+			setAgentMode(t, true)
+			setOSArgs(t, append(append([]string{"idsec"}, tc.args...), "--help")...)
+			if err := validateCommandPathBeforeExecution(newMainRoot()); err != nil {
+				t.Errorf("err = %v, want nil", err)
+			}
+		})
+		t.Run(name+"/human", func(t *testing.T) {
+			setAgentMode(t, false)
+			setOSArgs(t, append([]string{"idsec"}, tc.args...)...)
+			if err := validateCommandPathBeforeExecution(newMainRoot()); err != nil {
+				t.Errorf("err = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestFlagErrorFunc_Inherited(t *testing.T) {
+	root := createRootCommand()
+	execCmd := &cobra.Command{Use: "exec"}
+	pcloud := &cobra.Command{Use: "pcloud"}
+	pcloud.AddCommand(&cobra.Command{Use: "list", RunE: func(*cobra.Command, []string) error { return nil }})
+	execCmd.AddCommand(pcloud)
+	root.AddCommand(execCmd)
+	root.SetArgs([]string{"exec", "pcloud", "list", "--bogus"})
+
+	err := root.Execute()
+
+	var f *agentmode.Failure
+	if !errors.As(err, &f) || f.Code != agentmode.CodeInvalidInput {
+		t.Fatalf("err = %#v, want INVALID_INPUT Failure", err)
+	}
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("err text = %q; the exec reroute matches \"unknown flag\"", err.Error())
+	}
+	if f.Details["command"] != "idsec exec pcloud list" || f.Details["flag"] != "bogus" {
+		t.Errorf("details = %#v", f.Details)
+	}
+}
+
+func TestExitWithError_SingleEmission(t *testing.T) {
+	newRoot := func() *cobra.Command {
+		root := createRootCommand()
+		root.AddCommand(&cobra.Command{Use: "version", RunE: func(*cobra.Command, []string) error { return nil }})
+		execCmd := &cobra.Command{Use: "exec"}
+		pcloud := &cobra.Command{Use: "pcloud"}
+		pcloud.AddCommand(&cobra.Command{Use: "list", RunE: func(*cobra.Command, []string) error { return errors.New("boom") }})
+		execCmd.AddCommand(pcloud)
+		root.AddCommand(execCmd)
+		setupDefaultRouting(root)
+		return root
+	}
+	cases := []struct {
+		name     string
+		args     []string
+		wantCode agentmode.Code
+		wantMsg  string
+	}{
+		{name: "default_routing", args: []string{"idsec", "pcloud", "list"}, wantCode: agentmode.CodeActionFailed, wantMsg: "boom"},
+		{name: "final", args: []string{"idsec", "version", "--bogus"}, wantCode: agentmode.CodeInvalidInput, wantMsg: "unknown flag: --bogus"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setAgentMode(t, true)
+			setOSArgs(t, tc.args...)
+			exits := stubOSExit(t)
+			root := newRoot()
+
+			stdout, stderr := captureStdio(t, func() { handleCommandExecution(root) })
+
+			if !reflect.DeepEqual(*exits, []int{1}) {
+				t.Errorf("exits = %v, want [1]", *exits)
+			}
+			env := decodeEnvelope(t, stdout)
+			if env.Error.Code != tc.wantCode || env.Error.Message != tc.wantMsg {
+				t.Errorf("error = %q %q", env.Error.Code, env.Error.Message)
+			}
+			if stderr != tc.wantMsg+"\n" {
+				t.Errorf("stderr = %q, want %q", stderr, tc.wantMsg+"\n")
+			}
+		})
+	}
+}
+
+func TestMain_PreResolvesAgentMode(t *testing.T) {
+	setAgentMode(t, false)
+
+	agentmode.ResolveFromArgs([]string{"pcloud", "--agent", "--bogus"})
+
+	if !agentmode.IsEnabled() {
+		t.Error("IsEnabled() = false after ResolveFromArgs with --agent")
 	}
 }

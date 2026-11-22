@@ -5,16 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
-
-	survey "github.com/Iilun/survey/v2"
+	"strings"
+	"unicode"
 
 	editor "github.com/confluentinc/go-editor"
 	"github.com/spf13/cobra"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	commonargs "github.com/cyberark/idsec-cli-golang/pkg/common/args"
+	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 )
+
+// newProfileEditor creates the editor used by profiles edit. It is a var so
+// tests can stub the editor launch.
+var newProfileEditor = editor.NewEditor
 
 // IdsecProfilesAction is a struct that implements the IdsecAction interface for managing CLI profiles.
 //
@@ -112,14 +119,14 @@ func (a *IdsecProfilesAction) DefineAction(cmd *cobra.Command) {
 	showCmd := &cobra.Command{
 		Use:   "show",
 		Short: "Show a profile",
-		Run:   a.runShowAction,
+		RunE:  a.runShowAction,
 	}
 	showCmd.Flags().StringP("profile-name", "", "", "Profile name to show, if not given, shows the current one")
 
 	deleteCmd := &cobra.Command{
 		Use:   "delete",
 		Short: "Delete a specific profile",
-		Run:   a.runDeleteAction,
+		RunE:  a.runDeleteAction,
 	}
 	deleteCmd.Flags().StringP("profile-name", "", "", "Profile name to delete")
 	deleteCmd.Flags().BoolP("yes", "", false, "Whether to approve deletion non interactively")
@@ -127,14 +134,14 @@ func (a *IdsecProfilesAction) DefineAction(cmd *cobra.Command) {
 	clearCmd := &cobra.Command{
 		Use:   "clear",
 		Short: "Clear all profiles",
-		Run:   a.runClearAction,
+		RunE:  a.runClearAction,
 	}
 	clearCmd.Flags().BoolP("yes", "", false, "Whether to approve clear non interactively")
 
 	cloneCmd := &cobra.Command{
 		Use:   "clone",
 		Short: "Clone a profile",
-		Run:   a.runCloneAction,
+		RunE:  a.runCloneAction,
 	}
 	cloneCmd.Flags().StringP("profile-name", "", "", "Profile name to clone")
 	cloneCmd.Flags().StringP("new-profile-name", "", "", "New cloned profile name, if not given, will add _clone as part of the name")
@@ -143,19 +150,47 @@ func (a *IdsecProfilesAction) DefineAction(cmd *cobra.Command) {
 	addCmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add a profile from a given path",
-		Run:   a.runAddAction,
+		RunE:  a.runAddAction,
 	}
 	addCmd.Flags().StringP("profile-path", "", "", "Profile file path to be added")
+	addCmd.Flags().BoolP("yes", "", false, "Whether to overwrite an existing profile non-interactively")
 
 	editCmd := &cobra.Command{
 		Use:   "edit",
 		Short: "Edit a profile interactively",
-		Run:   a.runEditAction,
+		RunE:  a.runEditAction,
 	}
 	editCmd.Flags().StringP("profile-name", "", "", "Profile name to edit, if not given, edits the current one")
 
 	profileCmd.AddCommand(listCmd, showCmd, deleteCmd, clearCmd, cloneCmd, addCmd, editCmd)
 	cmd.AddCommand(profileCmd)
+}
+
+// loadExistingProfile loads profileName and reports a failure when it is
+// missing or can't be read, so callers can return the error directly. The
+// loader returns (nil, nil) for a missing profile and an error only when the
+// profile exists but can't be read, parsed or validated. The name and the
+// error (which can embed the file path) are quoted so a newline in the name
+// can't forge an "idsec: " machine-readable line.
+func (a *IdsecProfilesAction) loadExistingProfile(profileName string) (*models.IdsecProfile, error) {
+	profile, err := (*a.profilesLoader).LoadProfile(profileName)
+	if err != nil {
+		return nil, reportFailure(agentmode.CodeConfigError, fmt.Sprintf("Failed to load profile %q: %q", profileName, err.Error()), err,
+			agentmode.WithDetail("source", "profile"), agentmode.WithDetail("profile", profileName),
+			agentmode.WithHint(hintProfileUnreadable))
+	}
+	if profile == nil {
+		return nil, reportFailure(agentmode.CodeProfileNotFound, fmt.Sprintf("No profile was found for the name %q", profileName), nil,
+			agentmode.WithDetail("profile", profileName),
+			agentmode.WithHint(hintProfilesList), agentmode.WithHint(hintProfileCreate))
+	}
+	return profile, nil
+}
+
+// profileFileFailure reports an unusable `profiles add --profile-path` file.
+func profileFileFailure(msg, path string) error {
+	return reportFailure(agentmode.CodeConfigError, msg, nil,
+		agentmode.WithDetail("source", "profile_file"), agentmode.WithDetail("path", path))
 }
 
 // runListAction handles the profiles list command execution.
@@ -189,8 +224,9 @@ func (a *IdsecProfilesAction) runListAction(cmd *cobra.Command, args []string) e
 	// not be conflated with "you have no profiles".
 	loadedProfiles, err := (*a.profilesLoader).LoadAllProfiles()
 	if err != nil {
-		commonargs.PrintFailure(fmt.Sprintf("Failed to load profiles: %v", err))
-		return &ExitCodeError{Code: 1}
+		return reportFailure(agentmode.CodeConfigError, fmt.Sprintf("Failed to load profiles: %v", err), err,
+			agentmode.WithDetail("source", "profiles_folder"),
+			agentmode.WithHint(hintProfilesFolderUnreadable))
 	}
 	// Guarantee a non-nil slice so a genuinely empty result marshals to [].
 	if loadedProfiles == nil {
@@ -261,22 +297,22 @@ func (a *IdsecProfilesAction) runListAction(cmd *cobra.Command, args []string) e
 // Supported flags:
 //   - profile-name: Name of the profile to show (optional, defaults to current profile)
 //
-// The function prints a warning if the specified profile is not found, otherwise
-// it outputs the profile data in JSON format.
-func (a *IdsecProfilesAction) runShowAction(cmd *cobra.Command, args []string) {
+// The function outputs the profile data in JSON format. If the profile is not
+// found or can't be read, it prints a failure and exits non-zero.
+func (a *IdsecProfilesAction) runShowAction(cmd *cobra.Command, args []string) error {
 	profileName, _ := cmd.Flags().GetString("profile-name")
 	if profileName == "" {
 		profileName = profiles.DeduceProfileName("")
 	}
 
-	profile, err := (*a.profilesLoader).LoadProfile(profileName)
-	if err != nil || profile == nil {
-		commonargs.PrintWarning(fmt.Sprintf("No profile was found for the name %s", profileName))
-		return
+	profile, err := a.loadExistingProfile(profileName)
+	if err != nil {
+		return err
 	}
 
 	data, _ := json.MarshalIndent(profile, "", "  ")
 	commonargs.PrintSuccess(string(data))
+	return nil
 }
 
 // runDeleteAction handles the profiles delete command execution.
@@ -293,32 +329,32 @@ func (a *IdsecProfilesAction) runShowAction(cmd *cobra.Command, args []string) {
 //   - profile-name: Name of the profile to delete (required)
 //   - yes: Skip confirmation prompt for non-interactive deletion
 //
-// The function prints warnings if the profile is not found and uses interactive
-// confirmation unless the --yes flag is provided.
-func (a *IdsecProfilesAction) runDeleteAction(cmd *cobra.Command, args []string) {
+// The function fails with a non-zero exit if --profile-name is empty or the
+// profile is not found or can't be read, and uses interactive confirmation
+// unless the --yes flag is provided.
+func (a *IdsecProfilesAction) runDeleteAction(cmd *cobra.Command, args []string) error {
 	profileName, _ := cmd.Flags().GetString("profile-name")
-	profile, err := (*a.profilesLoader).LoadProfile(profileName)
-	if err != nil || profile == nil {
-		commonargs.PrintWarning(fmt.Sprintf("No profile was found for the name %s", profileName))
-		return
+	if profileName == "" {
+		return missingFlagFailure("--profile-name is required", "profile-name")
+	}
+	if _, err := a.loadExistingProfile(profileName); err != nil {
+		return err
 	}
 
-	yes, _ := cmd.Flags().GetBool("yes")
-	if !yes {
-		confirm := false
-		prompt := &survey.Confirm{
-			Message: fmt.Sprintf("Are you sure you want to delete profile %s?", profileName),
-		}
-		err := survey.AskOne(prompt, &confirm)
-		if err != nil || !confirm {
-			return
-		}
-	}
-
-	err = (*a.profilesLoader).DeleteProfile(profileName)
+	ok, err := commonargs.GetConfirmation(cmd, "yes",
+		fmt.Sprintf("Are you sure you want to delete profile %s?", profileName))
 	if err != nil {
-		return
+		return missingInputFailure(fmt.Sprintf("Refusing to delete profile %s without confirmation", profileName), err)
 	}
+	if !ok {
+		return nil
+	}
+
+	if err := (*a.profilesLoader).DeleteProfile(profileName); err != nil {
+		commonargs.PrintFailure(fmt.Sprintf("Failed to delete profile: %v", err))
+		return ErrActionFailed
+	}
+	return nil
 }
 
 // runClearAction handles the profiles clear command execution.
@@ -336,22 +372,20 @@ func (a *IdsecProfilesAction) runDeleteAction(cmd *cobra.Command, args []string)
 //
 // The function uses interactive confirmation unless the --yes flag is provided
 // to prevent accidental deletion of all profiles.
-func (a *IdsecProfilesAction) runClearAction(cmd *cobra.Command, args []string) {
-	yes, _ := cmd.Flags().GetBool("yes")
-	if !yes {
-		confirm := false
-		prompt := &survey.Confirm{
-			Message: "Are you sure you want to clear all profiles?",
-		}
-		err := survey.AskOne(prompt, &confirm)
-		if err != nil || !confirm {
-			return
-		}
-	}
-	err := (*a.profilesLoader).ClearAllProfiles()
+func (a *IdsecProfilesAction) runClearAction(cmd *cobra.Command, args []string) error {
+	ok, err := commonargs.GetConfirmation(cmd, "yes", "Are you sure you want to clear all profiles?")
 	if err != nil {
-		return
+		return missingInputFailure("Refusing to clear all profiles without confirmation", err)
 	}
+	if !ok {
+		return nil
+	}
+
+	if err := (*a.profilesLoader).ClearAllProfiles(); err != nil {
+		commonargs.PrintFailure(fmt.Sprintf("Failed to clear profiles: %v", err))
+		return ErrActionFailed
+	}
+	return nil
 }
 
 // runCloneAction handles the profiles clone command execution.
@@ -371,12 +405,14 @@ func (a *IdsecProfilesAction) runClearAction(cmd *cobra.Command, args []string) 
 //
 // The function prompts for confirmation if the target profile name already exists
 // unless the --yes flag is provided.
-func (a *IdsecProfilesAction) runCloneAction(cmd *cobra.Command, args []string) {
+func (a *IdsecProfilesAction) runCloneAction(cmd *cobra.Command, args []string) error {
 	profileName, _ := cmd.Flags().GetString("profile-name")
-	profile, err := (*a.profilesLoader).LoadProfile(profileName)
-	if err != nil || profile == nil {
-		commonargs.PrintWarning(fmt.Sprintf("No profile was found for the name %s", profileName))
-		return
+	if profileName == "" {
+		return missingFlagFailure("--profile-name is required", "profile-name")
+	}
+	profile, err := a.loadExistingProfile(profileName)
+	if err != nil {
+		return err
 	}
 
 	newProfileName, _ := cmd.Flags().GetString("new-profile-name")
@@ -388,22 +424,21 @@ func (a *IdsecProfilesAction) runCloneAction(cmd *cobra.Command, args []string) 
 	clonedProfile.ProfileName = newProfileName
 
 	if (*a.profilesLoader).ProfileExists(newProfileName) {
-		yes, _ := cmd.Flags().GetBool("yes")
-		if !yes {
-			confirm := false
-			prompt := &survey.Confirm{
-				Message: fmt.Sprintf("Profile %s already exists, do you want to override it?", newProfileName),
-			}
-			err := survey.AskOne(prompt, &confirm)
-			if err != nil || !confirm {
-				return
-			}
+		ok, err := commonargs.GetConfirmation(cmd, "yes",
+			fmt.Sprintf("Profile %s already exists, do you want to override it?", newProfileName))
+		if err != nil {
+			return missingInputFailure(fmt.Sprintf("Refusing to overwrite profile %s without confirmation", newProfileName), err)
+		}
+		if !ok {
+			return nil
 		}
 	}
-	err = (*a.profilesLoader).SaveProfile(clonedProfile)
-	if err != nil {
-		return
+
+	if err := (*a.profilesLoader).SaveProfile(clonedProfile); err != nil {
+		commonargs.PrintFailure(fmt.Sprintf("Failed to save cloned profile: %v", err))
+		return ErrActionFailed
 	}
+	return nil
 }
 
 // runAddAction handles the profiles add command execution.
@@ -413,38 +448,73 @@ func (a *IdsecProfilesAction) runCloneAction(cmd *cobra.Command, args []string) 
 // exists and contains valid profile data.
 //
 // Parameters:
-//   - cmd: The cobra command containing the profile-path flag
+//   - cmd: The cobra command containing the profile-path and yes flags
 //   - args: Command line arguments (not currently used)
 //
 // Supported flags:
 //   - profile-path: File system path to the profile JSON file (required)
+//   - yes: Skip the confirmation prompt when overwriting an existing profile
 //
 // The function validates file existence, reads the file content, unmarshals
-// the JSON data into a profile structure, and saves it using the profile loader.
-// It prints appropriate warnings and failures for various error conditions.
-func (a *IdsecProfilesAction) runAddAction(cmd *cobra.Command, args []string) {
+// the JSON data into a profile structure, checks that profile_name is a single
+// path element and that the profile passes Validate, and saves it using the
+// profile loader.
+// If a profile with the same name already exists, it asks for confirmation
+// before overwriting unless --yes is provided; in non-interactive (agent) mode
+// without --yes it refuses and emits a machine-readable missing_required_input
+// line on stderr. It prints appropriate warnings and failures for various
+// error conditions.
+func (a *IdsecProfilesAction) runAddAction(cmd *cobra.Command, args []string) error {
 	profilePath, _ := cmd.Flags().GetString("profile-path")
-	if _, err := os.Stat(profilePath); os.IsNotExist(err) {
-		commonargs.PrintWarning(fmt.Sprintf("Profile path [%s] does not exist, ignoring", profilePath))
-		return
+	if profilePath == "" {
+		return missingFlagFailure("--profile-path is required", "profile-path")
 	}
-	if _, err := os.Stat(profilePath); err == nil {
-		data, err := os.ReadFile(profilePath) // #nosec G304
+	fi, err := os.Stat(profilePath)
+	if os.IsNotExist(err) {
+		return profileFileFailure(fmt.Sprintf("Profile path [%s] does not exist, aborting", profilePath), profilePath)
+	}
+	// os.Stat follows symlinks, so this also rejects links to devices or FIFOs,
+	// which would make ReadFile read forever or block.
+	if err != nil || !fi.Mode().IsRegular() {
+		return profileFileFailure(fmt.Sprintf("Profile path [%s] is not a regular file, aborting", profilePath), profilePath)
+	}
+	data, err := os.ReadFile(profilePath) // #nosec G304
+	if err != nil {
+		return profileFileFailure(fmt.Sprintf("Profile path [%s] failed to be read, aborting", profilePath), profilePath)
+	}
+	var profile *models.IdsecProfile
+	if err = json.Unmarshal(data, &profile); err != nil || profile == nil {
+		return profileFileFailure(fmt.Sprintf("Profile path [%s] failed to be parsed, aborting", profilePath), profilePath)
+	}
+	// The name becomes a file name inside the profiles folder, so it must be a
+	// single path element: an empty name resolves to the folder itself and
+	// separators or ".." would write outside it. Control characters are refused
+	// because the name ends up in messages (including OS errors that embed the
+	// path) where a newline could forge an "idsec: " machine-readable line.
+	name := profile.ProfileName
+	if name == "" || name == "." || name == ".." || name != filepath.Base(name) ||
+		strings.IndexFunc(name, unicode.IsControl) >= 0 {
+		return profileFileFailure(fmt.Sprintf("Profile path [%s] has invalid profile_name %q: must be a non-empty name without path separators", profilePath, name), profilePath)
+	}
+	if err = profile.Validate(); err != nil {
+		return profileFileFailure(fmt.Sprintf("Profile path [%s] contains an invalid profile: %q", profilePath, err.Error()), profilePath)
+	}
+	if (*a.profilesLoader).ProfileExists(profile.ProfileName) {
+		ok, err := commonargs.GetConfirmation(cmd, "yes",
+			fmt.Sprintf("Profile %q already exists. Do you want to overwrite it?", profile.ProfileName))
 		if err != nil {
-			commonargs.PrintFailure(fmt.Sprintf("Profile path [%s] failed to be read, aborting", profilePath))
-			return
+			return missingInputFailure(fmt.Sprintf("Refusing to overwrite profile %q without confirmation", profile.ProfileName), err)
 		}
-		var profile *models.IdsecProfile
-		if err = json.Unmarshal(data, &profile); err != nil {
-			commonargs.PrintFailure(fmt.Sprintf("Profile path [%s] failed to be parsed, aborting", profilePath))
-			return
-		}
-		err = (*a.profilesLoader).SaveProfile(profile)
-		if err != nil {
-			return
+		if !ok {
+			return nil
 		}
 	}
-	commonargs.PrintFailure(fmt.Sprintf("Profile path [%s] does not exist", profilePath))
+	if err = (*a.profilesLoader).SaveProfile(profile); err != nil {
+		commonargs.PrintFailure(fmt.Sprintf("Failed to save profile: %q", err.Error()))
+		return ErrActionFailed
+	}
+	commonargs.PrintSuccess(fmt.Sprintf("Profile %q added successfully", profile.ProfileName))
+	return nil
 }
 
 // runEditAction handles the profiles edit command execution.
@@ -464,42 +534,44 @@ func (a *IdsecProfilesAction) runAddAction(cmd *cobra.Command, args []string) {
 // waits for the user to complete editing, parses the modified content, and
 // saves the updated profile. It includes cleanup logic to remove temporary files
 // and comprehensive error handling for various failure scenarios.
-func (a *IdsecProfilesAction) runEditAction(cmd *cobra.Command, args []string) {
+func (a *IdsecProfilesAction) runEditAction(cmd *cobra.Command, args []string) error {
+	if !config.IsInteractive() {
+		return interactiveRequiredFailure("profiles edit requires an interactive terminal; use `idsec profiles add --profile-path <file>` or `idsec configure` flags instead",
+			agentmode.WithDetail("command", cmd.CommandPath()), agentmode.WithHint(hintProfilesEditAlternative))
+	}
+
 	profileName, _ := cmd.Flags().GetString("profile-name")
 	if profileName == "" {
 		profileName = profiles.DeduceProfileName("")
 	}
 
-	profile, err := (*a.profilesLoader).LoadProfile(profileName)
-	if err != nil || profile == nil {
-		commonargs.PrintWarning(fmt.Sprintf("No profile was found for the name %s", profileName))
-		return
+	profile, err := a.loadExistingProfile(profileName)
+	if err != nil {
+		return err
 	}
-	edit := editor.NewEditor()
+	edit := newProfileEditor()
 	data, err := json.Marshal(profile)
 	if err != nil {
 		commonargs.PrintFailure(fmt.Sprintf("Failed to marshal profile: %s", err))
-		return
+		return ErrActionFailed
 	}
 	edited, path, err := edit.LaunchTempFile(fmt.Sprintf("%s-temp.json", profile.ProfileName), bytes.NewBufferString(string(data)))
 	defer func(name string) {
-		err := os.Remove(name)
-		if err != nil {
-			commonargs.PrintWarning(fmt.Sprintf("Failed to remove temp file: %s", err))
+		if removeErr := os.Remove(name); removeErr != nil {
+			commonargs.PrintWarning(fmt.Sprintf("Failed to remove temp file: %s", removeErr))
 		}
 	}(path)
 	if err != nil {
 		commonargs.PrintFailure(fmt.Sprintf("Failed to launch editor: %s", err))
-		return
+		return ErrActionFailed
 	}
-	err = json.Unmarshal(edited, &profile)
-	if err != nil {
+	if err = json.Unmarshal(edited, &profile); err != nil {
 		commonargs.PrintFailure(fmt.Sprintf("Failed to unmarshal edited profile: %s", err))
-		return
+		return ErrActionFailed
 	}
-	err = (*a.profilesLoader).SaveProfile(profile)
-	if err != nil {
-		commonargs.PrintWarning(fmt.Sprintf("Failed to save edited profile: %s", err))
-		return
+	if err = (*a.profilesLoader).SaveProfile(profile); err != nil {
+		commonargs.PrintFailure(fmt.Sprintf("Failed to save edited profile: %s", err))
+		return ErrActionFailed
 	}
+	return nil
 }

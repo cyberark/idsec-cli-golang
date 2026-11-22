@@ -7,7 +7,9 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	commonargs "github.com/cyberark/idsec-cli-golang/pkg/common/args"
+	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 )
 
 // IdsecQueryAction implements the IdsecAction interface for running jq
@@ -106,28 +108,43 @@ func (a *IdsecQueryAction) runQueryAction(cmd *cobra.Command, _ []string) error 
 
 	vars, err := queryVarsFromFlags(cmd.Flags())
 	if err != nil {
-		commonargs.PrintFailure(err.Error())
-		return &ExitCodeError{Code: 1}
+		return reportFailure(classifiedOr(err, agentmode.CodeInvalidInput), err.Error(), err)
+	}
+
+	if !nullInput && (path == "" || path == "-") && !config.IsInteractive() && commonargs.IsStdinTTY() {
+		return missingFlagFailure("no JSON on stdin; pipe input, or pass --path <file> or --null-input", "path")
 	}
 
 	var parsed interface{}
 	if !nullInput {
 		data, err := readQueryInput(path)
 		if err != nil {
-			commonargs.PrintFailure(fmt.Sprintf("Failed to read %s: %v", queryInputName(path), err))
-			return &ExitCodeError{Code: 1}
+			return reportFailure(agentmode.CodeInvalidInput, fmt.Sprintf("Failed to read %s: %v", queryInputName(path), err), err,
+				queryInputOptions(agentmode.KindUnreadableInput, path)...)
 		}
 		if err := json.Unmarshal(data, &parsed); err != nil {
-			commonargs.PrintFailure(fmt.Sprintf("Failed to parse %s as JSON: %v", queryInputName(path), err))
-			return &ExitCodeError{Code: 1}
+			return reportFailure(agentmode.CodeInvalidInput, fmt.Sprintf("Failed to parse %s as JSON: %v", queryInputName(path), err), err,
+				queryInputOptions(agentmode.KindInvalidJSON, path)...)
 		}
 	}
 
 	if err := applyGojqQuery(parsed, query, rawOutput, vars...); err != nil {
-		commonargs.PrintFailure(err.Error())
-		return &ExitCodeError{Code: 1}
+		return reportFailure(classifiedOr(err, agentmode.CodeActionFailed), err.Error(), err)
 	}
 	return nil
+}
+
+// queryInputOptions describes a --path input failure of the given kind.
+func queryInputOptions(kind, path string) []agentmode.FailureOption {
+	input := "file"
+	if path == "" || path == "-" {
+		input = "stdin"
+	}
+	return []agentmode.FailureOption{
+		agentmode.WithDetail("kind", kind),
+		agentmode.WithDetail("flag", "path"),
+		agentmode.WithDetail("input", input),
+	}
 }
 
 // readQueryInput returns the JSON bytes for the query, from stdin when path is

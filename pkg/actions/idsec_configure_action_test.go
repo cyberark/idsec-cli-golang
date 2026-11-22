@@ -385,7 +385,10 @@ func TestIdsecConfigureAction_runConfigureAction_ReturnsProfile(t *testing.T) {
 			cmd := &cobra.Command{}
 			tt.setupFlags(cmd)
 
-			profile := action.runConfigureAction(cmd, []string{})
+			profile, err := action.runConfigureAction(cmd, []string{})
+			if err != nil {
+				t.Fatalf("runConfigureAction() error = %v, want nil in human mode", err)
+			}
 
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, profile)

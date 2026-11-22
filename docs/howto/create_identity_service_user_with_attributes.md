@@ -8,7 +8,7 @@ Here is an example workflow for creating an identity service user, and modifying
 
 1. Create a service user with random password
     ```shell linenums="0"
-    idsec identity users create-user --roles "DpaAdmin" --username "myuser" --is-service-user --is-oauth-client
+    idsec identity users create --username "myuser" --is-service-user --is-oauth-client
     ```
 1. Configure user attributes schema
     ```shell linenums="0"

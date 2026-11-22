@@ -29,6 +29,7 @@ nav:
       - Create Identity Policy: howto/create_identity_policy.md
       - Create Identity Service User With Attributes: howto/create_identity_service_user_with_attributes.md
       - Create pCloud Application: howto/create_pcloud_application.md
+      - ARS access requests CLI workflow: howto/ars_access_requests_cli_workflow.md
       - Policy:
           - DB Policy CLI workflow: howto/policy/db_policy_cli_workflow.md
           - VM Policy CLI workflow: howto/policy/vm_policy_cli_workflow.md
@@ -42,7 +43,18 @@ nav:
       - SCA just-in-time elevation: howto/sca_native_cli.md
       - SCA Kubernetes access: howto/sca_k8s_cli.md
   - Examples:
-      - Commands examples: examples/commands_examples.md
+      - Overview: examples/commands_examples.md
+      - Access Space: examples/access.md
+      - ARS: examples/ars.md
+      - CMGR: examples/cmgr.md
+      - Configure, Login & Status: examples/configure.md
+      - Identity: examples/identity.md
+      - pCloud: examples/pcloud.md
+      - Policy: examples/policy.md
+      - Secure Cloud Access (SCA): examples/sca.md
+      - Secrets Hub: examples/sechub.md
+      - Session Monitoring: examples/sm.md
+      - SIA: examples/sia.md
   - CLI commands:
       - Configure: commands/configure.md
       - Login: commands/login.md
@@ -58,6 +70,8 @@ nav:
       - Credentials file: config/credentials_file.md
       - Telemetry: config/telemetry.md
       - Proxy: config/proxy.md
+      - Configuration File: config/config_file.md
+      - File Logging: config/logging.md
 
 theme:
   name: material
@@ -107,7 +121,7 @@ markdown_extensions:
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
 
-copyright: Copyright &copy; 2025 CyberArk
+copyright: Copyright &copy; 2026 CyberArk
 
 plugins:
   - search

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	commonargs "github.com/cyberark/idsec-cli-golang/pkg/common/args"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common/keyring"
 )
@@ -109,10 +110,10 @@ func (a *IdsecCacheAction) DefineAction(cmd *cobra.Command) {
 func (a *IdsecCacheAction) runClearCacheAction(cmd *cobra.Command, args []string) error {
 	kr, err := resolveCacheKeyring()
 	if err != nil {
-		return fmt.Errorf("failed to open credential cache: %w", err)
+		return agentmode.NewFailure(agentmode.CodeKeyringFailure, fmt.Errorf("failed to open credential cache: %w", err))
 	}
 	if err := kr.ClearAllPasswords(); err != nil {
-		return fmt.Errorf("failed to clear credential cache: %w", err)
+		return agentmode.NewFailure(agentmode.CodeKeyringFailure, fmt.Errorf("failed to clear credential cache: %w", err))
 	}
 	commonargs.PrintSuccess("Credential cache cleared")
 	return nil

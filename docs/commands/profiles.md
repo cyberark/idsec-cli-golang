@@ -32,6 +32,10 @@ Use `--arg name=value` / `--argjson name=json` to bind a shell value to a jq var
 idsec profiles list --raw --query '.[] | select(. == $n)' --arg n="$PROFILE_NAME"
 ```
 
+## Exit codes
+
+`show`, `clone`, `edit` and `delete` exit with code 1 when the profile doesn't exist or can't be read. The reason is printed to stderr even with `--silent`, and nothing is printed to stdout. `delete` and `clone` also exit with code 1 when `--profile-name` is empty, and print `idsec: missing_required_input flag=--profile-name` on stderr. `add` does the same when `--profile-path` is empty, printing `idsec: missing_required_input flag=--profile-path`.
+
 ## Usage
 ```shell
 Manage profiles

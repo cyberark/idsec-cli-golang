@@ -17,4 +17,4 @@ Idsec CLI provides a command-line interface for general purpose automation of Id
 
 This project is licensed under Apache License 2.0 - see [License](license.md) for more details.
 
-Copyright (c) 2025 CyberArk Software Ltd. All rights reserved.
+Copyright (c) 2026 CyberArk Software Ltd. All rights reserved.

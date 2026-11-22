@@ -66,6 +66,11 @@ func (a *IdsecGenerateKubeconfigAction) runGenerateKubeconfigAction(cmd *cobra.C
 			parallelResp.SuccessCount(), parallelResp.FailureCount())
 
 		result = parallelResp.ToMap()
+
+		// A CLI version mismatch applies to every CSP; report it once and stop.
+		if msg, found := findVersionMismatch(result); found {
+			genKubeconfigExitErr(msg)
+		}
 	} else {
 		// Single CSP or explicit --all passed to SDK
 		req := &k8smodels.IdsecSCAK8sGenerateKubeconfigRequest{
@@ -78,7 +83,8 @@ func (a *IdsecGenerateKubeconfigAction) runGenerateKubeconfigAction(cmd *cobra.C
 		var err error
 		result, err = svc.GenerateKubeconfig(req)
 		if err != nil {
-			genKubeconfigExitErr(fmt.Sprintf("generate-kubeconfig API call failed: %v", err))
+			msg := fmt.Sprintf("generate-kubeconfig API call failed: %v", err)
+			genKubeconfigExitErr(VersionMismatchHint(msg))
 		}
 		result = normalizeGenerateKubeconfigResult(csp, result)
 	}
@@ -174,7 +180,14 @@ func printVerbose(cmd *cobra.Command, format string, v ...any) {
 	args.PrintColoredStderr(fmt.Sprintf("[generate-kubeconfig] "+format, v...), color.New())
 }
 
+// genKubeconfigExitErr prints the failure, records it in ~/.idsec/logs/idsec-cli.log, and exits 1.
 func genKubeconfigExitErr(msg string) {
-	args.PrintFailure(fmt.Sprintf("idsec generate-kubeconfig: %s", msg))
+	K8sFileLogError("generate-kubeconfig: %s", msg)
+	// The version mismatch message is self-describing; print it without the command prefix, like the other commands.
+	if strings.HasPrefix(msg, versionMismatchHeader) {
+		args.PrintFailure(msg)
+	} else {
+		args.PrintFailure(fmt.Sprintf("idsec generate-kubeconfig: %s", msg))
+	}
 	os.Exit(1)
 }

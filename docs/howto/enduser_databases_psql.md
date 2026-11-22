@@ -8,5 +8,5 @@ Here is an example workflow for connecting to a psql DB via idsec CLI, which ass
 
 1. Connect to postgres using the CLI with an MFA caching token behind the scenes:
     ```shell linenums="0"
-    idsec sia db psql --target-address myaddress.com --target-user myuser
+    idsec sia db psql --target-address myaddress.com --target-username myuser
     ```

@@ -2,6 +2,7 @@ package actions
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"github.com/octago/sflags/gen/gpflag"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 
@@ -724,15 +726,14 @@ func (a *IdsecConfigureAction) runConfigureCommand(cmd *cobra.Command, configure
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	query, _ := cmd.Flags().GetString("query")
 	if !dryRun && query == "" {
-		a.runConfigureAction(cmd, configureArgs)
-		return nil
+		_, err := a.runConfigureAction(cmd, configureArgs)
+		return err
 	}
 
 	rawOutput, _ := cmd.Flags().GetBool("raw")
 	queryVars, err := queryVarsFromFlags(cmd.Flags())
 	if err != nil {
-		args.PrintFailure(err.Error())
-		return &ExitCodeError{Code: 1}
+		return reportFailure(classifiedOr(err, agentmode.CodeInvalidInput), err.Error(), err)
 	}
 
 	// Failures are prefixed under --dry-run so it is obvious nothing was written.
@@ -743,17 +744,14 @@ func (a *IdsecConfigureAction) runConfigureCommand(cmd *cobra.Command, configure
 
 	profile, err := a.buildConfiguredProfile(cmd, configureArgs)
 	if err != nil {
-		args.PrintFailure(fmt.Sprintf("%sfailed to build profile: %v", failPrefix, err))
-		return &ExitCodeError{Code: 1}
+		return configureFailure(configureStageBuild, fmt.Sprintf("%sfailed to build profile: %v", failPrefix, err), err)
 	}
 	if err := profile.Validate(); err != nil {
-		args.PrintFailure(fmt.Sprintf("%sprofile is invalid: %v", failPrefix, err))
-		return &ExitCodeError{Code: 1}
+		return configureFailure(configureStageValidate, fmt.Sprintf("%sprofile is invalid: %v", failPrefix, err), err)
 	}
 	if !dryRun {
 		if err := (*a.profilesLoader).SaveProfile(profile); err != nil {
-			args.PrintFailure(fmt.Sprintf("Failed to save profile: %v", err))
-			return &ExitCodeError{Code: 1}
+			return configureFailure(configureStageSave, fmt.Sprintf("Failed to save profile: %v", err), err)
 		}
 		args.PrintSuccessBright(fmt.Sprintf("Profile has been saved to %s", profiles.GetProfilesFolder()))
 	}
@@ -765,8 +763,7 @@ func (a *IdsecConfigureAction) runConfigureCommand(cmd *cobra.Command, configure
 	} else {
 		data, err := json.MarshalIndent(profile, "", "  ")
 		if err != nil {
-			args.PrintFailure(fmt.Sprintf("%sfailed to serialize profile: %v", failPrefix, err))
-			return &ExitCodeError{Code: 1}
+			return reportFailure(agentmode.CodeActionFailed, fmt.Sprintf("%sfailed to serialize profile: %v", failPrefix, err), err)
 		}
 		args.PrintNormal(string(data))
 	}
@@ -777,27 +774,61 @@ func (a *IdsecConfigureAction) runConfigureCommand(cmd *cobra.Command, configure
 	return nil
 }
 
-func (a *IdsecConfigureAction) runConfigureAction(cmd *cobra.Command, configureArgs []string) *models.IdsecProfile {
+// runConfigureAction saves and prints the configured profile. In human mode a
+// build or validation error panics and a save or serialize error returns
+// (nil, nil), so the command exits 0; in agent mode each is reported and
+// returned as an error.
+func (a *IdsecConfigureAction) runConfigureAction(cmd *cobra.Command, configureArgs []string) (*models.IdsecProfile, error) {
 	profile, err := a.buildConfiguredProfile(cmd, configureArgs)
 	if err != nil {
 		a.logger.Error("Error configuring idsec profile %v", err)
+		if agentmode.IsEnabled() {
+			return nil, configureFailure(configureStageBuild, fmt.Sprintf("failed to build profile: %v", err), err)
+		}
 		panic(err)
 	}
 	if err := profile.Validate(); err != nil {
 		a.logger.Error("Profile validation failed: %v", err)
+		if agentmode.IsEnabled() {
+			return nil, configureFailure(configureStageValidate, fmt.Sprintf("profile is invalid: %v", err), err)
+		}
 		panic(err)
 	}
 	err = (*a.profilesLoader).SaveProfile(profile)
 	if err != nil {
 		a.logger.Error("Error saving idsec profile %v", err)
-		return nil
+		if agentmode.IsEnabled() {
+			return nil, configureFailure(configureStageSave, fmt.Sprintf("Failed to save profile: %v", err), err)
+		}
+		return nil, nil
 	}
 	data, err := json.MarshalIndent(profile, "", "  ")
 	if err != nil {
 		a.logger.Error("Error serializing idsec profile %v", err)
-		return nil
+		if agentmode.IsEnabled() {
+			return nil, reportFailure(agentmode.CodeActionFailed, fmt.Sprintf("failed to serialize profile: %v", err), err)
+		}
+		return nil, nil
 	}
 	args.PrintSuccess(string(data))
 	args.PrintSuccessBright(fmt.Sprintf("Profile has been saved to %s", profiles.GetProfilesFolder()))
-	return profile
+	return profile, nil
+}
+
+// Configure failure stages, reported in details.stage.
+const (
+	configureStageBuild    = "build"
+	configureStageValidate = "validate"
+	configureStageSave     = "save"
+)
+
+// configureFailure reports a configure failure at stage: a build error from a
+// missing required flag is MISSING_REQUIRED_INPUT, anything else CONFIG_ERROR.
+func configureFailure(stage, msg string, err error) error {
+	var missing *args.MissingRequiredInputError
+	if stage == configureStageBuild && errors.As(err, &missing) {
+		return reportFailure(agentmode.CodeMissingRequiredInput, msg, err, missingFlagOptions(missing.Flag)...)
+	}
+	return reportFailure(agentmode.CodeConfigError, msg, err,
+		agentmode.WithDetail("source", "configure"), agentmode.WithDetail("stage", stage))
 }

@@ -4,16 +4,44 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
+	editor "github.com/confluentinc/go-editor"
 	"github.com/spf13/cobra"
 	"github.com/cyberark/idsec-cli-golang/pkg/actions/testutils"
+	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 )
+
+// setInteractiveForTest disables interactive mode (non-interactive / agent
+// behaviour) for the rest of the test and registers a t.Cleanup that
+// re-enables it. It returns nothing. Do NOT use in parallel tests.
+func setInteractiveForTest(t *testing.T) {
+	t.Helper()
+	config.DisableInteractive()
+	t.Cleanup(config.EnableInteractive)
+}
+
+// enableInteractiveForTest turns interactive mode on for the rest of the test,
+// regardless of what earlier tests left behind, and restores the previous
+// state via t.Cleanup. Do NOT use in parallel tests.
+func enableInteractiveForTest(t *testing.T) {
+	t.Helper()
+	prev := config.IsInteractive()
+	config.EnableInteractive()
+	t.Cleanup(func() {
+		if !prev {
+			config.DisableInteractive()
+		}
+	})
+}
 
 func TestNewIdsecProfilesAction(t *testing.T) {
 	tests := []struct {
@@ -219,6 +247,37 @@ func TestIdsecProfilesAction_DefineAction(t *testing.T) {
 				for _, flagName := range expectedFlags {
 					if cloneCmd.Flags().Lookup(flagName) == nil {
 						t.Errorf("Expected flag '%s' not found in clone command", flagName)
+					}
+				}
+			},
+		},
+		{
+			name: "success_configures_add_command_flags",
+			setupLoader: func() profiles.ProfileLoader {
+				return testutils.NewMockProfileLoader()
+			},
+			validateFunc: func(t *testing.T, cmd *cobra.Command, profilesCmd *cobra.Command) {
+				var addCmd *cobra.Command
+				for _, subcmd := range profilesCmd.Commands() {
+					if subcmd.Use == "add" {
+						addCmd = subcmd
+						break
+					}
+				}
+
+				if addCmd == nil {
+					t.Error("Expected add subcommand to be found")
+					return
+				}
+
+				if addCmd.RunE == nil {
+					t.Error("Expected add command to use RunE so failures propagate an exit code")
+				}
+
+				expectedFlags := []string{"profile-path", "yes"}
+				for _, flagName := range expectedFlags {
+					if addCmd.Flags().Lookup(flagName) == nil {
+						t.Errorf("Expected flag '%s' not found in add command", flagName)
 					}
 				}
 			},
@@ -579,6 +638,7 @@ func TestIdsecProfilesAction_runShowAction(t *testing.T) {
 		setupLoader  func() profiles.ProfileLoader
 		setupFlags   func(cmd *cobra.Command)
 		validateFunc func(t *testing.T, loader profiles.ProfileLoader)
+		wantErr      bool
 	}{
 		{
 			name: "success_shows_specified_profile",
@@ -635,6 +695,7 @@ func TestIdsecProfilesAction_runShowAction(t *testing.T) {
 			validateFunc: func(t *testing.T, loader profiles.ProfileLoader) {
 				// Function should handle profile not found gracefully
 			},
+			wantErr: true,
 		},
 	}
 
@@ -650,8 +711,13 @@ func TestIdsecProfilesAction_runShowAction(t *testing.T) {
 				tt.setupFlags(cmd)
 			}
 
-			// Execute the function - should not panic
-			action.runShowAction(cmd, []string{})
+			err := action.runShowAction(cmd, []string{})
+			if tt.wantErr && !errors.Is(err, ErrActionFailed) {
+				t.Errorf("expected ErrActionFailed, got %v", err)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
 
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, loader)
@@ -670,6 +736,7 @@ func TestIdsecProfilesAction_runDeleteAction(t *testing.T) {
 		setupLoader  func() profiles.ProfileLoader
 		setupFlags   func(cmd *cobra.Command)
 		validateFunc func(t *testing.T, loader profiles.ProfileLoader)
+		wantErr      bool
 	}{
 		{
 			name: "success_deletes_profile_with_yes_flag",
@@ -714,6 +781,7 @@ func TestIdsecProfilesAction_runDeleteAction(t *testing.T) {
 			validateFunc: func(t *testing.T, loader profiles.ProfileLoader) {
 				// Function should handle profile not found gracefully
 			},
+			wantErr: true,
 		},
 		{
 			name: "error_handles_delete_failure",
@@ -737,6 +805,7 @@ func TestIdsecProfilesAction_runDeleteAction(t *testing.T) {
 			validateFunc: func(t *testing.T, loader profiles.ProfileLoader) {
 				// Function should handle delete failure gracefully
 			},
+			wantErr: true,
 		},
 	}
 
@@ -752,8 +821,13 @@ func TestIdsecProfilesAction_runDeleteAction(t *testing.T) {
 				tt.setupFlags(cmd)
 			}
 
-			// Execute the function - should not panic
-			action.runDeleteAction(cmd, []string{})
+			err := action.runDeleteAction(cmd, []string{})
+			if tt.wantErr && !errors.Is(err, ErrActionFailed) {
+				t.Errorf("expected ErrActionFailed, got %v", err)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
 
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, loader)
@@ -818,7 +892,7 @@ func TestIdsecProfilesAction_runClearAction(t *testing.T) {
 			}
 
 			// Execute the function - should not panic
-			action.runClearAction(cmd, []string{})
+			_ = action.runClearAction(cmd, []string{})
 
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, loader)
@@ -833,6 +907,7 @@ func TestIdsecProfilesAction_runCloneAction(t *testing.T) {
 		setupLoader  func() profiles.ProfileLoader
 		setupFlags   func(cmd *cobra.Command)
 		validateFunc func(t *testing.T, loader profiles.ProfileLoader)
+		wantErr      bool
 	}{
 		{
 			name: "success_clones_profile_with_default_name",
@@ -908,6 +983,7 @@ func TestIdsecProfilesAction_runCloneAction(t *testing.T) {
 			validateFunc: func(t *testing.T, loader profiles.ProfileLoader) {
 				// Function should handle source profile not found gracefully
 			},
+			wantErr: true,
 		},
 		{
 			name: "error_handles_save_failure",
@@ -934,6 +1010,7 @@ func TestIdsecProfilesAction_runCloneAction(t *testing.T) {
 			validateFunc: func(t *testing.T, loader profiles.ProfileLoader) {
 				// Function should handle save failure gracefully
 			},
+			wantErr: true,
 		},
 	}
 
@@ -949,8 +1026,13 @@ func TestIdsecProfilesAction_runCloneAction(t *testing.T) {
 				tt.setupFlags(cmd)
 			}
 
-			// Execute the function - should not panic
-			action.runCloneAction(cmd, []string{})
+			err := action.runCloneAction(cmd, []string{})
+			if tt.wantErr && !errors.Is(err, ErrActionFailed) {
+				t.Errorf("expected ErrActionFailed, got %v", err)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
 
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, loader)
@@ -967,37 +1049,263 @@ func TestIdsecProfilesAction_runCloneAction(t *testing.T) {
 // this name" - was not checked, causing show to print "null" and clone to panic on a nil
 // dereference.
 func TestIdsecProfilesAction_NilProfileHandling(t *testing.T) {
-	newAction := func() *IdsecProfilesAction {
-		mock := testutils.NewMockProfileLoader()
-		mock.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
-			return nil, nil
+	// Pinned on so edit gets past its interactive_required guard to the load.
+	enableInteractiveForTest(t)
+
+	for _, tc := range profileLookupCommands() {
+		t.Run(tc.name, func(t *testing.T) {
+			mock, written := newWriteTrackingLoader(func(string) (*models.IdsecProfile, error) { return nil, nil })
+			loader := profiles.ProfileLoader(mock)
+			action := NewIdsecProfilesAction(&loader)
+
+			var err error
+			stdout, stderr := testutils.CaptureStreams(func() {
+				err = tc.run(action, newProfileLookupCmd("missing-profile")) // clone previously panicked on nil dereference
+			})
+			if !errors.Is(err, ErrActionFailed) {
+				t.Fatalf("expected ErrActionFailed for a missing profile, got %v", err)
+			}
+			if !strings.Contains(stderr, `No profile was found for the name "missing-profile"`) {
+				t.Errorf("expected missing-profile failure on stderr, got %q", stderr)
+			}
+			if stdout != "" {
+				t.Errorf("expected empty stdout for a missing profile, got %q", stdout)
+			}
+			if *written {
+				t.Error("SaveProfile/DeleteProfile must not be called for a missing profile")
+			}
+		})
+	}
+}
+
+// profileLookupCommand runs one of the profiles subcommands that loads an
+// existing profile by --profile-name.
+type profileLookupCommand struct {
+	name string
+	run  func(a *IdsecProfilesAction, cmd *cobra.Command) error
+}
+
+// profileLookupCommands returns the named commands, or all of show, delete,
+// clone and edit when no names are given.
+func profileLookupCommands(names ...string) []profileLookupCommand {
+	all := []profileLookupCommand{
+		{"show", func(a *IdsecProfilesAction, cmd *cobra.Command) error { return a.runShowAction(cmd, nil) }},
+		{"delete", func(a *IdsecProfilesAction, cmd *cobra.Command) error { return a.runDeleteAction(cmd, nil) }},
+		{"clone", func(a *IdsecProfilesAction, cmd *cobra.Command) error { return a.runCloneAction(cmd, nil) }},
+		{"edit", func(a *IdsecProfilesAction, cmd *cobra.Command) error { return a.runEditAction(cmd, nil) }},
+	}
+	if len(names) == 0 {
+		return all
+	}
+	var selected []profileLookupCommand
+	for _, c := range all {
+		if slices.Contains(names, c.name) {
+			selected = append(selected, c)
 		}
-		loader := profiles.ProfileLoader(mock)
-		return NewIdsecProfilesAction(&loader)
+	}
+	return selected
+}
+
+// newProfileLookupCmd builds a command carrying the union of the show, delete,
+// clone and edit flags, with --yes set so only the profile lookup can fail.
+func newProfileLookupCmd(profileName string) *cobra.Command {
+	cmd := &cobra.Command{}
+	_ = cmd.Flags().String("profile-name", "", "")
+	_ = cmd.Flags().String("new-profile-name", "", "")
+	_ = cmd.Flags().Bool("yes", false, "")
+	_ = cmd.Flags().Set("profile-name", profileName)
+	_ = cmd.Flags().Set("yes", "true")
+	return cmd
+}
+
+// newWriteTrackingLoader returns a mock loader using load for LoadProfile and
+// a flag that is set if SaveProfile or DeleteProfile is called.
+func newWriteTrackingLoader(load func(string) (*models.IdsecProfile, error)) (*testutils.MockProfileLoader, *bool) {
+	written := false
+	mock := testutils.NewMockProfileLoader()
+	mock.LoadProfileFunc = load
+	mock.SaveProfileFunc = func(*models.IdsecProfile) error { written = true; return nil }
+	mock.DeleteProfileFunc = func(string) error { written = true; return nil }
+	return mock, &written
+}
+
+func TestIdsecProfilesAction_LoadErrorIsNotReportedAsMissing(t *testing.T) {
+	enableInteractiveForTest(t)
+
+	for _, tc := range profileLookupCommands() {
+		t.Run(tc.name, func(t *testing.T) {
+			mock, written := newWriteTrackingLoader(func(name string) (*models.IdsecProfile, error) {
+				return nil, fmt.Errorf("invalid profile '%s': no auth profiles", name)
+			})
+			loader := profiles.ProfileLoader(mock)
+			action := NewIdsecProfilesAction(&loader)
+
+			var err error
+			stdout, stderr := testutils.CaptureStreams(func() {
+				err = tc.run(action, newProfileLookupCmd("broken"))
+			})
+			if !errors.Is(err, ErrActionFailed) {
+				t.Fatalf("expected ErrActionFailed for an unreadable profile, got %v", err)
+			}
+			if !strings.Contains(stderr, `Failed to load profile "broken"`) {
+				t.Errorf("expected load failure on stderr, got %q", stderr)
+			}
+			if strings.Contains(stderr, "No profile was found") {
+				t.Errorf("an unreadable profile must not be reported as missing, got %q", stderr)
+			}
+			if stdout != "" {
+				t.Errorf("expected empty stdout for an unreadable profile, got %q", stdout)
+			}
+			if *written {
+				t.Error("SaveProfile/DeleteProfile must not be called for an unreadable profile")
+			}
+		})
+	}
+}
+
+func TestIdsecProfilesAction_MissingProfileReportedWhenSilent(t *testing.T) {
+	// --silent without --allow-output: interactive off and output disallowed,
+	// which hides warnings. edit is left out because it refuses first.
+	setInteractiveForTest(t)
+	prevAllow := config.IsAllowingOutput()
+	config.DisallowOutput()
+	t.Cleanup(func() {
+		if prevAllow {
+			config.AllowOutput()
+		}
+	})
+
+	for _, tc := range profileLookupCommands("show", "delete", "clone") {
+		t.Run(tc.name, func(t *testing.T) {
+			mock, _ := newWriteTrackingLoader(func(string) (*models.IdsecProfile, error) { return nil, nil })
+			loader := profiles.ProfileLoader(mock)
+			action := NewIdsecProfilesAction(&loader)
+
+			var err error
+			_, stderr := testutils.CaptureStreams(func() {
+				err = tc.run(action, newProfileLookupCmd("missing-profile"))
+			})
+			if !errors.Is(err, ErrActionFailed) {
+				t.Fatalf("expected ErrActionFailed for a missing profile, got %v", err)
+			}
+			if !strings.Contains(stderr, `No profile was found for the name "missing-profile"`) {
+				t.Errorf("expected missing-profile failure on stderr even when silent, got %q", stderr)
+			}
+		})
+	}
+}
+
+func TestIdsecProfilesAction_EmptyProfileNameRequiresFlag(t *testing.T) {
+	setInteractiveForTest(t)
+
+	for _, tc := range profileLookupCommands("delete", "clone") {
+		t.Run(tc.name, func(t *testing.T) {
+			loaded := false
+			mock, written := newWriteTrackingLoader(func(string) (*models.IdsecProfile, error) {
+				loaded = true
+				return testutils.CreateTestProfile("default"), nil
+			})
+			loader := profiles.ProfileLoader(mock)
+			action := NewIdsecProfilesAction(&loader)
+
+			var err error
+			stdout, stderr := testutils.CaptureStreams(func() {
+				err = tc.run(action, newProfileLookupCmd(""))
+			})
+			if !errors.Is(err, ErrActionFailed) {
+				t.Fatalf("expected ErrActionFailed for an empty --profile-name, got %v", err)
+			}
+			if loaded || *written {
+				t.Fatal("the loader must not be used when --profile-name is empty")
+			}
+			if !strings.Contains(stderr, "--profile-name is required\n") {
+				t.Errorf("expected required-flag failure on stderr, got %q", stderr)
+			}
+			if !strings.Contains(stderr, "idsec: missing_required_input flag=--profile-name\n") {
+				t.Errorf("expected missing_required_input token on stderr, got %q", stderr)
+			}
+			if stdout != "" {
+				t.Errorf("expected empty stdout, got %q", stdout)
+			}
+		})
+	}
+}
+
+func TestIdsecProfilesAction_runShowAction_ExistingProfilePrintsJSON(t *testing.T) {
+	enableInteractiveForTest(t)
+	config.DisableColor()
+	t.Cleanup(config.EnableColor)
+
+	mock, _ := newWriteTrackingLoader(func(name string) (*models.IdsecProfile, error) {
+		return testutils.CreateTestProfile(name), nil
+	})
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	var err error
+	stdout, stderr := testutils.CaptureStreams(func() {
+		err = action.runShowAction(newProfileLookupCmd("test-profile"), []string{})
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var shown models.IdsecProfile
+	if jsonErr := json.Unmarshal([]byte(stdout), &shown); jsonErr != nil {
+		t.Fatalf("expected profile JSON on stdout, got %q: %v", stdout, jsonErr)
+	}
+	if shown.ProfileName != "test-profile" {
+		t.Errorf("expected profile_name 'test-profile', got %q", shown.ProfileName)
+	}
+	if stderr != "" {
+		t.Errorf("expected nothing on stderr, got %q", stderr)
+	}
+}
+
+func TestRunEditAction_SaveFailureIsReportedAsFailure(t *testing.T) {
+	prevInteractive, prevAllow := config.IsInteractive(), config.IsAllowingOutput()
+	config.EnableInteractive()
+	t.Cleanup(func() {
+		if prevInteractive {
+			config.EnableInteractive()
+		} else {
+			config.DisableInteractive()
+		}
+		if prevAllow {
+			config.AllowOutput()
+		} else {
+			config.DisallowOutput()
+		}
+	})
+
+	// The stub editor turns off interactive mode and output, as --silent
+	// does, so a warning about the save would be hidden; only a failure is
+	// printed.
+	origEditor := newProfileEditor
+	t.Cleanup(func() { newProfileEditor = origEditor })
+	newProfileEditor = func() *editor.BasicEditor {
+		return &editor.BasicEditor{LaunchFn: func(string, string) error {
+			config.DisableInteractive()
+			config.DisallowOutput()
+			return nil
+		}}
 	}
 
-	t.Run("show", func(t *testing.T) {
-		cmd := &cobra.Command{}
-		_ = cmd.Flags().String("profile-name", "", "Profile name")
-		_ = cmd.Flags().Set("profile-name", "missing-profile")
-		newAction().runShowAction(cmd, []string{})
-	})
+	mock := testutils.NewMockProfileLoader()
+	mock.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) { return testutils.CreateTestProfile(name), nil }
+	mock.SaveProfileFunc = func(*models.IdsecProfile) error { return errors.New("disk full") }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
 
-	t.Run("clone", func(t *testing.T) {
-		cmd := &cobra.Command{}
-		_ = cmd.Flags().String("profile-name", "", "Profile name")
-		_ = cmd.Flags().String("new-profile-name", "", "New profile name")
-		_ = cmd.Flags().Bool("yes", false, "Skip confirmation")
-		_ = cmd.Flags().Set("profile-name", "missing-profile")
-		newAction().runCloneAction(cmd, []string{}) // previously panicked on nil dereference
+	var err error
+	_, stderr := testutils.CaptureStreams(func() {
+		err = action.runEditAction(newProfileLookupCmd("my-profile"), []string{})
 	})
-
-	t.Run("edit", func(t *testing.T) {
-		cmd := &cobra.Command{}
-		_ = cmd.Flags().String("profile-name", "", "Profile name")
-		_ = cmd.Flags().Set("profile-name", "missing-profile")
-		newAction().runEditAction(cmd, []string{})
-	})
+	if !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("expected ErrActionFailed when SaveProfile fails, got %v", err)
+	}
+	if !strings.Contains(stderr, "Failed to save edited profile: disk full") {
+		t.Errorf("expected save failure on stderr even with warnings suppressed, got %q", stderr)
+	}
 }
 
 func TestIdsecProfilesAction_StructFields(t *testing.T) {
@@ -1109,5 +1417,642 @@ func TestIdsecProfilesAction_IdsecActionInterface(t *testing.T) {
 				tt.validateFunc(t)
 			}
 		})
+	}
+}
+
+func TestRunDeleteAction_NonInteractive_NoYes(t *testing.T) {
+	setInteractiveForTest(t)
+
+	profile := testutils.CreateTestProfile("my-profile")
+	deleted := false
+	mock := testutils.NewMockProfileLoader()
+	mock.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) { return profile, nil }
+	mock.DeleteProfileFunc = func(name string) error { deleted = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	cmd := &cobra.Command{}
+	_ = cmd.Flags().String("profile-name", "", "")
+	_ = cmd.Flags().Bool("yes", false, "")
+	_ = cmd.Flags().Set("profile-name", "my-profile")
+
+	var err error
+	stdout, stderr := testutils.CaptureStreams(func() {
+		err = action.runDeleteAction(cmd, []string{})
+	})
+	assertMissingYesRefusal(t, err, stdout, stderr)
+	if deleted {
+		t.Fatal("DeleteProfile must not be called without --yes")
+	}
+}
+
+func TestRunDeleteAction_NonInteractive_WithYes(t *testing.T) {
+	setInteractiveForTest(t)
+
+	profile := testutils.CreateTestProfile("my-profile")
+	deleted := false
+	mock := testutils.NewMockProfileLoader()
+	mock.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) { return profile, nil }
+	mock.DeleteProfileFunc = func(name string) error { deleted = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	cmd := &cobra.Command{}
+	_ = cmd.Flags().String("profile-name", "", "")
+	_ = cmd.Flags().Bool("yes", false, "")
+	_ = cmd.Flags().Set("profile-name", "my-profile")
+	_ = cmd.Flags().Set("yes", "true")
+
+	err := action.runDeleteAction(cmd, []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !deleted {
+		t.Fatal("DeleteProfile should have been called with --yes")
+	}
+}
+
+func TestRunClearAction_NonInteractive_NoYes(t *testing.T) {
+	setInteractiveForTest(t)
+
+	cleared := false
+	mock := testutils.NewMockProfileLoader()
+	mock.ClearAllProfilesFunc = func() error { cleared = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	cmd := &cobra.Command{}
+	_ = cmd.Flags().Bool("yes", false, "")
+
+	var err error
+	stdout, stderr := testutils.CaptureStreams(func() {
+		err = action.runClearAction(cmd, []string{})
+	})
+	assertMissingYesRefusal(t, err, stdout, stderr)
+	if cleared {
+		t.Fatal("ClearAllProfiles must not be called without --yes")
+	}
+}
+
+func TestRunClearAction_NonInteractive_WithYes(t *testing.T) {
+	setInteractiveForTest(t)
+
+	cleared := false
+	mock := testutils.NewMockProfileLoader()
+	mock.ClearAllProfilesFunc = func() error { cleared = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	cmd := &cobra.Command{}
+	_ = cmd.Flags().Bool("yes", false, "")
+	_ = cmd.Flags().Set("yes", "true")
+
+	err := action.runClearAction(cmd, []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cleared {
+		t.Fatal("ClearAllProfiles should have been called")
+	}
+}
+
+func TestRunCloneAction_NonInteractive_ConflictNoYes(t *testing.T) {
+	setInteractiveForTest(t)
+
+	profile := testutils.CreateTestProfile("src")
+	saved := false
+	mock := testutils.NewMockProfileLoader()
+	mock.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) { return profile, nil }
+	mock.ProfileExistsFunc = func(name string) bool { return true }
+	mock.SaveProfileFunc = func(p *models.IdsecProfile) error { saved = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	cmd := &cobra.Command{}
+	_ = cmd.Flags().String("profile-name", "", "")
+	_ = cmd.Flags().String("new-profile-name", "", "")
+	_ = cmd.Flags().Bool("yes", false, "")
+	_ = cmd.Flags().Set("profile-name", "src")
+	_ = cmd.Flags().Set("new-profile-name", "dst")
+
+	var err error
+	stdout, stderr := testutils.CaptureStreams(func() {
+		err = action.runCloneAction(cmd, []string{})
+	})
+	assertMissingYesRefusal(t, err, stdout, stderr)
+	if saved {
+		t.Fatal("SaveProfile must not be called without --yes on conflict")
+	}
+}
+
+func TestRunCloneAction_NonInteractive_NoConflict(t *testing.T) {
+	setInteractiveForTest(t)
+
+	profile := testutils.CreateTestProfile("src")
+	saved := false
+	mock := testutils.NewMockProfileLoader()
+	mock.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) { return profile, nil }
+	mock.ProfileExistsFunc = func(name string) bool { return false }
+	mock.SaveProfileFunc = func(p *models.IdsecProfile) error { saved = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	cmd := &cobra.Command{}
+	_ = cmd.Flags().String("profile-name", "", "")
+	_ = cmd.Flags().String("new-profile-name", "", "")
+	_ = cmd.Flags().Bool("yes", false, "")
+	_ = cmd.Flags().Set("profile-name", "src")
+	_ = cmd.Flags().Set("new-profile-name", "dst")
+
+	err := action.runCloneAction(cmd, []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !saved {
+		t.Fatal("SaveProfile should have been called")
+	}
+}
+
+func TestRunEditAction_NonInteractive(t *testing.T) {
+	setInteractiveForTest(t)
+
+	loaded := false
+	mock := testutils.NewMockProfileLoader()
+	mock.LoadProfileFunc = func(name string) (*models.IdsecProfile, error) {
+		loaded = true
+		return nil, nil
+	}
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	cmd := &cobra.Command{}
+	_ = cmd.Flags().String("profile-name", "", "")
+
+	var err error
+	_, stderr := testutils.CaptureStreams(func() {
+		err = action.runEditAction(cmd, []string{})
+	})
+	if err == nil {
+		t.Fatal("expected ErrActionFailed in non-interactive mode")
+	}
+	if loaded {
+		t.Fatal("LoadProfile must not be called before the non-interactive guard")
+	}
+	if !strings.Contains(stderr, "idsec: interactive_required\n") {
+		t.Errorf("expected interactive_required token on stderr, got %q", stderr)
+	}
+	if strings.Contains(stderr, "missing_required_input") {
+		t.Errorf("edit must not emit missing_required_input (no flag satisfies it), got %q", stderr)
+	}
+}
+
+// newAddCmd builds a command with the same flags as `profiles add`.
+func newAddCmd(profilePath string, yes bool) *cobra.Command {
+	cmd := &cobra.Command{}
+	_ = cmd.Flags().String("profile-path", "", "")
+	_ = cmd.Flags().Bool("yes", false, "")
+	_ = cmd.Flags().Set("profile-path", profilePath)
+	if yes {
+		_ = cmd.Flags().Set("yes", "true")
+	}
+	return cmd
+}
+
+// writeAddProfileFile writes data to a temp file and returns its path.
+func writeAddProfileFile(t *testing.T, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "profile.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("failed to write profile file: %v", err)
+	}
+	return path
+}
+
+func marshalTestProfile(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := json.Marshal(testutils.CreateTestProfile(name))
+	if err != nil {
+		t.Fatalf("failed to marshal test profile: %v", err)
+	}
+	return data
+}
+
+func TestRunAddAction_NonInteractive_NewProfile(t *testing.T) {
+	setInteractiveForTest(t)
+
+	var savedName string
+	saved := false
+	mock := testutils.NewMockProfileLoader()
+	mock.ProfileExistsFunc = func(name string) bool { return false }
+	mock.SaveProfileFunc = func(p *models.IdsecProfile) error { saved = true; savedName = p.ProfileName; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	path := writeAddProfileFile(t, marshalTestProfile(t, "new-profile"))
+	err := action.runAddAction(newAddCmd(path, false), []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !saved {
+		t.Fatal("SaveProfile should have been called for a new profile without --yes")
+	}
+	if savedName != "new-profile" {
+		t.Errorf("expected saved profile name 'new-profile', got %q", savedName)
+	}
+}
+
+func TestRunAddAction_NonInteractive_ExistsNoYes(t *testing.T) {
+	setInteractiveForTest(t)
+
+	saved := false
+	mock := testutils.NewMockProfileLoader()
+	mock.ProfileExistsFunc = func(name string) bool { return true }
+	mock.SaveProfileFunc = func(p *models.IdsecProfile) error { saved = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	path := writeAddProfileFile(t, marshalTestProfile(t, "existing"))
+	var err error
+	stdout, stderr := testutils.CaptureStreams(func() {
+		err = action.runAddAction(newAddCmd(path, false), []string{})
+	})
+	if !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("expected ErrActionFailed without --yes on existing profile, got %v", err)
+	}
+	if saved {
+		t.Fatal("SaveProfile must not be called without --yes when the profile exists")
+	}
+	if !strings.Contains(stderr, "idsec: missing_required_input flag=--yes\n") {
+		t.Errorf("expected missing_required_input token on stderr, got %q", stderr)
+	}
+	if stdout != "" {
+		t.Errorf("expected nothing on stdout during refusal, got %q", stdout)
+	}
+}
+
+func TestRunAddAction_NonInteractive_ExistsWithYes(t *testing.T) {
+	setInteractiveForTest(t)
+
+	saved := false
+	mock := testutils.NewMockProfileLoader()
+	mock.ProfileExistsFunc = func(name string) bool { return true }
+	mock.SaveProfileFunc = func(p *models.IdsecProfile) error { saved = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	path := writeAddProfileFile(t, marshalTestProfile(t, "existing"))
+	err := action.runAddAction(newAddCmd(path, true), []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !saved {
+		t.Fatal("SaveProfile should have been called with --yes")
+	}
+}
+
+func TestRunAddAction_EmptyProfilePath(t *testing.T) {
+	setInteractiveForTest(t)
+
+	saved := false
+	mock := testutils.NewMockProfileLoader()
+	mock.SaveProfileFunc = func(p *models.IdsecProfile) error { saved = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	var err error
+	stdout, stderr := testutils.CaptureStreams(func() {
+		err = action.runAddAction(newAddCmd("", false), []string{})
+	})
+	if !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("expected ErrActionFailed for empty --profile-path, got %v", err)
+	}
+	if saved {
+		t.Fatal("SaveProfile must not be called for empty --profile-path")
+	}
+	if !strings.Contains(stderr, "--profile-path is required\n") {
+		t.Errorf("expected required-flag failure on stderr, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "idsec: missing_required_input flag=--profile-path\n") {
+		t.Errorf("expected missing_required_input token on stderr, got %q", stderr)
+	}
+	if stdout != "" {
+		t.Errorf("expected empty stdout, got %q", stdout)
+	}
+}
+
+func TestRunAddAction_NullJSON(t *testing.T) {
+	setInteractiveForTest(t)
+
+	saved := false
+	existsCalled := false
+	mock := testutils.NewMockProfileLoader()
+	mock.ProfileExistsFunc = func(name string) bool { existsCalled = true; return false }
+	mock.SaveProfileFunc = func(p *models.IdsecProfile) error { saved = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	path := writeAddProfileFile(t, []byte("null\n"))
+	err := action.runAddAction(newAddCmd(path, false), []string{})
+	if !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("expected ErrActionFailed for null JSON, got %v", err)
+	}
+	if existsCalled || saved {
+		t.Fatal("loader must not be touched when the profile JSON is null")
+	}
+}
+
+func TestRunAddAction_NonexistentPath(t *testing.T) {
+	setInteractiveForTest(t)
+
+	saved := false
+	mock := testutils.NewMockProfileLoader()
+	mock.SaveProfileFunc = func(p *models.IdsecProfile) error { saved = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	path := filepath.Join(t.TempDir(), "missing.json")
+	var err error
+	_, stderr := testutils.CaptureStreams(func() {
+		err = action.runAddAction(newAddCmd(path, false), []string{})
+	})
+	if !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("expected ErrActionFailed for nonexistent path, got %v", err)
+	}
+	if saved {
+		t.Fatal("SaveProfile must not be called for a nonexistent path")
+	}
+	if !strings.Contains(stderr, "does not exist, aborting") {
+		t.Errorf("expected 'does not exist, aborting' failure on stderr, got %q", stderr)
+	}
+}
+
+func TestRunAddAction_MalformedJSON(t *testing.T) {
+	setInteractiveForTest(t)
+
+	saved := false
+	existsCalled := false
+	mock := testutils.NewMockProfileLoader()
+	mock.ProfileExistsFunc = func(name string) bool { existsCalled = true; return false }
+	mock.SaveProfileFunc = func(p *models.IdsecProfile) error { saved = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	path := writeAddProfileFile(t, []byte(`{"profile_name": "broken",`))
+	var err error
+	_, stderr := testutils.CaptureStreams(func() {
+		err = action.runAddAction(newAddCmd(path, false), []string{})
+	})
+	if !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("expected ErrActionFailed for malformed JSON, got %v", err)
+	}
+	if existsCalled || saved {
+		t.Fatal("loader must not be touched when the profile JSON is malformed")
+	}
+	if !strings.Contains(stderr, "failed to be parsed") {
+		t.Errorf("expected parse failure on stderr, got %q", stderr)
+	}
+}
+
+func TestRunAddAction_SaveProfileError(t *testing.T) {
+	setInteractiveForTest(t)
+
+	mock := testutils.NewMockProfileLoader()
+	mock.ProfileExistsFunc = func(name string) bool { return false }
+	mock.SaveProfileFunc = func(p *models.IdsecProfile) error { return errors.New("disk full") }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	path := writeAddProfileFile(t, marshalTestProfile(t, "new-profile"))
+	var err error
+	_, stderr := testutils.CaptureStreams(func() {
+		err = action.runAddAction(newAddCmd(path, false), []string{})
+	})
+	if !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("expected ErrActionFailed when SaveProfile fails, got %v", err)
+	}
+	if !strings.Contains(stderr, `Failed to save profile: "disk full"`) {
+		t.Errorf("expected save failure on stderr, got %q", stderr)
+	}
+}
+
+// A successful add used to fall through and also print
+// "Profile path [...] does not exist". Interactive mode is pinned on so the
+// success message is printed too.
+func TestRunAddAction_SuccessDoesNotReportMissingPath(t *testing.T) {
+	enableInteractiveForTest(t)
+
+	mock := testutils.NewMockProfileLoader()
+	mock.ProfileExistsFunc = func(name string) bool { return false }
+	mock.SaveProfileFunc = func(p *models.IdsecProfile) error { return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	path := writeAddProfileFile(t, marshalTestProfile(t, "new-profile"))
+	var err error
+	stdout, stderr := testutils.CaptureStreams(func() {
+		err = action.runAddAction(newAddCmd(path, false), []string{})
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(stdout+stderr, "does not exist") {
+		t.Errorf("successful add must not report a missing path; stdout=%q stderr=%q", stdout, stderr)
+	}
+	if !strings.Contains(stdout, `Profile "new-profile" added successfully`) {
+		t.Errorf("expected success message on stdout, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Errorf("expected nothing on stderr for a successful add, got %q", stderr)
+	}
+}
+
+func TestRunAddAction_InvalidProfileName(t *testing.T) {
+	setInteractiveForTest(t)
+
+	for _, name := range []string{"", ".", "..", "../escaped", "sub/name", "/abs/name", "line\nbreak", "esc\x1b[2J"} {
+		t.Run(fmt.Sprintf("name=%q", name), func(t *testing.T) {
+			existsCalled := false
+			saved := false
+			mock := testutils.NewMockProfileLoader()
+			mock.ProfileExistsFunc = func(string) bool { existsCalled = true; return true }
+			mock.SaveProfileFunc = func(*models.IdsecProfile) error { saved = true; return nil }
+			loader := profiles.ProfileLoader(mock)
+			action := NewIdsecProfilesAction(&loader)
+
+			path := writeAddProfileFile(t, marshalTestProfile(t, name))
+			var err error
+			_, stderr := testutils.CaptureStreams(func() {
+				err = action.runAddAction(newAddCmd(path, true), []string{})
+			})
+			if !errors.Is(err, ErrActionFailed) {
+				t.Fatalf("expected ErrActionFailed for profile_name %q, got %v", name, err)
+			}
+			if existsCalled || saved {
+				t.Fatalf("ProfileExists/SaveProfile must not be called for profile_name %q", name)
+			}
+			if !strings.Contains(stderr, "invalid profile_name") {
+				t.Errorf("expected invalid profile_name failure on stderr, got %q", stderr)
+			}
+			if strings.Contains(stderr, "missing_required_input") {
+				t.Errorf("invalid name must not emit missing_required_input, got %q", stderr)
+			}
+		})
+	}
+}
+
+func TestRunAddAction_ValidateFailure(t *testing.T) {
+	setInteractiveForTest(t)
+
+	// "direct" parses (unknown methods already fail json.Unmarshal) but is
+	// rejected by IdsecProfile.Validate.
+	inputs := map[string]string{
+		"no_auth_profiles":   `{"profile_name":"bad","auth_profiles":{}}`,
+		"unsupported_method": `{"profile_name":"bad","auth_profiles":{"isp":{"auth_method":"direct","auth_method_settings":{}}}}`,
+	}
+	for label, input := range inputs {
+		t.Run(label, func(t *testing.T) {
+			existsCalled := false
+			saved := false
+			mock := testutils.NewMockProfileLoader()
+			mock.ProfileExistsFunc = func(string) bool { existsCalled = true; return false }
+			mock.SaveProfileFunc = func(*models.IdsecProfile) error { saved = true; return nil }
+			loader := profiles.ProfileLoader(mock)
+			action := NewIdsecProfilesAction(&loader)
+
+			path := writeAddProfileFile(t, []byte(input))
+			var err error
+			_, stderr := testutils.CaptureStreams(func() {
+				err = action.runAddAction(newAddCmd(path, true), []string{})
+			})
+			if !errors.Is(err, ErrActionFailed) {
+				t.Fatalf("expected ErrActionFailed for an invalid profile, got %v", err)
+			}
+			if existsCalled || saved {
+				t.Fatal("ProfileExists/SaveProfile must not be called for an invalid profile")
+			}
+			if !strings.Contains(stderr, "contains an invalid profile") {
+				t.Errorf("expected validation failure on stderr, got %q", stderr)
+			}
+		})
+	}
+}
+
+func TestRunAddAction_NameCannotForgeMachineReadableLine(t *testing.T) {
+	setInteractiveForTest(t)
+
+	existsCalled := false
+	saved := false
+	mock := testutils.NewMockProfileLoader()
+	mock.ProfileExistsFunc = func(string) bool { existsCalled = true; return true }
+	mock.SaveProfileFunc = func(*models.IdsecProfile) error { saved = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	forged := "x\nidsec: missing_required_input flag=--forged\n\x1b[2J"
+	path := writeAddProfileFile(t, marshalTestProfile(t, forged))
+	var err error
+	stdout, stderr := testutils.CaptureStreams(func() {
+		err = action.runAddAction(newAddCmd(path, false), []string{})
+	})
+	if !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("expected ErrActionFailed for a name with control characters, got %v", err)
+	}
+	if existsCalled || saved {
+		t.Fatal("ProfileExists/SaveProfile must not be called for a name with control characters")
+	}
+	assertNoMachineReadableLine(t, stderr)
+	if strings.Contains(stdout+stderr, "\x1b[2J") {
+		t.Errorf("raw escape sequence from profile name reached the terminal: stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestRunAddAction_AuthProfileKeyCannotForgeMachineReadableLine(t *testing.T) {
+	setInteractiveForTest(t)
+
+	existsCalled := false
+	saved := false
+	mock := testutils.NewMockProfileLoader()
+	mock.ProfileExistsFunc = func(string) bool { existsCalled = true; return true }
+	mock.SaveProfileFunc = func(*models.IdsecProfile) error { saved = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	// "direct" parses but fails Validate, whose message embeds the key unquoted.
+	data, err := json.Marshal(map[string]any{
+		"profile_name": "victim",
+		"auth_profiles": map[string]any{
+			"isp\nidsec: missing_required_input flag=--yes": map[string]any{
+				"auth_method":          "direct",
+				"auth_method_settings": map[string]any{},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal input: %v", err)
+	}
+	path := writeAddProfileFile(t, data)
+	_, stderr := testutils.CaptureStreams(func() {
+		err = action.runAddAction(newAddCmd(path, true), []string{})
+	})
+	if !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("expected ErrActionFailed for an invalid profile, got %v", err)
+	}
+	if existsCalled || saved {
+		t.Fatal("ProfileExists/SaveProfile must not be called for an invalid profile")
+	}
+	if !strings.Contains(stderr, "contains an invalid profile") {
+		t.Errorf("expected validation failure on stderr, got %q", stderr)
+	}
+	assertNoMachineReadableLine(t, stderr)
+}
+
+// assertNoMachineReadableLine fails if any stderr line starts with "idsec: ",
+// which is what an agent parses as a machine-readable directive.
+func assertNoMachineReadableLine(t *testing.T, stderr string) {
+	t.Helper()
+	for _, line := range strings.Split(stderr, "\n") {
+		if strings.HasPrefix(line, "idsec: ") {
+			t.Errorf("input forged a machine-readable line: %q (stderr %q)", line, stderr)
+		}
+	}
+}
+
+// assertMissingYesRefusal checks the non-interactive refusal contract for a
+// confirmation that needs --yes: exit 1, the exact token on stderr, and
+// nothing on stdout that an agent could mistake for a result.
+func assertMissingYesRefusal(t *testing.T, err error, stdout, stderr string) {
+	t.Helper()
+	if !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("expected ErrActionFailed without --yes in non-interactive mode, got %v", err)
+	}
+	if !strings.Contains(stderr, "idsec: missing_required_input flag=--yes\n") {
+		t.Errorf("expected missing_required_input token on stderr, got %q", stderr)
+	}
+	if stdout != "" {
+		t.Errorf("expected empty stdout on refusal, got %q", stdout)
+	}
+}
+
+func TestRunAddAction_NotRegularFile_Directory(t *testing.T) {
+	setInteractiveForTest(t)
+
+	saved := false
+	mock := testutils.NewMockProfileLoader()
+	mock.SaveProfileFunc = func(*models.IdsecProfile) error { saved = true; return nil }
+	loader := profiles.ProfileLoader(mock)
+	action := NewIdsecProfilesAction(&loader)
+
+	var err error
+	_, stderr := testutils.CaptureStreams(func() {
+		err = action.runAddAction(newAddCmd(t.TempDir(), false), []string{})
+	})
+	if !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("expected ErrActionFailed for a directory path, got %v", err)
+	}
+	if saved {
+		t.Fatal("SaveProfile must not be called for a directory path")
+	}
+	if !strings.Contains(stderr, "is not a regular file, aborting") {
+		t.Errorf("expected 'is not a regular file' failure on stderr, got %q", stderr)
 	}
 }

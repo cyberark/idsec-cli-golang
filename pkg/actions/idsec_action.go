@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	clicommon "github.com/cyberark/idsec-cli-golang/pkg/common"
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
 	sdkcommon "github.com/cyberark/idsec-sdk-golang/pkg/common"
@@ -84,6 +85,8 @@ func NewIdsecBaseAction() *IdsecBaseAction {
 //   - log-level: Sets the log level for verbose mode
 //   - disable-cert-verification: Disables HTTPS certificate verification (unsafe)
 //   - trusted-cert: Specifies a trusted certificate for HTTPS calls
+//   - agent: Runs in agent mode (machine-readable output, no prompts, no color)
+//   - no-agent: Explicitly disables agent mode even when auto-detected (mutually exclusive with agent)
 //
 // Parameters:
 //   - cmd: The cobra command to configure with persistent flags
@@ -106,6 +109,9 @@ func (a *IdsecBaseAction) CommonActionsConfiguration(cmd *cobra.Command) {
 	cmd.PersistentFlags().String("proxy-address", "", "Proxy address to use for HTTP/HTTPS calls, if not given will resolve from environment variables")
 	cmd.PersistentFlags().String("proxy-username", "", "Username for proxy authentication")
 	cmd.PersistentFlags().String("proxy-password", "", "Password for proxy authentication")
+	cmd.PersistentFlags().Bool("agent", false, "Run in agent mode (machine-readable output, no prompts, no color)")
+	cmd.PersistentFlags().Bool("no-agent", false, "Explicitly disable agent mode even when auto-detected")
+	cmd.MarkFlagsMutuallyExclusive("agent", "no-agent")
 }
 
 // CommonActionsExecution executes common actions based on the command line flags.
@@ -117,9 +123,10 @@ func (a *IdsecBaseAction) CommonActionsConfiguration(cmd *cobra.Command) {
 // The function performs the following operations:
 //  1. Sets default states for color, interactivity, logging, and certificates
 //  2. Processes each flag and applies the corresponding configuration
-//  3. Handles certificate verification settings (disable or trusted cert)
-//  4. Configures profile name if provided
-//  5. Sets default DEPLOY_ENV if not already set
+//  3. Resolves agent mode (flag > IDSEC_FORCE_AGENT_MODE > IDSEC_AGENT_MODE > auto-detect > off) and, when enabled, disables color and interactivity and allows output
+//  4. Handles certificate verification settings (disable or trusted cert)
+//  5. Configures profile name if provided
+//  6. Sets default DEPLOY_ENV if not already set
 //
 // Parameters:
 //   - cmd: The cobra command containing the parsed flags
@@ -152,6 +159,17 @@ func (a *IdsecBaseAction) CommonActionsExecution(cmd *cobra.Command, execArgs []
 	}
 	if allowOutput, err := cmd.Flags().GetBool("allow-output"); err == nil && allowOutput {
 		config.AllowOutput()
+	}
+	agentFlag, _ := cmd.Flags().GetBool("agent")
+	noAgentFlag, _ := cmd.Flags().GetBool("no-agent")
+	agentmode.Resolve(agentFlag, noAgentFlag)
+	if agentmode.IsEnabled() {
+		config.DisableColor()
+		config.DisableInteractive()
+		config.AllowOutput()
+		// Keep stdout for the envelope: SDK prompts that honor the reservation
+		// write to stderr instead.
+		config.ReserveStdoutForData()
 	}
 	if disableCertValidation, err := cmd.Flags().GetBool("disable-cert-verification"); err == nil && disableCertValidation {
 		config.DisableCertificateVerification()

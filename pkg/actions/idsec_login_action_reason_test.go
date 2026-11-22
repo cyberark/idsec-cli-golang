@@ -111,9 +111,17 @@ func TestRunLoginActionSilentReasonLines(t *testing.T) {
 		{
 			name: "profile_not_found",
 			profileFunc: func(string) (*models.IdsecProfile, error) {
-				return nil, errors.New("no profile found")
+				return nil, nil
 			},
 			wantReason: "PROFILE_NOT_FOUND",
+			wantAuth:   "",
+		},
+		{
+			name: "profile_unreadable",
+			profileFunc: func(string) (*models.IdsecProfile, error) {
+				return nil, errors.New("unexpected end of JSON input")
+			},
+			wantReason: "CONFIG_ERROR",
 			wantAuth:   "",
 		},
 	}

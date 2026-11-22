@@ -1,8 +1,17 @@
 package actions
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 )
 
 func TestExtractErrorMessage(t *testing.T) {
@@ -214,4 +223,109 @@ func toLower(s string) string {
 		b[i] = c
 	}
 	return string(b)
+}
+
+func reportPanicCapture(t *testing.T, r any) (stdout, stderr string) {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	reportPanic(r, &out, &errOut)
+	return out.String(), errOut.String()
+}
+
+func singleEnvelope(t *testing.T, stdout string) agentmode.Envelope {
+	t.Helper()
+	if strings.Count(stdout, "\n") != 1 || !strings.HasSuffix(stdout, "\n") {
+		t.Fatalf("stdout = %q, want exactly one envelope line", stdout)
+	}
+	var env agentmode.Envelope
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("unmarshal %q: %v", stdout, err)
+	}
+	if env.Status != agentmode.StatusError || env.Error == nil {
+		t.Fatalf("envelope = %+v, want an error envelope", env)
+	}
+	return env
+}
+
+const wantPanicStderr = "[ERROR] An unexpected error occurred: boom\n\nFor detailed error information, run with IDSEC_DEBUG=true\n"
+
+func TestReportPanic_AgentInternalError(t *testing.T) {
+	isolateAgentEnvelope(t)
+	t.Setenv(idsecDebugEnvVar, "")
+	agentmode.Resolve(true, false)
+
+	stdout, stderr := reportPanicCapture(t, errors.New("boom"))
+
+	if stderr != wantPanicStderr {
+		t.Errorf("stderr = %q, want %q", stderr, wantPanicStderr)
+	}
+	env := singleEnvelope(t, stdout)
+	if env.Error.Code != agentmode.CodeInternalError || env.Error.Message != "An unexpected error occurred: boom" {
+		t.Errorf("error = %q %q", env.Error.Code, env.Error.Message)
+	}
+	if want := map[string]any{"category": "An unexpected error occurred"}; !reflect.DeepEqual(env.Error.Details, want) {
+		t.Errorf("details = %#v, want %#v", env.Error.Details, want)
+	}
+	if !reflect.DeepEqual(env.Hints, []string{hintInternalError}) {
+		t.Errorf("hints = %#v", env.Hints)
+	}
+}
+
+func TestReportPanic_AgentNonErrorValue(t *testing.T) {
+	isolateAgentEnvelope(t)
+	t.Setenv(idsecDebugEnvVar, "")
+	agentmode.Resolve(true, false)
+
+	stdout, _ := reportPanicCapture(t, "interface conversion: interface {} is nil")
+
+	env := singleEnvelope(t, stdout)
+	want := map[string]any{"category": "Internal type mismatch error"}
+	if env.Error.Code != agentmode.CodeInternalError || !reflect.DeepEqual(env.Error.Details, want) {
+		t.Errorf("error = %q %#v", env.Error.Code, env.Error.Details)
+	}
+}
+
+func TestReportPanic_AgentClassifiedError(t *testing.T) {
+	isolateAgentEnvelope(t)
+	t.Setenv(idsecDebugEnvVar, "")
+	agentmode.Resolve(true, false)
+
+	opErr := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+	panicErr := fmt.Errorf("failed to fetch latest release: %w", &url.Error{Op: "Get", URL: "https://api.example", Err: opErr})
+	stdout, stderr := reportPanicCapture(t, panicErr)
+
+	if !strings.HasPrefix(stderr, "[ERROR] Connection error: "+panicErr.Error()+"\n") {
+		t.Errorf("stderr = %q", stderr)
+	}
+	env := singleEnvelope(t, stdout)
+	if env.Error.Code != agentmode.CodeEndpointUnreachable || env.Error.Message != panicErr.Error() {
+		t.Errorf("error = %q %q", env.Error.Code, env.Error.Message)
+	}
+}
+
+func TestReportPanic_AgentEnvelopeAlreadyWritten(t *testing.T) {
+	isolateAgentEnvelope(t)
+	t.Setenv(idsecDebugEnvVar, "")
+	agentmode.Resolve(true, false)
+	agentmode.ClaimEnvelope()
+
+	stdout, stderr := reportPanicCapture(t, errors.New("boom"))
+
+	if stdout != "" || stderr != wantPanicStderr {
+		t.Errorf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+}
+
+func TestReportPanic_HumanUnchanged(t *testing.T) {
+	isolateAgentEnvelope(t)
+	t.Setenv(idsecDebugEnvVar, "")
+
+	stdout, stderr := reportPanicCapture(t, errors.New("boom"))
+
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty", stdout)
+	}
+	if stderr != wantPanicStderr {
+		t.Errorf("stderr = %q, want %q", stderr, wantPanicStderr)
+	}
 }

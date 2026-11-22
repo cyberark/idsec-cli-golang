@@ -2,6 +2,7 @@ package actions
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -20,6 +21,7 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	"github.com/cyberark/idsec-cli-golang/pkg/cli"
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
 	"github.com/cyberark/idsec-cli-golang/pkg/common/deprecation"
@@ -418,7 +420,7 @@ func (s *IdsecServiceExecAction) defineServiceExecAction(
 					}
 					if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 						if err := s.dryRunExecAction(cmd); err != nil {
-							return ErrActionFailed
+							return err
 						}
 						return nil
 					}
@@ -752,12 +754,13 @@ func (s *IdsecServiceExecAction) parseFlag(f *pflag.Flag, cmd *cobra.Command, fl
 // method execution and formats them appropriately for console output. It handles
 // various result types including structs, maps, arrays, channels, and primitive types.
 //
-// When pageSize > 0, list-shaped results (slices, arrays, channels) are rendered
-// with one JSON item per line. In an interactive terminal, the CLI prints
-// pageSize items, pauses for a keypress, and clears the screen before showing
-// the next page. In non-interactive output (pipes, CI, redirections), the CLI
-// writes a regular JSON array so the output remains scriptable. When pageSize
-// is 0, the output is identical to the legacy pretty-printed JSON format.
+// When pageSize > 0, list-shaped results (slices, arrays, channels) are paged
+// only in an interactive terminal: the CLI prints pageSize pretty-printed JSON
+// items, pauses for a keypress, and prints the next page below. Otherwise
+// (pipes, CI, redirections, or --agent / --silent even under a terminal) the
+// CLI writes a single JSON array so the output remains scriptable. When
+// pageSize is 0, the output is identical to the legacy pretty-printed JSON
+// format.
 //
 // Parameters:
 //   - result: Slice of reflect.Value containing the method execution results
@@ -824,8 +827,110 @@ func (s *IdsecServiceExecAction) serializeAndPrintOutput(result []reflect.Value,
 		}
 	}
 	if len(result) == 0 || shouldPrintGenericResult {
-		caser := cases.Title(language.English)
-		args.PrintSuccess(fmt.Sprintf("%s finished successfully", strings.ReplaceAll(caser.String(actionName), "-", " ")))
+		args.PrintSuccess(genericSuccessMessage(actionName))
+	}
+}
+
+// genericSuccessMessage is the message for an action that returned nothing
+// printable, e.g. "Delete Account finished successfully".
+func genericSuccessMessage(actionName string) string {
+	caser := cases.Title(language.English)
+	return fmt.Sprintf("%s finished successfully", strings.ReplaceAll(caser.String(actionName), "-", " "))
+}
+
+// renderAgentSuccess writes the single agent-mode success envelope for a
+// successful exec action. It replaces the human output path entirely: the
+// CLIFormatter, interactive paging and --page-size/--format never apply, so
+// stdout carries exactly one JSON object.
+//
+// --query semantics: the jq expression is evaluated against the action's
+// payload (the same input as in human mode), never against the envelope. Its
+// results are placed under "data": one result becomes data as-is, several
+// become a data array with "count", and zero results become data: [] with
+// count 0. --raw has no effect because string results are already JSON strings
+// under "data". A failing query returns an error before anything is written to
+// stdout, so it surfaces as an error envelope.
+//
+// By result kind: slices, arrays and channels are streamed as a list with
+// "count" (and "truncated" if the stream stopped early); structs, maps, ints,
+// bools and strings go under "data" as their JSON value; a result with nothing
+// printable gives data: null plus a generic "message".
+//
+// Output write failures (e.g. a closed pipe) are logged to stderr and
+// swallowed, matching the human path's broken-pipe handling. A payload that
+// cannot be marshaled is returned as an INTERNAL_ERROR failure (nothing is
+// written to stdout and the envelope is not claimed), so it surfaces as an
+// error envelope.
+func (s *IdsecServiceExecAction) renderAgentSuccess(result []reflect.Value, actionName string, execCmd *cobra.Command) error {
+	if query, _ := execCmd.PersistentFlags().GetString("query"); query != "" {
+		vars, err := queryVarsFromFlags(execCmd.PersistentFlags())
+		if err != nil {
+			return err
+		}
+		value, _ := s.extractOutputValue(result)
+		vals, err := runGojqQuery(value, query, vars...)
+		if err != nil {
+			return err
+		}
+		var env agentmode.Envelope
+		switch len(vals) {
+		case 1:
+			env = agentmode.NewSuccessEnvelope(vals[0])
+		default:
+			env = agentmode.NewSuccessEnvelope(vals, agentmode.WithCount(len(vals)))
+		}
+		return s.writeAgentEnvelope(env)
+	}
+
+	for _, res := range result {
+		if res.Kind() == reflect.Pointer && res.IsNil() {
+			continue
+		}
+		if res.Kind() == reflect.Interface && res.Type().Implements(reflect.TypeOf((*error)(nil)).Elem()) {
+			continue
+		}
+		if res.Kind() == reflect.Pointer {
+			res = res.Elem()
+		}
+		switch res.Kind() {
+		case reflect.Array, reflect.Slice:
+			s.streamAgentList(seqFromSlice(res))
+		case reflect.Chan:
+			s.streamAgentList(seqFromChannel(res))
+		default:
+			return s.writeAgentEnvelope(agentmode.NewSuccessEnvelope(res.Interface()))
+		}
+		return nil
+	}
+	return s.writeAgentEnvelope(agentmode.NewSuccessEnvelope(nil, agentmode.WithSuccessMessage(genericSuccessMessage(actionName))))
+}
+
+// writeAgentEnvelope writes env to stdout. A write failure is logged, not
+// returned. A marshal failure is returned as an INTERNAL_ERROR failure: the
+// payload is a CLI-side defect rather than an action failure or bad input, and
+// the fixed message avoids echoing payload data.
+func (s *IdsecServiceExecAction) writeAgentEnvelope(env agentmode.Envelope) error {
+	err := agentmode.WriteSuccess(os.Stdout, env)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, agentmode.ErrMarshal) {
+		return agentmode.NewFailure(agentmode.CodeInternalError, err,
+			agentmode.WithRedactedMessage("action result could not be serialized as JSON"))
+	}
+	s.logger.Warning("error writing success envelope: %v", err)
+	return nil
+}
+
+// streamAgentList streams items as one list envelope, logging a write failure
+// or early stop to stderr along with the number of items written.
+func (s *IdsecServiceExecAction) streamAgentList(items iter.Seq[any]) {
+	count, truncated, err := agentmode.StreamList(os.Stdout, items)
+	if err != nil {
+		s.logger.Warning("error writing success envelope after %d item(s): %v", count, err)
+	}
+	if truncated {
+		s.logger.Warning("result list truncated after %d item(s): an item could not be serialized", count)
 	}
 }
 
@@ -927,13 +1032,14 @@ func seqFromChannel(ch reflect.Value) iter.Seq[any] {
 // tests can stub boundary behavior without terminal input.
 var shouldContinueForNextItem = args.ShouldContinueForNextItem
 
-// pageItems renders items as JSON. When stdout is an
-// interactive terminal it pages the output, printing pageSize items and then
-// pausing for a keypress before continuing, so "--page-size N" means exactly N
-// items per page. When stdout is not a TTY (pipes, CI, redirections) it instead
-// writes a valid JSON array so the output stays scriptable.
+// pageItems renders items as JSON. In an interactive terminal (stdout is a TTY
+// and neither --agent nor --silent is in effect) it pages the output, printing
+// pageSize items and then pausing for a keypress before continuing, so
+// "--page-size N" means exactly N items per page. Otherwise (pipes, CI,
+// redirections, or agent/silent mode under a pseudo-terminal) it writes a
+// single valid JSON array so the output stays scriptable.
 func (s *IdsecServiceExecAction) pageItems(items iter.Seq[any], pageSize int) {
-	if pageSize > 0 && args.IsStdoutTTY() {
+	if args.ShouldPage(pageSize) {
 		s.pageItemsInteractive(items, pageSize)
 		return
 	}
@@ -958,7 +1064,7 @@ func (s *IdsecServiceExecAction) pageItemsInteractive(items iter.Seq[any], pageS
 			return
 		}
 		_, _ = os.Stdout.Write(line)
-		// Add a blank line between items for readability in interactive paging.
+		// MarshalIndent adds no trailing newline, so terminate each item with one.
 		_, _ = io.WriteString(os.Stdout, "\n")
 		count++
 	}
@@ -1239,8 +1345,8 @@ func (s *IdsecServiceExecAction) RunExecAction(api *cli.IdsecCLIAPI, cmd *cobra.
 		if err != nil {
 			return err
 		}
-		if err := validation.ValidateStruct(actionSchema); err != nil {
-			return fmt.Errorf("invalid input for action %q: %w", actionName, err)
+		if err := validateActionInput(actionName, actionSchema); err != nil {
+			return err
 		}
 		result = actionMethod.Call(actionArgs)
 	} else {
@@ -1251,6 +1357,12 @@ func (s *IdsecServiceExecAction) RunExecAction(api *cli.IdsecCLIAPI, cmd *cobra.
 		if err, ok := res.Interface().(error); ok && err != nil {
 			return err
 		}
+	}
+
+	// Agent mode emits exactly one JSON success envelope and bypasses --query
+	// printing, formatters and paging (see renderAgentSuccess).
+	if agentmode.IsEnabled() {
+		return s.renderAgentSuccess(result, actionName, execCmd)
 	}
 
 	// --query takes precedence over formatters and the default JSON serializer.
@@ -1303,13 +1415,12 @@ func (s *IdsecServiceExecAction) RunExecAction(api *cli.IdsecCLIAPI, cmd *cobra.
 // or SDK invocation. When --query is given, the jq expression is applied to the
 // plan instead of the plan being dumped whole, so the same expression can be
 // rehearsed against a plan before it is run for real. Every returned error has
-// already been printed to the user; callers should only translate it into a
-// non-zero exit (ErrActionFailed), not print it again.
+// already been printed to the user and is an exit-1 error carrying its
+// agent-mode code; callers return it unchanged and must not print it again.
 func (s *IdsecServiceExecAction) dryRunExecAction(cmd *cobra.Command) error {
 	plan, err := s.buildDryRunPlan(cmd)
 	if err != nil {
-		args.PrintFailure(fmt.Sprintf("Failed to build dry-run plan: %s", err))
-		return err
+		return reportDryRunFailure(fmt.Sprintf("Failed to build dry-run plan: %s", err), err)
 	}
 
 	// Non-nil here: buildDryRunPlan already failed out if exec was not found.
@@ -1318,23 +1429,37 @@ func (s *IdsecServiceExecAction) dryRunExecAction(cmd *cobra.Command) error {
 		raw, _ := execCmd.PersistentFlags().GetBool("raw")
 		vars, err := queryVarsFromFlags(execCmd.PersistentFlags())
 		if err != nil {
-			args.PrintFailure(err.Error())
-			return err
+			return reportDryRunFailure(err.Error(), err)
 		}
 		if err := applyGojqQuery(plan, query, raw, vars...); err != nil {
-			args.PrintFailure(err.Error())
-			return err
+			return reportDryRunFailure(err.Error(), err)
 		}
 		return nil
 	}
 
 	data, err := json.MarshalIndent(plan, "", "  ")
 	if err != nil {
-		args.PrintFailure(fmt.Sprintf("Failed to render dry-run plan: %s", err))
-		return err
+		return reportDryRunFailure(fmt.Sprintf("Failed to render dry-run plan: %s", err), err)
 	}
 	_, _ = fmt.Fprintln(os.Stdout, string(data))
 	return nil
+}
+
+// validateActionInput validates the resolved action schema.
+func validateActionInput(actionName string, actionSchema any) error {
+	if err := validation.ValidateStruct(actionSchema); err != nil {
+		return agentmode.NewFailure(agentmode.CodeInvalidInput, fmt.Errorf("invalid input for action %q: %w", actionName, err),
+			agentmode.WithDetail("kind", agentmode.KindValidation),
+			agentmode.WithDetail("action", actionName))
+	}
+	return nil
+}
+
+// reportDryRunFailure prints msg and returns an exit-1 error whose code, details
+// and hints are classified from err.
+func reportDryRunFailure(msg string, err error) error {
+	f := ClassifyError(err)
+	return reportFailure(f.Code, msg, f)
 }
 
 // buildDryRunPlan resolves the operation identity, effective profile name, and

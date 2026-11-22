@@ -1,15 +1,19 @@
 package actions
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
+	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 )
 
 func TestNewIdsecBaseAction(t *testing.T) {
@@ -62,6 +66,8 @@ func TestIdsecBaseAction_CommonActionsConfiguration(t *testing.T) {
 				"disable-cert-verification",
 				"trusted-cert",
 				"disable-telemetry",
+				"agent",
+				"no-agent",
 			},
 			validateFunc: func(t *testing.T, cmd *cobra.Command) {
 				expectedFlags := []string{
@@ -74,6 +80,8 @@ func TestIdsecBaseAction_CommonActionsConfiguration(t *testing.T) {
 					"disable-cert-verification",
 					"trusted-cert",
 					"disable-telemetry",
+					"agent",
+					"no-agent",
 				}
 
 				for _, flagName := range expectedFlags {
@@ -95,6 +103,8 @@ func TestIdsecBaseAction_CommonActionsConfiguration(t *testing.T) {
 					"verbose":                   false,
 					"disable-cert-verification": false,
 					"disable-telemetry":         false,
+					"agent":                     false,
+					"no-agent":                  false,
 				}
 
 				for flagName, expectedDefault := range boolFlags {
@@ -157,6 +167,7 @@ func TestIdsecBaseAction_CommonActionsExecution(t *testing.T) {
 		setupFlags   func(cmd *cobra.Command)
 		setupEnv     func()
 		cleanupEnv   func()
+		cleanup      func()
 		validateFunc func(t *testing.T)
 	}{
 		{
@@ -175,6 +186,7 @@ func TestIdsecBaseAction_CommonActionsExecution(t *testing.T) {
 			setupFlags: func(cmd *cobra.Command) {
 				_ = cmd.PersistentFlags().Set("raw", "true")
 			},
+			cleanup: config.EnableColor,
 			validateFunc: func(t *testing.T) {
 				// Function should complete without error
 			},
@@ -184,6 +196,7 @@ func TestIdsecBaseAction_CommonActionsExecution(t *testing.T) {
 			setupFlags: func(cmd *cobra.Command) {
 				_ = cmd.PersistentFlags().Set("silent", "true")
 			},
+			cleanup: config.EnableInteractive,
 			validateFunc: func(t *testing.T) {
 				// Function should complete without error
 			},
@@ -194,6 +207,7 @@ func TestIdsecBaseAction_CommonActionsExecution(t *testing.T) {
 				_ = cmd.PersistentFlags().Set("verbose", "true")
 				viper.Set("log-level", "DEBUG")
 			},
+			cleanup: config.DisableVerboseLogging,
 			validateFunc: func(t *testing.T) {
 				// Function should complete without error
 			},
@@ -203,6 +217,7 @@ func TestIdsecBaseAction_CommonActionsExecution(t *testing.T) {
 			setupFlags: func(cmd *cobra.Command) {
 				_ = cmd.PersistentFlags().Set("allow-output", "true")
 			},
+			cleanup: config.DisallowOutput,
 			validateFunc: func(t *testing.T) {
 				// Function should complete without error
 			},
@@ -212,6 +227,7 @@ func TestIdsecBaseAction_CommonActionsExecution(t *testing.T) {
 			setupFlags: func(cmd *cobra.Command) {
 				_ = cmd.PersistentFlags().Set("disable-cert-verification", "true")
 			},
+			cleanup: config.EnableCertificateVerification,
 			validateFunc: func(t *testing.T) {
 				// Function should complete without error
 			},
@@ -222,6 +238,7 @@ func TestIdsecBaseAction_CommonActionsExecution(t *testing.T) {
 				_ = cmd.PersistentFlags().Set("trusted-cert", "test-cert")
 				viper.Set("trusted-cert", "test-cert")
 			},
+			cleanup: func() { config.SetTrustedCertificate("") },
 			validateFunc: func(t *testing.T) {
 				// Function should complete without error
 			},
@@ -281,6 +298,12 @@ func TestIdsecBaseAction_CommonActionsExecution(t *testing.T) {
 				_ = cmd.PersistentFlags().Set("allow-output", "true")
 				viper.Set("log-level", "DEBUG")
 			},
+			cleanup: func() {
+				config.EnableColor()
+				config.EnableInteractive()
+				config.DisableVerboseLogging()
+				config.DisallowOutput()
+			},
 			validateFunc: func(t *testing.T) {
 				// Function should complete without error with multiple flags
 			},
@@ -311,6 +334,10 @@ func TestIdsecBaseAction_CommonActionsExecution(t *testing.T) {
 				tt.setupEnv()
 			}
 
+			if tt.cleanup != nil {
+				t.Cleanup(tt.cleanup)
+			}
+
 			if tt.setupFlags != nil {
 				tt.setupFlags(cmd)
 			}
@@ -324,6 +351,198 @@ func TestIdsecBaseAction_CommonActionsExecution(t *testing.T) {
 
 			if tt.cleanupEnv != nil {
 				tt.cleanupEnv()
+			}
+		})
+	}
+}
+
+// clearAgentEnv neutralises IDSEC_AGENT_MODE, IDSEC_FORCE_AGENT_MODE and every
+// agent detector for the duration of the test. Detectors only match non-empty values.
+func clearAgentEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv(agentmode.EnvVar, "")
+	t.Setenv(agentmode.ForceEnvVar, "")
+	for _, v := range agentmode.DetectorEnvVars() {
+		t.Setenv(v, "")
+	}
+}
+
+func resetAgentModeBaseline() {
+	config.EnableColor()
+	config.EnableInteractive()
+	config.DisallowOutput()
+	agentmode.Resolve(false, false)
+}
+
+func TestIdsecBaseAction_CommonActionsConfiguration_AgentFlagsMutuallyExclusive(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		expectError bool
+	}{
+		{
+			name:        "edge_case_agent_and_no_agent_rejected_on_child",
+			args:        []string{"child", "--agent", "--no-agent"},
+			expectError: true,
+		},
+		{
+			name:        "success_agent_alone_accepted_on_child",
+			args:        []string{"child", "--agent"},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			action := NewIdsecBaseAction()
+			root := &cobra.Command{Use: "root", SilenceUsage: true, SilenceErrors: true}
+			action.CommonActionsConfiguration(root)
+			root.AddCommand(&cobra.Command{Use: "child", Run: func(cmd *cobra.Command, args []string) {}})
+			root.SetOut(io.Discard)
+			root.SetErr(io.Discard)
+			root.SetArgs(tt.args)
+
+			err := root.Execute()
+
+			if tt.expectError {
+				if err == nil {
+					t.Fatal("Expected error for mutually exclusive --agent and --no-agent, got nil")
+				}
+				if !strings.Contains(err.Error(), "agent") || !strings.Contains(err.Error(), "no-agent") {
+					t.Errorf("Expected error to mention both agent and no-agent, got %q", err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestIdsecBaseAction_CommonActionsExecution_AgentMode(t *testing.T) {
+	// Not parallel: mutates process env and the global SDK/agentmode toggles.
+	clearAgentEnv(t)
+	t.Cleanup(resetAgentModeBaseline)
+
+	type toggles struct {
+		coloring       bool
+		interactive    bool
+		allowingOutput bool
+		enabled        bool
+		detected       string
+	}
+
+	tests := []struct {
+		name          string
+		skipFlagSetup bool
+		setupFlags    func(cmd *cobra.Command)
+		env           map[string]string
+		calls         int
+		want          toggles
+	}{
+		{
+			name: "success_default_human_toggles_unchanged",
+			want: toggles{coloring: true, interactive: true, allowingOutput: false, enabled: false},
+		},
+		{
+			name: "success_agent_flag_flips_toggles",
+			setupFlags: func(cmd *cobra.Command) {
+				_ = cmd.PersistentFlags().Set("agent", "true")
+			},
+			want: toggles{coloring: false, interactive: false, allowingOutput: true, enabled: true},
+		},
+		{
+			name: "success_env_flips_toggles",
+			env:  map[string]string{agentmode.EnvVar: "1"},
+			want: toggles{coloring: false, interactive: false, allowingOutput: true, enabled: true},
+		},
+		{
+			name: "success_autodetect_flips_toggles",
+			env:  map[string]string{"CURSOR_AGENT": "1"},
+			want: toggles{coloring: false, interactive: false, allowingOutput: true, enabled: true, detected: "cursor"},
+		},
+		{
+			name: "success_no_agent_overrides_autodetect",
+			setupFlags: func(cmd *cobra.Command) {
+				_ = cmd.PersistentFlags().Set("no-agent", "true")
+			},
+			env:  map[string]string{"CURSOR_AGENT": "1"},
+			want: toggles{coloring: true, interactive: true, allowingOutput: false, enabled: false, detected: "cursor"},
+		},
+		{
+			name: "success_no_agent_does_not_undo_silent",
+			setupFlags: func(cmd *cobra.Command) {
+				_ = cmd.PersistentFlags().Set("no-agent", "true")
+				_ = cmd.PersistentFlags().Set("silent", "true")
+			},
+			want: toggles{coloring: true, interactive: false, allowingOutput: false, enabled: false},
+		},
+		{
+			name: "success_force_env_flips_toggles",
+			env:  map[string]string{agentmode.ForceEnvVar: "1", agentmode.EnvVar: "0"},
+			want: toggles{coloring: false, interactive: false, allowingOutput: true, enabled: true},
+		},
+		{
+			name: "success_no_agent_overrides_force",
+			setupFlags: func(cmd *cobra.Command) {
+				_ = cmd.PersistentFlags().Set("no-agent", "true")
+			},
+			env:  map[string]string{agentmode.ForceEnvVar: "1"},
+			want: toggles{coloring: true, interactive: true, allowingOutput: false, enabled: false},
+		},
+		{
+			name: "success_second_call_is_idempotent",
+			setupFlags: func(cmd *cobra.Command) {
+				_ = cmd.PersistentFlags().Set("agent", "true")
+			},
+			calls: 2,
+			want:  toggles{coloring: false, interactive: false, allowingOutput: true, enabled: true},
+		},
+		{
+			name:          "edge_case_no_flags_registered_env_still_applies",
+			skipFlagSetup: true,
+			env:           map[string]string{agentmode.EnvVar: "1"},
+			want:          toggles{coloring: false, interactive: false, allowingOutput: true, enabled: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearAgentEnv(t)
+			resetAgentModeBaseline()
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+
+			action := NewIdsecBaseAction()
+			cmd := &cobra.Command{}
+			if !tt.skipFlagSetup {
+				action.CommonActionsConfiguration(cmd)
+			}
+			if tt.setupFlags != nil {
+				tt.setupFlags(cmd)
+			}
+
+			calls := tt.calls
+			if calls == 0 {
+				calls = 1
+			}
+			for i := 1; i <= calls; i++ {
+				action.CommonActionsExecution(cmd, []string{}, false)
+
+				got := toggles{
+					coloring:       config.IsColoring(),
+					interactive:    config.IsInteractive(),
+					allowingOutput: config.IsAllowingOutput(),
+					enabled:        agentmode.IsEnabled(),
+					detected:       agentmode.DetectedAgent(),
+				}
+				if got != tt.want {
+					t.Errorf("call %d: got %+v, want %+v", i, got, tt.want)
+				}
 			}
 		})
 	}

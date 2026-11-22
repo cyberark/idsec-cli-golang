@@ -11,6 +11,7 @@ This is the standalone counterpart to the inline `--query` flag available on com
 
 ## Run
 
+<!-- idsec-example: skip reason="output is piped to idsec query via shell pipe; shell pipes cannot be validated with --dry-run" -->
 ```shell linenums="0"
 # Save a command's output, then query it later
 idsec exec cmgr pools list --output-path pools.json

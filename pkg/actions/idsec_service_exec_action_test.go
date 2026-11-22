@@ -3,6 +3,7 @@ package actions
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -13,11 +14,14 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/cyberark/idsec-cli-golang/internal/featureadoption"
 	"github.com/cyberark/idsec-cli-golang/pkg/actions/testutils"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common"
+	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models/actions"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	sdkservices "github.com/cyberark/idsec-sdk-golang/pkg/services"
+	"github.com/cyberark/idsec-sdk-golang/pkg/validation"
 )
 
 // DefaultTestSchema represents a schema with various default values for testing
@@ -2223,7 +2227,52 @@ func TestPageItems_non_interactive_json_array(t *testing.T) {
 	}
 }
 
+func TestPageItems_tty_non_interactive_emits_json_array(t *testing.T) {
+	// --agent / --silent under a pseudo-terminal: stdout is a TTY but the CLI
+	// is not interactive.
+	origTTY := args.IsStdoutTTY
+	args.IsStdoutTTY = func() bool { return true }
+	t.Cleanup(func() { args.IsStdoutTTY = origTTY })
+
+	prevInteractive := config.IsInteractive()
+	config.DisableInteractive()
+	t.Cleanup(func() {
+		if prevInteractive {
+			config.EnableInteractive()
+		}
+	})
+
+	// The stub records the call instead of failing: captureStdout doesn't
+	// restore os.Stdout if t.Fatal exits inside it.
+	origPrompt := shouldContinueForNextItem
+	t.Cleanup(func() { shouldContinueForNextItem = origPrompt })
+	paged := false
+	shouldContinueForNextItem = func(renderedCount, pageSize int) bool {
+		paged = true
+		return false
+	}
+
+	items := []interface{}{"a", "b", "c", "d", "e"}
+	action := NewIdsecServiceExecAction(nil)
+	out := captureStdout(t, func() {
+		action.pageItems(seqFromSlice(reflect.ValueOf(items)), 2)
+	})
+
+	if paged {
+		t.Fatal("the pager must not be used in non-interactive mode")
+	}
+	var parsed []interface{}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("output is not a single JSON value: %v\noutput:\n%s", err, out)
+	}
+	if len(parsed) != 5 {
+		t.Errorf("expected a 5-item JSON array, got %d items", len(parsed))
+	}
+}
+
 func TestPageItems_interactive_advances_through_all_pages(t *testing.T) {
+	enableInteractiveForTest(t)
+
 	origTTY := args.IsStdoutTTY
 	args.IsStdoutTTY = func() bool { return true }
 	defer func() { args.IsStdoutTTY = origTTY }()
@@ -2255,6 +2304,8 @@ func TestPageItems_interactive_advances_through_all_pages(t *testing.T) {
 }
 
 func TestPageItems_interactive_quit_stops_output(t *testing.T) {
+	enableInteractiveForTest(t)
+
 	origTTY := args.IsStdoutTTY
 	args.IsStdoutTTY = func() bool { return true }
 	defer func() { args.IsStdoutTTY = origTTY }()
@@ -2283,5 +2334,58 @@ func TestPageItems_interactive_quit_stops_output(t *testing.T) {
 	}
 	if prompts != 1 {
 		t.Errorf("expected 1 prompt before quit, got %d", prompts)
+	}
+}
+
+func TestValidateActionInput(t *testing.T) {
+	t.Parallel()
+
+	schema := &struct {
+		Name string `validate:"required"`
+	}{}
+	err := validateActionInput("create", schema)
+
+	wantText := fmt.Errorf("invalid input for action %q: %w", "create", validation.ValidateStruct(schema)).Error()
+	if err == nil || err.Error() != wantText {
+		t.Fatalf("validateActionInput() = %v, want text %q", err, wantText)
+	}
+	var f *agentmode.Failure
+	if !errors.As(err, &f) {
+		t.Fatalf("validateActionInput() = %#v, want *agentmode.Failure", err)
+	}
+	want := map[string]any{"kind": agentmode.KindValidation, "action": "create"}
+	if f.Code != agentmode.CodeInvalidInput || !reflect.DeepEqual(f.Details, want) {
+		t.Errorf("Failure = %q %#v", f.Code, f.Details)
+	}
+	if err := validateActionInput("create", &struct {
+		Name string `validate:"required"`
+	}{Name: "n"}); err != nil {
+		t.Errorf("validateActionInput(valid) = %v, want nil", err)
+	}
+}
+
+func TestDefineServiceExecAction_LeafDryRunFailureCarriesCode(t *testing.T) {
+	root := &cobra.Command{Use: "idsec", SilenceErrors: true, SilenceUsage: true}
+	root.PersistentFlags().Bool("dry-run", false, "")
+	parent := &cobra.Command{Use: "parent"}
+	root.AddCommand(parent)
+	if _, err := NewIdsecServiceExecAction(nil).defineServiceExecAction(newLeafRunETestActionDef(), parent, nil); err != nil {
+		t.Fatalf("defineServiceExecAction: %v", err)
+	}
+
+	root.SetArgs([]string{"--dry-run", "parent", "secrets-db", "create", "--name", "n"})
+	var err error
+	stderr := withCapturedStderr(func() { err = root.Execute() })
+
+	const wantMsg = "Failed to build dry-run plan: failed to find exec command"
+	if stderr != wantMsg+"\n" {
+		t.Errorf("stderr = %q, want %q", stderr, wantMsg+"\n")
+	}
+	if !errors.Is(err, ErrActionFailed) {
+		t.Fatalf("Execute() = %v, want ErrActionFailed", err)
+	}
+	f := failureOf(t, err)
+	if f.Code != agentmode.CodeActionFailed || f.Message != wantMsg {
+		t.Errorf("Failure code/message = %q %q", f.Code, f.Message)
 	}
 }

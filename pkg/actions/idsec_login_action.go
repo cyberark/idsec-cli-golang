@@ -2,12 +2,14 @@ package actions
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
 	"github.com/cyberark/idsec-cli-golang/pkg/credentials"
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
@@ -17,34 +19,37 @@ import (
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
+	"gopkg.in/ini.v1"
 )
 
 // Login failure reasons emitted on the machine-readable reason line. The
 // deterministic pre-flight reasons are recognized entirely CLI-side; auth-time
 // reasons come from authcommon.Classify (MFA_REQUIRED, ENDPOINT_UNREACHABLE,
 // KEYRING_FAILURE, CERTIFICATE_ERROR), and anything unrecognized is AUTH_FAILED.
-// CONFIG_ERROR covers a malformed environment or credentials file, i.e. a
-// problem with the inputs rather than with the credentials themselves.
+// CONFIG_ERROR covers a malformed environment, credentials file or profile
+// file, i.e. a problem with the inputs rather than with the credentials
+// themselves.
 const (
-	loginReasonProfileNotFound  = "PROFILE_NOT_FOUND"
-	loginReasonUsernameRequired = "USERNAME_REQUIRED"
-	loginReasonSecretRequired   = "SECRET_REQUIRED"
-	loginReasonConfigError      = "CONFIG_ERROR"
-	loginReasonAuthFailed       = "AUTH_FAILED"
+	loginReasonProfileNotFound  = string(agentmode.CodeProfileNotFound)
+	loginReasonUsernameRequired = string(agentmode.CodeUsernameRequired)
+	loginReasonSecretRequired   = string(agentmode.CodeSecretRequired)
+	loginReasonConfigError      = string(agentmode.CodeConfigError)
+	loginReasonAuthFailed       = string(agentmode.CodeAuthFailed)
 )
 
-// loginFailure prints a stable, greppable machine-readable reason line to
-// stderr and returns ErrActionFailed so the process exits non-zero. The line
-// format is:
+// loginFailure prints msg via args.PrintFailure, then a stable, greppable
+// machine-readable reason line to stderr, and returns an exit-1 error carrying
+// reason as the agent-mode code. The line format is:
 //
 //	idsec: login failed reason=<REASON>[ authenticator=<name>][ key=value ...]
 //
 // Fields are always appended after reason= so that the existing
 // ${REASON_LINE#*reason=} shell parse keeps working. Consumers match on this
 // line instead of parsing human error prose (which silently rots when a
-// message is reworded). The human-readable failure has already been printed
-// via args.PrintFailure before this is called.
-func loginFailure(reason, authenticator string, extra ...string) error {
+// message is reworded). opts add details and hints; authenticator is added as
+// a detail when set.
+func loginFailure(msg, reason, authenticator string, extra []string, opts ...agentmode.FailureOption) error {
+	args.PrintFailure(msg)
 	line := "idsec: login failed reason=" + reason
 	if authenticator != "" {
 		line += " authenticator=" + authenticator
@@ -53,7 +58,63 @@ func loginFailure(reason, authenticator string, extra ...string) error {
 		line += " " + kv
 	}
 	fmt.Fprintln(os.Stderr, line)
-	return ErrActionFailed
+	if authenticator != "" {
+		opts = append([]agentmode.FailureOption{agentmode.WithDetail("authenticator", authenticator)}, opts...)
+	}
+	return failed(agentmode.Code(reason), msg, nil, opts...)
+}
+
+// credentialRequiredOptions describes a missing silent-login credential: the
+// flag, the env vars that can supply it, and the credentials file in play.
+func credentialRequiredOptions(flag string, envVars []string, rcPath string, hint agentmode.FailureOption) []agentmode.FailureOption {
+	opts := []agentmode.FailureOption{
+		agentmode.WithDetail("missing_flags", []string{flag}),
+		agentmode.WithDetail("env", envVars),
+		hint,
+	}
+	if rcPath != "" {
+		opts = append(opts, agentmode.WithDetail("rc_available", rcPath))
+	}
+	return opts
+}
+
+// credentialsFileMessage is the envelope message for every credentials file
+// failure: go-ini parse errors quote the offending line, which may hold a secret.
+const credentialsFileMessage = "failed to load credentials file; see stderr for details"
+
+// profileUnreadableMessage is the envelope message for a profile that exists
+// but failed to load; the human text says "no profile found".
+const profileUnreadableMessage = "the profile exists but can't be read or parsed"
+
+const noProfileNonInteractiveMessage = "no profile found. Please run 'idsec configure' to set up a profile before using login"
+
+// profileUnreadableError marks a profile that exists but failed to load. Its
+// text is the missing-profile text, which login prints in human mode.
+type profileUnreadableError struct{ err error }
+
+func (e *profileUnreadableError) Error() string { return noProfileNonInteractiveMessage }
+func (e *profileUnreadableError) Unwrap() error { return e.err }
+
+// credentialsFileFailureOptions describes a credentials file that failed to
+// load without echoing its content: details.problem is derived from the
+// go-ini error type only.
+func credentialsFileFailureOptions(flagValue string, noDiscovery bool, err error) []agentmode.FailureOption {
+	opts := []agentmode.FailureOption{
+		agentmode.WithMessage(credentialsFileMessage),
+		agentmode.WithDetail("source", "credentials_file"),
+	}
+	if path, _, _ := credentials.ResolveFilePath(flagValue, noDiscovery); path != "" {
+		opts = append(opts, agentmode.WithDetail("path", path))
+	}
+	var delimiter ini.ErrDelimiterNotFound
+	var emptyKey ini.ErrEmptyKeyName
+	switch {
+	case errors.As(err, &delimiter):
+		opts = append(opts, agentmode.WithDetail("problem", "line_format"))
+	case errors.As(err, &emptyKey):
+		opts = append(opts, agentmode.WithDetail("problem", "empty_key"))
+	}
+	return opts
 }
 
 // IdsecLoginAction is a struct that implements the IdsecAction interface for login action.
@@ -192,16 +253,26 @@ func (a *IdsecLoginAction) runLoginAction(cmd *cobra.Command, loginArgs []string
 	profileName, _ := cmd.Flags().GetString("profile-name")
 	profile, err := a.loadProfileWithConfigureFlow(profileName, cmd)
 	if err != nil {
-		args.PrintFailure(fmt.Sprintf("Failed to load or configure profile: %v", err))
-		return loginFailure(loginReasonProfileNotFound, "")
+		msg := fmt.Sprintf("Failed to load or configure profile: %v", err)
+		deduced := profiles.DeduceProfileName(profileName)
+		var unreadable *profileUnreadableError
+		if errors.As(err, &unreadable) {
+			return loginFailure(msg, loginReasonConfigError, "", nil,
+				agentmode.WithMessage(profileUnreadableMessage),
+				agentmode.WithDetail("profile", deduced), agentmode.WithDetail("source", "profile"),
+				agentmode.WithHint(hintProfileUnreadable))
+		}
+		return loginFailure(msg, loginReasonProfileNotFound, "", nil,
+			agentmode.WithDetail("profile", deduced),
+			agentmode.WithHint(hintProfilesList), agentmode.WithHint(hintProfileCreate))
 	}
 
 	credentialsFileFlag, _ := cmd.Flags().GetString("credentials-file")
 	noCredentialsFile, _ := cmd.Flags().GetBool("no-credentials-file")
 	credentialsFile, err := credentials.Load(credentialsFileFlag, noCredentialsFile)
 	if err != nil {
-		args.PrintFailure(fmt.Sprintf("Failed to load credentials file: %v", err))
-		return loginFailure(loginReasonConfigError, "")
+		return loginFailure(fmt.Sprintf("Failed to load credentials file: %v", err), loginReasonConfigError, "", nil,
+			credentialsFileFailureOptions(credentialsFileFlag, noCredentialsFile, err)...)
 	}
 
 	sharedSecretsMap := make(map[authmodels.IdsecAuthMethod][][2]string)
@@ -231,8 +302,8 @@ func (a *IdsecLoginAction) runLoginAction(cmd *cobra.Command, loginArgs []string
 		envUser := credentials.EnvUsername(authenticatorName)
 		envSecret, err := credentials.EnvSecret(authenticatorName)
 		if err != nil {
-			args.PrintFailure(fmt.Sprintf("Failed to resolve %s secret: %v", authenticatorName, err))
-			return loginFailure(loginReasonConfigError, authenticatorName)
+			return loginFailure(fmt.Sprintf("Failed to resolve %s secret: %v", authenticatorName, err), loginReasonConfigError, authenticatorName, nil,
+				agentmode.WithDetail("source", "secret_env"))
 		}
 		rcUser := credentialsFile.Username(profile.ProfileName, authenticatorName)
 		rcSecret := credentialsFile.Secret(profile.ProfileName, authenticatorName)
@@ -258,8 +329,7 @@ func (a *IdsecLoginAction) runLoginAction(cmd *cobra.Command, loginArgs []string
 				false,
 			)
 			if err != nil {
-				args.PrintFailure(fmt.Sprintf("Failed to get %s username: %s", authenticatorName, err))
-				return loginFailure(loginReasonAuthFailed, authenticatorName)
+				return loginFailure(fmt.Sprintf("Failed to get %s username: %s", authenticatorName, err), loginReasonAuthFailed, authenticatorName, nil)
 			}
 			if slices.Contains(authmodels.IdsecAuthMethodSharableCredentials, authProfile.AuthMethod) && len(sharedSecretsMap[authProfile.AuthMethod]) > 0 && !viper.GetBool("no-shared-secrets") {
 				for _, s := range sharedSecretsMap[authProfile.AuthMethod] {
@@ -291,8 +361,7 @@ func (a *IdsecLoginAction) runLoginAction(cmd *cobra.Command, loginArgs []string
 						false,
 					)
 					if err != nil {
-						args.PrintFailure(fmt.Sprintf("Failed to get %s secret: %s", authenticatorName, err))
-						return loginFailure(loginReasonAuthFailed, authenticatorName)
+						return loginFailure(fmt.Sprintf("Failed to get %s secret: %s", authenticatorName, err), loginReasonAuthFailed, authenticatorName, nil)
 					}
 					secret = &authmodels.IdsecSecret{Secret: secretStr}
 				}
@@ -301,38 +370,43 @@ func (a *IdsecLoginAction) runLoginAction(cmd *cobra.Command, loginArgs []string
 			// Silent username precedence: flag > env var > .idsecrc file > profile.
 			effectiveUser := firstNonEmpty(flagUser, envUser, rcUser, authProfile.Username)
 			if effectiveUser == "" {
-				args.PrintFailure(fmt.Sprintf(
+				msg := fmt.Sprintf(
 					"A username is required to authenticate to %s when running silently. Provide --%s-username, set the %s environment variable, or add %s_username to an .idsecrc file",
 					authenticator.AuthenticatorHumanReadableName(),
 					authenticatorName,
 					credentials.EnvUsernameVar(authenticatorName),
 					authenticatorName,
-				))
-				return loginFailure(loginReasonUsernameRequired, authenticatorName, rcAvailable(credentialsFile)...)
+				)
+				return loginFailure(msg, loginReasonUsernameRequired, authenticatorName, rcAvailable(credentialsFile),
+					credentialRequiredOptions(authenticatorName+"-username",
+						[]string{credentials.EnvUsernameVar(authenticatorName)},
+						credentialsFile.Path(), agentmode.WithHint(usernameRequiredHint(authenticatorName)))...)
 			}
 			authProfile.Username = effectiveUser
 			if secret.Secret == "" {
-				args.PrintFailure(fmt.Sprintf(
+				msg := fmt.Sprintf(
 					"A secret is required to authenticate to %s when running silently. Provide --%s-secret, set the %s or %s environment variable, or add %s_secret to an .idsecrc file",
 					authenticator.AuthenticatorHumanReadableName(),
 					authenticatorName,
 					credentials.EnvSecretVar(authenticatorName),
 					credentials.EnvSecretFileVar(authenticatorName),
 					authenticatorName,
-				))
-				return loginFailure(loginReasonSecretRequired, authenticatorName, rcAvailable(credentialsFile)...)
+				)
+				return loginFailure(msg, loginReasonSecretRequired, authenticatorName, rcAvailable(credentialsFile),
+					credentialRequiredOptions(authenticatorName+"-secret",
+						[]string{credentials.EnvSecretVar(authenticatorName), credentials.EnvSecretFileVar(authenticatorName)},
+						credentialsFile.Path(), agentmode.WithHint(secretRequiredHint(authenticatorName)))...)
 			}
 		}
 
 		// Reaching here means we need to authenticate for sure, as we either are forced to or not authenticated yet
 		token, err := authenticator.Authenticate(profile, nil, secret, true, false)
 		if err != nil {
-			args.PrintFailure(fmt.Sprintf("Failed to authenticate with %s: %s", authenticator.AuthenticatorHumanReadableName(), err))
 			reason := loginReasonAuthFailed
 			if classified, ok := authcommon.Classify(err); ok {
 				reason = string(classified)
 			}
-			return loginFailure(reason, authenticatorName)
+			return loginFailure(fmt.Sprintf("Failed to authenticate with %s: %s", authenticator.AuthenticatorHumanReadableName(), err), reason, authenticatorName, nil)
 		}
 
 		noSharedSecrets, _ := cmd.Flags().GetBool("no-shared-secrets")
@@ -476,13 +550,16 @@ func (a *IdsecLoginAction) loadProfileWithConfigureFlow(profileName string, cmd 
 
 			// Run configure and use the returned profile directly
 			configureAction := NewIdsecConfigureAction(a.profilesLoader)
-			profile = configureAction.runConfigureAction(cmd, []string{})
-			if profile == nil {
+			profile, err = configureAction.runConfigureAction(cmd, []string{})
+			if err != nil || profile == nil {
 				return nil, fmt.Errorf("failed to load profile after configuration")
 			}
 		} else {
 			// In non-interactive mode, just return an error
-			return nil, fmt.Errorf("no profile found. Please run 'idsec configure' to set up a profile before using login")
+			if err != nil {
+				return nil, &profileUnreadableError{err: err}
+			}
+			return nil, errors.New(noProfileNonInteractiveMessage)
 		}
 	}
 	return profile, nil

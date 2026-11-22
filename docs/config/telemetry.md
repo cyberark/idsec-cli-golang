@@ -23,6 +23,7 @@ CLI Specific telemetry
 | **clo** | Operation | The leaf command or action being performed. | `create` |
 | **clv** | CLI Version | The specific version of the CLI tool. | `1.5.2` |
 | **clr** | Resource Path | The path between service and operation, joined by hyphens. | `safes`, `accounts-members` |
+| **cla** | CLI Agent | Source of the invocation. Sent on every usage report and, as `cli_agent`, in the `X-Cybr-Telemetry` header of every API call. Value is the detected AI coding agent slug when agent mode is enabled (one of a fixed set: `claude-code`, `cursor`, `codex`, `aider`, `cline`, `windsurf`, `copilot`, `amazon-q`, `gemini`, `cody`, `pi`, `generic`), `unknown` when agent mode is enabled but no specific agent was detected, or `human` when agent mode is not enabled. | `claude-code`, `unknown`, `human` |
 ## Disabling Telemetry
 
 Telemetry collection can be disabled by setting the `IDSEC_DISABLE_TELEMETRY_COLLECTION` environment variable to `true`. This can be done in the terminal before running Idsec commands:

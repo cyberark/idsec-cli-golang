@@ -4,6 +4,7 @@ import (
 	"github.com/cyberark/idsec-sdk-golang/pkg/models/actions"
 
 	accessassetsactions "github.com/cyberark/idsec-cli-golang/pkg/services/access/assets/actions"
+	arsrequestsactions "github.com/cyberark/idsec-cli-golang/pkg/services/ars/requests/actions"
 
 	cmgrnetworksactions "github.com/cyberark/idsec-cli-golang/pkg/services/cmgr/networks/actions"
 	cmgrpoolcomponentsactions "github.com/cyberark/idsec-cli-golang/pkg/services/cmgr/poolcomponents/actions"
@@ -206,6 +207,18 @@ func init() {
 		},
 		Subactions: []*actions.IdsecServiceCLIActionDefinition{
 			accessassetsactions.CLIAction,
+		},
+	})
+
+	RegisterCLIAction(&actions.IdsecServiceCLIActionDefinition{
+		IdsecServiceBaseActionDefinition: actions.IdsecServiceBaseActionDefinition{
+			ActionName:        "ars",
+			ActionDescription: "Access Request Service (ARS) operations. Manage access requests to targets that require approval or on-demand access, such as virtual machines and cloud consoles.",
+			ActionVersion:     1,
+		},
+		ActionAliases: []string{"accessrequests"},
+		Subactions: []*actions.IdsecServiceCLIActionDefinition{
+			arsrequestsactions.CLIAction,
 		},
 	})
 }

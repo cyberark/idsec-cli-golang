@@ -13,6 +13,7 @@ import (
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	k8sservice "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s"
+	k8sazurehelper "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s/azure/helper"
 	k8smodels "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s/models"
 )
 
@@ -31,8 +32,11 @@ type kubectlLoginSession struct {
 // cluster.ClusterID, and cluster.K8sToken are populated during flow
 // execution; callers must not assume they are set at construction time.
 type kubectlLoginRequest struct {
-	cluster *k8sservice.IdsecSCAK8sClusterContext
-	session kubectlLoginSession
+	cluster          *k8sservice.IdsecSCAK8sClusterContext
+	session          kubectlLoginSession
+	connectionMethod string
+	// Set only when continuing an active session after evaluate stopped returning the target.
+	activeSessionNotEligibleMsg string
 }
 
 // buildKubectlLoginRequest assembles the per-invocation kubectl-login context
@@ -53,6 +57,11 @@ func buildKubectlLoginRequest(
 		},
 		session: session,
 	}
+}
+
+// evalContext returns the evaluate metadata to persist with the Elevate cache entry.
+func (r *kubectlLoginRequest) evalContext() elevateEvalContext {
+	return elevateEvalContext{ConnectionMethod: r.connectionMethod, CertificateData: r.cluster.RootCA}
 }
 
 // resolvedNamespace returns the parsed namespace name from the raw cluster namespace flag.
@@ -76,7 +85,13 @@ func NewIdsecKubectlLoginAction(profilesLoader *profiles.ProfileLoader) *IdsecKu
 // DefineAction runs after exec SCA K8s actions are registered so findNestedCommand sees `elevate`.
 // NOTE: the SDK framework registers subcommands with RunE (not Run), so overrides must also use RunE —
 // Cobra prioritises RunE over Run and silently ignores a Run assignment when RunE is set.
+// It also exits early when az runs this binary as $BROWSER, before Cobra parses the URL or anything prints.
 func (a *IdsecKubectlLoginAction) DefineAction(cmd *cobra.Command) {
+	if k8sazurehelper.IsAzureBrowserHelperInvocation(os.Args[1:]) {
+		os.Exit(k8sazurehelper.RunAzureBrowserHelper(os.Args[1:]))
+	}
+	k8sazurehelper.EnableAzureBrowserHint()
+
 	if elevateCmd := findNestedCommand(cmd, "exec", "sca", "k8s", "elevate"); elevateCmd != nil {
 		elevateCmd.Hidden = true
 		elevateCmd.SilenceUsage = true
@@ -320,7 +335,7 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 		Targets: []k8smodels.IdsecSCAK8sEvaluateTarget{{FQDN: clusterFQDN}},
 	}, cspUpper)
 	if err != nil {
-		exitErr(fmt.Sprintf("eligibility evaluation failed: %v", err))
+		exitErr(VersionMismatchHint(fmt.Sprintf("eligibility evaluation failed: %v", err)))
 	}
 	kubectlLoginVerboseDuration("EvaluateEligibility API call", evaluateStartedAt)
 	logEvalVerbose := func(results []k8smodels.IdsecSCAK8sEvaluateResult) {
@@ -342,32 +357,15 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 				i, fqdn, r.Role.ID, r.ConnectionMethod)
 		}
 	}
-	if len(evalResp.Response) == 0 {
-		logEvalVerbose(evalResp.Response)
-		exitErr("Cluster not found in eligibility evaluation.")
-	}
-
 	logEvalVerbose(evalResp.Response)
 
 	evalMatchStartedAt := time.Now()
-	evalResult := findMatchingEvalResult(evalResp.Response, clusterFQDN, roleID, namespace)
-	if evalResult == nil {
-		if strings.TrimSpace(namespace) != "" {
-			exitErr(fmt.Sprintf(
-				"user is not eligible for target (no evaluate result matched fqdn=%q roleId=%q namespace=%q)",
-				clusterFQDN, roleID, namespace,
-			))
-		}
-		exitErr(fmt.Sprintf("user is not eligible for target (no evaluate result matched fqdn=%q roleId=%q)", clusterFQDN, roleID))
+	if errMsg := matchEvalOrActiveSession(req, evalResp.Response); errMsg != "" {
+		exitErr(errMsg)
 	}
 	kubectlLoginVerboseDuration("Evaluate result match", evalMatchStartedAt)
 
-	// Always capture cluster CA from evaluate (direct and proxy). Azure / AWS IDC
-	// proxy flows encrypt it into the DPA JWE as root_ca for proxy→cluster mTLS.
-	req.cluster.RootCA = strings.TrimSpace(evalResult.CertificateData)
-
-	connectionMethod := strings.ToLower(strings.TrimSpace(evalResult.ConnectionMethod))
-	kubectlLoginInfo("eligibility match: connectionMethod=%q", connectionMethod)
+	connectionMethod := req.connectionMethod
 
 	var execCred *k8smodels.IdsecSCAK8sExecCredential
 
@@ -387,7 +385,7 @@ func (a *IdsecKubectlLoginAction) runKubectlLoginAction(cmd *cobra.Command, _ []
 		kubectlLoginVerboseDuration("proxy flow", flowStartedAt)
 
 	default:
-		exitErr(fmt.Sprintf("Unsupported or undefined connection method: %q", evalResult.ConnectionMethod))
+		exitErr(fmt.Sprintf("Unsupported or undefined connection method: %q", connectionMethod))
 	}
 
 	a.saveUnifiedExecCredential(cmd, req, connectionMethod, execCred)
@@ -529,6 +527,70 @@ func findMatchingEvalResult(results []k8smodels.IdsecSCAK8sEvaluateResult, fqdn,
 	return nil
 }
 
+// matchEvalOrActiveSession falls back to a valid cached Elevate entry when
+// EvaluateEligibility no longer returns the target so an active session runs to sessionExpTime.
+func matchEvalOrActiveSession(
+	req *kubectlLoginRequest,
+	results []k8smodels.IdsecSCAK8sEvaluateResult,
+) string {
+	clusterFQDN := req.cluster.FQDN
+	roleID := req.cluster.RoleID
+	namespace := req.cluster.Namespace
+
+	if evalResult := findMatchingEvalResult(results, clusterFQDN, roleID, namespace); evalResult != nil {
+		req.cluster.RootCA = strings.TrimSpace(evalResult.CertificateData)
+		req.connectionMethod = normalizeConnectionMethod(evalResult.ConnectionMethod)
+		kubectlLoginInfo("eligibility match: connectionMethod=%q", req.connectionMethod)
+		return ""
+	}
+
+	notEligibleMsg := notEligibleMessage(results, clusterFQDN, roleID, namespace)
+
+	entry, hitReason, missReason, err := loadCachedElevateEntry(
+		req.session.profileName, req.cluster.CSP, roleID, clusterFQDN,
+		req.session.userUUID, req.resolvedNamespace(), req.session.sessionID,
+	)
+	if err != nil {
+		kubectlLoginVerbose("elevate cache read failed during not-eligible fallback: %v", err)
+	}
+	if entry == nil || strings.TrimSpace(entry.ConnectionMethod) == "" {
+		if missReason != "" {
+			kubectlLoginVerbose("no active session to continue after evaluate miss (%s)", missReason)
+		} else if entry != nil {
+			kubectlLoginVerbose("no active session to continue after evaluate miss (cached entry missing connectionMethod)")
+		}
+		return notEligibleMsg
+	}
+	if k8sservice.IsAWSIDCPermissionSetRole(entry.ElevateResult.RoleID) {
+		if vErr := k8sservice.ValidateAWSIDCDeviceRegistration(entry.ElevateResult); vErr != nil {
+			kubectlLoginVerbose("cached Elevate result failed AWS IDC validation during not-eligible fallback (%v)", vErr)
+			return notEligibleMsg
+		}
+	}
+
+	req.connectionMethod = normalizeConnectionMethod(entry.ConnectionMethod)
+	req.cluster.RootCA = strings.TrimSpace(entry.CertificateData)
+	req.activeSessionNotEligibleMsg = notEligibleMsg
+	if exp, expErr := deriveElevateExpiry(entry.ElevateResult); expErr == nil {
+		kubectlLoginWarning("not eligible for a new session; continuing current session until %s",
+			exp.Local().Format("2006-01-02 15:04 MST"))
+	} else {
+		kubectlLoginWarning("not eligible for a new session; continuing current session")
+	}
+	kubectlLoginVerbose("continuing active session from cache: connectionMethod=%q (%s)", req.connectionMethod, hitReason)
+	return ""
+}
+
+// activeSessionRenewalRefused reports whether Elevate returned no session while
+// continuing an active session, i.e. the server no longer holds it and ran a full,
+// eligibility-checked elevation instead (revoked, expired, or evicted).
+func activeSessionRenewalRefused(req *kubectlLoginRequest, results []k8smodels.IdsecSCAK8sElevateResult) bool {
+	if req.activeSessionNotEligibleMsg == "" {
+		return false
+	}
+	return len(results) == 0 || strings.TrimSpace(results[0].SessionID) == ""
+}
+
 // resolveElevateResult returns cached Elevate data or calls the API, plus a
 // concrete Elevate expiry bound derived from sessionExpTime. Fails the process
 // if the Elevate API response is missing sessionExpTime.
@@ -591,7 +653,7 @@ func (a *IdsecKubectlLoginAction) resolveElevateResult(
 		Namespace:      req.cluster.Namespace,
 	})
 	if err != nil {
-		exitErr(fmt.Sprintf("elevate API call failed: %v", err))
+		exitErr(VersionMismatchHint(fmt.Sprintf("elevate API call failed: %v", err)))
 	}
 	if len(elevateResp.Response.Results) == 0 {
 		exitErr("elevate API returned no results for the requested cluster/role")
@@ -618,7 +680,11 @@ func (a *IdsecKubectlLoginAction) resolveElevateResult(
 	kubectlLoginVerbose("elevate succeeded — sessionId=%q sessionExpTime=%s targetId=%q",
 		elevateResult.SessionID, elevateExp.UTC().Format(time.RFC3339), elevateResult.TargetID)
 
-	if saveErr := SaveElevateCreds(req.session.profileName, req.cluster.CSP, req.cluster.RoleID, req.cluster.FQDN, req.session.userUUID, namespace, req.session.sessionID, elevateResult); saveErr != nil {
+	if saveErr := SaveElevateCreds(
+		req.session.profileName, req.cluster.CSP, req.cluster.RoleID, req.cluster.FQDN,
+		req.session.userUUID, namespace, req.session.sessionID, elevateResult,
+		req.evalContext(),
+	); saveErr != nil {
 		kubectlLoginWarning("failed to cache Elevate result (next run will call Elevate API again): %v", saveErr)
 	} else {
 		kubectlLoginVerbose("cached Elevate result")
@@ -808,7 +874,12 @@ func (a *IdsecKubectlLoginAction) runAWSIAMDirectFlow(
 				kubectlLoginVerbose("cleared elevate cache after Elevate API error (sessionId may have been revoked)")
 			}
 		}
-		exitErr(fmt.Sprintf("elevate API call failed: %v", err))
+		exitErr(VersionMismatchHint(fmt.Sprintf("elevate API call failed: %v", err)))
+	}
+	if activeSessionRenewalRefused(req, elevateResp.Response.Results) {
+		deleteSessionScopedCachesByKey(elevateCacheKey)
+		kubectlLoginVerbose("elevate returned no session while continuing an active session — cleared session caches")
+		exitErr(req.activeSessionNotEligibleMsg)
 	}
 	if len(elevateResp.Response.Results) == 0 {
 		exitErr("elevate API returned no results for the requested cluster/role")
@@ -839,6 +910,7 @@ func (a *IdsecKubectlLoginAction) runAWSIAMDirectFlow(
 	if saveErr := SaveElevateCreds(
 		req.session.profileName, req.cluster.CSP, req.cluster.RoleID, req.cluster.FQDN,
 		req.session.userUUID, namespace, req.session.sessionID, elevateResult,
+		req.evalContext(),
 	); saveErr != nil {
 		kubectlLoginWarning("failed to cache Elevate result (next run will call Elevate API without sessionId): %v", saveErr)
 	} else {

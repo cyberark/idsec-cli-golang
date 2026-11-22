@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	commonargs "github.com/cyberark/idsec-cli-golang/pkg/common/args"
+	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 )
 
 func TestNewIdsecQueryAction(t *testing.T) {
@@ -339,5 +341,40 @@ func TestIdsecQueryAction_runQueryAction_BadArg(t *testing.T) {
 				t.Fatalf("expected *ExitCodeError, got %v", err)
 			}
 		})
+	}
+}
+
+func TestRunQueryAction_NonInteractiveStdinTTY(t *testing.T) {
+	// NOT t.Parallel() — mutates globals.
+	config.DisableInteractive()
+	defer config.EnableInteractive()
+
+	orig := commonargs.IsStdinTTY
+	t.Cleanup(func() { commonargs.IsStdinTTY = orig })
+	commonargs.IsStdinTTY = func() bool { return true }
+
+	action := NewIdsecQueryAction()
+	cmd := &cobra.Command{}
+	cmd.Flags().String("path", "", "")
+	cmd.Flags().String("query", "", "")
+	cmd.Flags().Bool("null-input", false, "")
+	cmd.Flags().Bool("raw", false, "")
+	registerQueryVarFlags(cmd.Flags())
+	_ = cmd.Flags().Set("query", ".")
+
+	// Valid JSON is waiting on stdin, so without the guard the query would
+	// succeed; only the guard can turn this into a failure.
+	var err error
+	var stderr string
+	withStdin(t, `{"a":1}`, func() {
+		stderr = withCapturedStderr(func() { err = action.runQueryAction(cmd, []string{}) })
+	})
+
+	var exitErr *ExitCodeError
+	if !errors.As(err, &exitErr) || exitErr.Code != 1 {
+		t.Fatalf("expected exit code 1 when stdin is a TTY in non-interactive mode, got %v", err)
+	}
+	if !strings.Contains(stderr, "idsec: missing_required_input flag=--path\n") {
+		t.Errorf("expected missing_required_input token on stderr, got %q", stderr)
 	}
 }

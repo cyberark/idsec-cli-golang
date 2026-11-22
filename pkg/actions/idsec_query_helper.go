@@ -9,6 +9,7 @@ import (
 
 	"github.com/itchyny/gojq"
 	"github.com/spf13/pflag"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
 )
 
@@ -40,22 +41,52 @@ func parseQueryVars(argPairs, argjsonPairs []string) ([]queryVar, error) {
 	for _, p := range argPairs {
 		name, value, ok := strings.Cut(p, "=")
 		if !ok || !queryVarNamePattern.MatchString(name) {
-			return nil, fmt.Errorf("invalid --arg %q, expected name=value with a valid variable name", p)
+			return nil, invalidQueryVar("arg", "invalid --arg, expected name=value with a valid variable name",
+				fmt.Errorf("invalid --arg %q, expected name=value with a valid variable name", p))
 		}
 		vars = append(vars, queryVar{name: name, value: value})
 	}
 	for _, p := range argjsonPairs {
 		name, raw, ok := strings.Cut(p, "=")
 		if !ok || !queryVarNamePattern.MatchString(name) {
-			return nil, fmt.Errorf("invalid --argjson %q, expected name=json with a valid variable name", p)
+			return nil, invalidQueryVar("argjson", "invalid --argjson, expected name=json with a valid variable name",
+				fmt.Errorf("invalid --argjson %q, expected name=json with a valid variable name", p))
 		}
 		var value any
 		if err := json.Unmarshal([]byte(raw), &value); err != nil {
-			return nil, fmt.Errorf("invalid JSON for --argjson %s: %w", name, err)
+			return nil, invalidQueryVar("argjson", "invalid JSON value for --argjson",
+				fmt.Errorf("invalid JSON for --argjson %s: %w", name, err))
 		}
 		vars = append(vars, queryVar{name: name, value: value})
 	}
 	return vars, nil
+}
+
+// invalidQueryVar marks a bad --arg/--argjson binding. err quotes the binding,
+// which may hold a secret, so the envelope gets the fixed safeMsg instead.
+func invalidQueryVar(flag, safeMsg string, err error) error {
+	return agentmode.NewFailure(agentmode.CodeInvalidInput, err,
+		agentmode.WithRedactedMessage(safeMsg),
+		agentmode.WithDetail("kind", agentmode.KindInvalidValue),
+		agentmode.WithDetail("flag", flag))
+}
+
+// invalidQueryMessages are the envelope messages per jq stage. gojq errors
+// quote the expression and, at run time, values from the input data.
+var invalidQueryMessages = map[string]string{
+	"parse":   "invalid jq query: parse error; see stderr for details",
+	"compile": "invalid jq query: compile error; see stderr for details",
+	"run":     "jq query failed at run time; see stderr for details",
+}
+
+// invalidQuery marks a jq failure at stage parse, compile or run.
+func invalidQuery(stage string, err error) error {
+	return agentmode.NewFailure(agentmode.CodeInvalidInput, err,
+		agentmode.WithRedactedMessage(invalidQueryMessages[stage]),
+		agentmode.WithDetail("kind", agentmode.KindInvalidQuery),
+		agentmode.WithDetail("flag", "query"),
+		agentmode.WithDetail("stage", stage),
+		agentmode.WithHint(hintInvalidQuery))
 }
 
 // queryVar binds a jq variable (referenced as $name in the expression) to a
@@ -67,6 +98,64 @@ type queryVar struct {
 	name string
 	// value is the bound value: a string for --arg, or parsed JSON for --argjson.
 	value any
+}
+
+// compileGojqQuery round-trips input through JSON, parses and compiles query,
+// and returns the compiled code with the plain input tree and the variable
+// values to pass to code.Run. It is the shared setup of applyGojqQuery (human
+// path, prints as it goes) and runGojqQuery (agent path, collects results).
+func compileGojqQuery(input any, query string, vars ...queryVar) (*gojq.Code, any, []any, error) {
+	serialized, err := json.Marshal(input)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to serialize output for query: %w", err)
+	}
+	var parsed interface{}
+	if err := json.Unmarshal(serialized, &parsed); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to parse output for query: %w", err)
+	}
+	q, err := gojq.Parse(query)
+	if err != nil {
+		return nil, nil, nil, invalidQuery("parse", fmt.Errorf("invalid jq query %q: %w", query, err))
+	}
+
+	names := make([]string, len(vars))
+	values := make([]any, len(vars))
+	for i, v := range vars {
+		names[i] = "$" + v.name
+		values[i] = v.value
+	}
+
+	code, err := gojq.Compile(q,
+		gojq.WithVariables(names),
+		gojq.WithEnvironLoader(os.Environ),
+	)
+	if err != nil {
+		return nil, nil, nil, invalidQuery("compile", fmt.Errorf("failed to compile jq query: %w", err))
+	}
+	return code, parsed, values, nil
+}
+
+// runGojqQuery evaluates query against input and returns every result without
+// printing anything, so a run-time failure leaves stdout untouched. Errors are
+// the same invalidQuery failures applyGojqQuery returns.
+func runGojqQuery(input any, query string, vars ...queryVar) ([]any, error) {
+	code, parsed, values, err := compileGojqQuery(input, query, vars...)
+	if err != nil {
+		return nil, err
+	}
+	results := []any{}
+	it := code.Run(parsed, values...)
+	for {
+		v, ok := it.Next()
+		if !ok {
+			break
+		}
+		if queryErr, ok := v.(error); ok {
+			return nil, invalidQuery("run", fmt.Errorf("query failed: %w", queryErr))
+		}
+		results = append(results, v)
+	}
+	return results, nil
 }
 
 // applyGojqQuery applies a jq expression to input and prints each result as
@@ -93,32 +182,9 @@ type queryVar struct {
 // because query expressions are program constants and user-supplied values are
 // bound through vars rather than interpolated.
 func applyGojqQuery(input any, query string, raw bool, vars ...queryVar) error {
-	serialized, err := json.Marshal(input)
+	code, parsed, values, err := compileGojqQuery(input, query, vars...)
 	if err != nil {
-		return fmt.Errorf("failed to serialize output for query: %w", err)
-	}
-	var parsed interface{}
-	if err := json.Unmarshal(serialized, &parsed); err != nil {
-		return fmt.Errorf("failed to parse output for query: %w", err)
-	}
-	q, err := gojq.Parse(query)
-	if err != nil {
-		return fmt.Errorf("invalid jq query %q: %w", query, err)
-	}
-
-	names := make([]string, len(vars))
-	values := make([]any, len(vars))
-	for i, v := range vars {
-		names[i] = "$" + v.name
-		values[i] = v.value
-	}
-
-	code, err := gojq.Compile(q,
-		gojq.WithVariables(names),
-		gojq.WithEnvironLoader(os.Environ),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to compile jq query: %w", err)
+		return err
 	}
 	iter := code.Run(parsed, values...)
 	for {
@@ -127,7 +193,7 @@ func applyGojqQuery(input any, query string, raw bool, vars ...queryVar) error {
 			break
 		}
 		if queryErr, ok := v.(error); ok {
-			return fmt.Errorf("query failed: %w", queryErr)
+			return invalidQuery("run", fmt.Errorf("query failed: %w", queryErr))
 		}
 		if raw {
 			if s, ok := v.(string); ok {

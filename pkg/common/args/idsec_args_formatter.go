@@ -6,9 +6,13 @@
 package args
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"slices"
+	"strings"
+	"sync/atomic"
 
 	survey "github.com/Iilun/survey/v2"
 	"github.com/fatih/color"
@@ -16,6 +20,30 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 )
+
+// ErrMissingRequiredInput is the sentinel returned (and matched via errors.Is)
+// when a required flag is absent in non-interactive mode.
+var ErrMissingRequiredInput = errors.New("missing_required_input")
+
+// MissingRequiredInputError carries the flag name for structured handling.
+type MissingRequiredInputError struct{ Flag string }
+
+func (e *MissingRequiredInputError) Error() string {
+	return fmt.Sprintf("flag --%s is required but was not provided", e.Flag)
+}
+func (e *MissingRequiredInputError) Is(target error) bool {
+	return target == ErrMissingRequiredInput
+}
+
+func missingInputError(key string) error { return &MissingRequiredInputError{Flag: key} }
+
+// NewMissingRequiredInputError creates a MissingRequiredInputError for the given flag name.
+// Use this in pkg/actions to produce the same error for --yes.
+func NewMissingRequiredInputError(key string) error { return missingInputError(key) }
+
+// askOne is the survey prompt function used by all interactive helpers.
+// It is a var so tests can stub it with a tripwire to prove no prompt is reached.
+var askOne = survey.AskOne
 
 // ColorText colors the given text using the specified color.
 //
@@ -137,7 +165,22 @@ func PrintSuccessBright(text any) {
 //
 //	PrintFailure("Authentication failed")
 func PrintFailure(text any) {
+	if observer := failureObserver.Load(); observer != nil {
+		(*observer)(fmt.Sprintf("%s", text))
+	}
 	fprintColored(os.Stderr, text, stderrColor(color.New(color.FgRed)))
+}
+
+var failureObserver atomic.Pointer[func(string)]
+
+// SetFailureObserver registers fn to receive the uncolored text of every
+// PrintFailure call; nil removes it.
+func SetFailureObserver(fn func(string)) {
+	if fn == nil {
+		failureObserver.Store(nil)
+		return
+	}
+	failureObserver.Store(&fn)
 }
 
 // PrintWarning prints the given text in yellow color to stderr.
@@ -229,13 +272,19 @@ func GetArg(cmd *cobra.Command, key string, prompt string, existingVal string, h
 	if emptyValueAllowed {
 		prompt = fmt.Sprintf("%s <Optional>", prompt)
 	}
+	if !config.IsInteractive() {
+		if val == "" && !emptyValueAllowed {
+			return "", missingInputError(key)
+		}
+		return val, nil
+	}
 	var answer string
 	for {
 		if hidden {
 			promptInput := &survey.Password{
 				Message: prompt,
 			}
-			err := survey.AskOne(promptInput, &answer)
+			err := askOne(promptInput, &answer)
 			if err != nil {
 				return "", err
 			}
@@ -244,7 +293,7 @@ func GetArg(cmd *cobra.Command, key string, prompt string, existingVal string, h
 				Message: prompt,
 				Default: val,
 			}
-			err := survey.AskOne(promptInput, &answer)
+			err := askOne(promptInput, &answer)
 			if err != nil {
 				return "", err
 			}
@@ -286,6 +335,8 @@ func GetArg(cmd *cobra.Command, key string, prompt string, existingVal string, h
 //	    nil,
 //	    false,
 //	)
+//
+// Do not use for destructive confirmations; use GetConfirmation instead.
 func GetBoolArg(cmd *cobra.Command, key, prompt string, existingVal *bool, prioritizeExistingVal bool) (bool, error) {
 	val := false
 	if newVal, err := cmd.Flags().GetBool(key); err == nil {
@@ -293,6 +344,9 @@ func GetBoolArg(cmd *cobra.Command, key, prompt string, existingVal *bool, prior
 	}
 	if prioritizeExistingVal && existingVal != nil {
 		val = *existingVal
+	}
+	if !config.IsInteractive() {
+		return val, nil
 	}
 	options := []string{"Yes", "No"}
 	defaultOption := "No"
@@ -307,7 +361,7 @@ func GetBoolArg(cmd *cobra.Command, key, prompt string, existingVal *bool, prior
 		Default: defaultOption,
 	}
 
-	err := survey.AskOne(promptSelect, &answer)
+	err := askOne(promptSelect, &answer)
 	if err != nil {
 		return false, err
 	}
@@ -354,6 +408,15 @@ func GetSwitchArg(cmd *cobra.Command, key, prompt string, possibleVals []string,
 	if prioritizeExistingVal && existingVal != "" {
 		val = existingVal
 	}
+	if !config.IsInteractive() {
+		if val == "" {
+			return "", missingInputError(key)
+		}
+		if !slices.Contains(possibleVals, val) {
+			return "", fmt.Errorf("invalid value %q for --%s: must be one of %s", val, key, strings.Join(possibleVals, ", "))
+		}
+		return val, nil
+	}
 	var answer string
 	promptSelect := &survey.Select{
 		Message: prompt,
@@ -361,7 +424,7 @@ func GetSwitchArg(cmd *cobra.Command, key, prompt string, possibleVals []string,
 		Default: val,
 	}
 
-	err := survey.AskOne(promptSelect, &answer)
+	err := askOne(promptSelect, &answer)
 	if err != nil {
 		return "", err
 	}
@@ -412,6 +475,21 @@ func GetCheckboxArgs(cmd *cobra.Command, keys []string, prompt string, possibleV
 		}
 	}
 
+	if !config.IsInteractive() {
+		seen := map[string]bool{}
+		out := []string{}
+		for _, v := range vals {
+			if v == "" || seen[v] {
+				continue
+			}
+			seen[v] = true
+			if !slices.Contains(possibleVals, v) {
+				return nil, fmt.Errorf("invalid value %q for checkbox arg: must be one of %s", v, strings.Join(possibleVals, ", "))
+			}
+			out = append(out, v)
+		}
+		return out, nil
+	}
 	selectedVals := []string{}
 	promptMultiSelect := &survey.MultiSelect{
 		Message: prompt,
@@ -419,10 +497,27 @@ func GetCheckboxArgs(cmd *cobra.Command, keys []string, prompt string, possibleV
 		Default: vals,
 	}
 
-	err := survey.AskOne(promptMultiSelect, &selectedVals)
+	err := askOne(promptMultiSelect, &selectedVals)
 	if err != nil {
 		return nil, err
 	}
 
 	return selectedVals, nil
+}
+
+// GetConfirmation returns (true, nil) when the action may proceed.
+// It checks the --yes flag first. In non-interactive mode without --yes it
+// returns (false, MissingRequiredInputError{Flag: yesKey}) so callers can
+// print the machine-readable line and exit non-zero.
+// Use this for ALL destructive confirmations; do NOT use GetBoolArg.
+func GetConfirmation(cmd *cobra.Command, yesKey string, prompt string) (bool, error) {
+	if yes, err := cmd.Flags().GetBool(yesKey); err == nil && yes {
+		return true, nil
+	}
+	if !config.IsInteractive() {
+		return false, missingInputError(yesKey)
+	}
+	confirm := false
+	err := askOne(&survey.Confirm{Message: prompt}, &confirm)
+	return confirm, err
 }

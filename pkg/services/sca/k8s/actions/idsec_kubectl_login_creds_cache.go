@@ -47,8 +47,16 @@ const (
 )
 
 type cachedElevateCreds struct {
-	ElevateResult *k8smodels.IdsecSCAK8sElevateResult `json:"elevateResult"`
-	SavedAt       time.Time                           `json:"savedAt"`
+	ElevateResult    *k8smodels.IdsecSCAK8sElevateResult `json:"elevateResult"`
+	SavedAt          time.Time                           `json:"savedAt"`
+	ConnectionMethod string                              `json:"connectionMethod,omitempty"`
+	CertificateData  string                              `json:"certificateData,omitempty"`
+}
+
+// elevateEvalContext preserves evaluate metadata needed to continue an active session when evaluate misses.
+type elevateEvalContext struct {
+	ConnectionMethod string
+	CertificateData  string
 }
 
 // cachedAWSOIDCAccessToken stores the SSO OIDC access token (and refresh token)
@@ -690,9 +698,8 @@ func parseSessionExpTime(raw string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unrecognized time format %q", raw)
 }
 
-// LoadCachedElevateKeyringWithReason loads cached Elevate JSON from the keyring.
-// Cache validity is determined solely by sessionExpTime from the API response.
-func LoadCachedElevateKeyringWithReason(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID string) (result *k8smodels.IdsecSCAK8sElevateResult, hitReason, missReason string, err error) {
+// loadCachedElevateEntry loads the cached Elevate entry and purges expired or corrupt entries on read.
+func loadCachedElevateEntry(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID string) (entry *cachedElevateCreds, hitReason, missReason string, err error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, "", "missing sessionID (cache disabled)", nil
 	}
@@ -724,7 +731,17 @@ func LoadCachedElevateKeyringWithReason(profileName, csp, roleID, fqdn, userUUID
 		return nil, "", reason, nil
 	}
 
-	return cached.ElevateResult, reason, "", nil
+	return &cached, reason, "", nil
+}
+
+// LoadCachedElevateKeyringWithReason loads cached Elevate JSON from the keyring.
+// Cache validity is determined solely by sessionExpTime from the API response.
+func LoadCachedElevateKeyringWithReason(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID string) (result *k8smodels.IdsecSCAK8sElevateResult, hitReason, missReason string, err error) {
+	entry, hitReason, missReason, err := loadCachedElevateEntry(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID)
+	if entry == nil {
+		return nil, hitReason, missReason, err
+	}
+	return entry.ElevateResult, hitReason, missReason, err
 }
 
 func saveUnifiedExecCredentialEntry(impl idseckeyring.IdsecKeyringImpl, key string, cached cachedExecCredential) error {
@@ -736,11 +753,21 @@ func saveUnifiedExecCredentialEntry(impl idseckeyring.IdsecKeyringImpl, key stri
 }
 
 func deleteUnifiedExecCredentialByKey(key string) {
-	if impl, err := krExecCred.get(); err == nil {
+	for _, impl := range cacheServiceBackends(execCredCredsServiceName) {
 		_ = impl.DeletePassword(execCredCredsServiceName, key)
 	}
-	if basicImpl, err := krExecCredBasic.get(); err == nil {
-		_ = basicImpl.DeletePassword(execCredCredsServiceName, key)
+}
+
+// deleteSessionScopedCachesByKey removes the elevate, exec-credential and
+// AWS IDC OIDC entries for a single cluster+role key across every backend.
+// Unlike purgeUserCacheEntries (which sweeps all entries for a user), this
+// targets only the one key so other cluster caches stay warm.
+// Used by the parent-PID probable-401 path.
+func deleteSessionScopedCachesByKey(key string) {
+	for _, service := range scaK8sSessionScopedCacheServices {
+		for _, impl := range cacheServiceBackends(service) {
+			_ = impl.DeletePassword(service, key)
+		}
 	}
 }
 
@@ -820,7 +847,7 @@ func LoadUnifiedExecCredential(
 		// A repeated request from the same kubectl process for an unexpired entry is
 		// the strongest signal we have, so purge and let the cold path regenerate.
 		if cached.LastServedParentPID == kubectlParentPID {
-			deleteUnifiedExecCredentialByKey(key)
+			deleteSessionScopedCachesByKey(key)
 			return nil, "", fmt.Sprintf(
 				"probable 401 refresh: same kubectl parent process requested unexpired cached credential again (parentPID=%d); forcing cold path",
 				kubectlParentPID,
@@ -919,7 +946,7 @@ func DeleteUnifiedExecCredential(profileName, csp, roleID, fqdn, userUUID, names
 }
 
 // SaveElevateCreds writes Elevate result JSON to the keyring.
-func SaveElevateCreds(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID string, result *k8smodels.IdsecSCAK8sElevateResult) error {
+func SaveElevateCreds(profileName, csp, roleID, fqdn, userUUID, namespace, sessionID string, result *k8smodels.IdsecSCAK8sElevateResult, evalCtx ...elevateEvalContext) error {
 	if strings.TrimSpace(sessionID) == "" {
 		return fmt.Errorf("cannot cache elevate result: sessionID is empty")
 	}
@@ -931,9 +958,16 @@ func SaveElevateCreds(profileName, csp, roleID, fqdn, userUUID, namespace, sessi
 		return fmt.Errorf("failed to open credential cache: %w", err)
 	}
 
+	var ctx elevateEvalContext
+	if len(evalCtx) > 0 {
+		ctx = evalCtx[0]
+	}
+
 	data, err := json.Marshal(cachedElevateCreds{
-		ElevateResult: result,
-		SavedAt:       time.Now().UTC(),
+		ElevateResult:    result,
+		SavedAt:          time.Now().UTC(),
+		ConnectionMethod: normalizeConnectionMethod(ctx.ConnectionMethod),
+		CertificateData:  strings.TrimSpace(ctx.CertificateData),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal cached creds: %w", err)

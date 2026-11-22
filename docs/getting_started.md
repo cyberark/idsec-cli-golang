@@ -51,6 +51,43 @@ $env:Path += ";$(go env GOPATH)\bin"
 
 This lasts for the current session only. To keep it, add the same directory to PATH under System Properties > Environment Variables.
 
+### Docker
+
+Multi-arch images (`linux/amd64` and `linux/arm64`) are published to Docker Hub at [`cyberark/idsec-cli-golang`](https://hub.docker.com/r/cyberark/idsec-cli-golang). Each release pushes a multi-arch manifest list and moves the per-arch tags to the new build:
+
+| Tag | What it resolves to |
+| :--- | :--- |
+| `<version>` | Multi-arch manifest list pinned to that release — Docker auto-selects the matching arch |
+| `latest` | Multi-arch manifest list pointing at the most recent release |
+| `amd64` | Single-platform `linux/amd64` image of the most recent build |
+| `arm64` | Single-platform `linux/arm64` image of the most recent build |
+
+Pin a specific version for reproducible installs — Docker picks the right architecture automatically:
+
+```shell linenums="0"
+docker pull cyberark/idsec-cli-golang:<version>   # e.g. 1.2.3
+```
+
+If you need to force a specific architecture (for example, running the amd64 image under emulation on Apple Silicon, or pulling for an air-gapped target host), use either `--platform` or the per-arch tag (note: the per-arch tags always track the latest build, not a specific version):
+
+```shell linenums="0"
+docker pull --platform linux/amd64 cyberark/idsec-cli-golang:<version>
+# or pull the per-arch tag directly (always the latest build)
+docker pull cyberark/idsec-cli-golang:arm64
+```
+
+The image's `ENTRYPOINT` is `idsec` and its working directory is `/data`, so files in the directory you launch from are reachable as `./<filename>`. Mount `~/.idsec` to persist profiles and the keyring between runs:
+
+```shell linenums="0"
+docker run --rm -it \
+  -v "$(pwd):/data" \
+  -v "$HOME/.idsec:/idsec" \
+  cyberark/idsec-cli-golang:<version> \
+  configure
+```
+
+Mounting the whole `/idsec` path matters: the cached credentials are encrypted under key material the image keeps beside them, under `/idsec/keys`, and a cache that outlives the key protecting it cannot be read, so mounting only part of the path means logging in again on every run.
+
 ## CLI Usage
 
 The CLI supports [profiles](howto/working_with_profiles.md), which can be configured as needed and used for consecutive actions.

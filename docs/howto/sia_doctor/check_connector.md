@@ -84,6 +84,7 @@ idsec sia doctor check-connector \
 
 ### Read IDs from connector machines via SSH
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check-connector --connector-machines '[
   {
@@ -103,6 +104,7 @@ idsec sia doctor check-connector --connector-machines '[
 
 ### Read IDs from a Windows connector machine via WinRM
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check-connector --connector-machines '[
   {
@@ -117,6 +119,7 @@ idsec sia doctor check-connector --connector-machines '[
 
 ### Mix: explicit IDs and machines
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check-connector \
   --connector-ids '["CMSConnector_abc123"]' \

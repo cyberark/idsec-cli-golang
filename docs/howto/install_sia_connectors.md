@@ -8,8 +8,8 @@ Here is an example workflow for installing a connector on a linux or windows box
 
 1. Create a network and connector pool:
     ```shell linenums="0"
-    idsec cmgr add-network --name mynetwork
-    idsec cmgr add-pool --name mypool --assigned-network-ids mynetwork_id
+    idsec cmgr networks create --name mynetwork
+    idsec cmgr pools create --name mypool --assigned-network-ids mynetwork_id
     ```
 1. Install a connector:
        * Windows:

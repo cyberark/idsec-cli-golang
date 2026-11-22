@@ -16,53 +16,26 @@ Use the `exec` command to run commands on available services (the available serv
     | `idsec exec sia sso short-lived-password` | `idsec sia sso short-lived-password` |
     | `idsec exec pcloud safes create --safe-name=safe` | `idsec pcloud safes create --safe-name=safe` |
 
-## SIA services
+## Available services
 
-The following SIA commands are supported:
+The following services are supported (the available services depend on the authorized user's account):
 
-- `idsec sia`: Root command for the SIA service (aliases: dpa)
-    - `sso` - SSO end-user operations
-    - `k8s` - Kubernetes service
-    - `db` - DB service
-    - `workspaces` - Workspaces service
-      - `target-sets` - Target sets operations
-      - `db` - Database operations
-    - `secrets` - Secrets service
-      - `vm` - VM operations
-      - `db` - Database operations
-    - `access` - Access service
-    - `ssh-ca` - SSH CA key service
-    - `shortened-connection-string` - Shortened connection string service
-    - `settings` - Settings service
-    - `certificates` - Certificates service
-- `idsec cmgr`: Root command for the CMGR service (aliases: connectormanager,cm)
-- `idsec pcloud`: Root command for PCloud service (aliases: privilegecloud,pc)
-    - `accounts` - Accounts management
-    - `safes` - Safes management
-    - `platforms` - Platforms management
-    - `applications` - Applications management
-- `idsec identity`: Root command for the Identity service (aliases: idaptive,id)
-    - `directories` - Directories management
-    - `users` - Users management
-    - `roles` - Roles management
-    - `auth-profiles` - Auth profiles management
-    - `policies` - Policies management
--  `idsec sechub`: Root command for the Secrets Hub Service (aliases: secretshub,sh)
-    - `configuration` - Configuration management
-    - `service-info` - Service Info management
-    - `secrets` - Secrets management
-    - `scans` - Scans management
-    - `secret-stores` - Secret Stores management
-    - `sync-policies` - Sync Policies management
-- `idsec sm`: Root command for the SM service (aliases: sessionmonitoring)
-- `idsec policy`: Root command for the Policy service (aliases: accesspolicies, acp)
-    - `cloud-access` - Cloud Console management
-    - `db` - SIA DB management
-    - `vm` - SIA VM management
+| Service | Aliases | Description |
+|---------|---------|-------------|
+| `idsec cmgr` | `connectormanager`, `cm` | Connector Manager service |
+| `idsec identity` | `idaptive`, `id` | Identity service |
+| `idsec pcloud` | `privilegecloud`, `pc` | Privilege Cloud service |
+| `idsec policy` | `accesspolicies`, `acp` | Access Policies service |
+| `idsec sca` | `accesssca`, `asca` | Secure Cloud Access service |
+| `idsec sechub` | `secretshub`, `sh` | Secrets Hub service |
+| `idsec sia` | `dpa` | Secure Infrastructure Access service |
+| `idsec sm` | `sessionmonitoring` | Session Monitoring service |
+| `idsec access` | | Access service |
 
-All commands have their own subcommands and respective arguments and aliases.
+Each service has its own subcommands and respective arguments. Run `idsec <service> --help` for the full list.
 
 ## Running
+<!-- idsec-example: skip reason="bare 'idsec exec' shows help text, not a service command" -->
 ```shell linenums="0"
 idsec exec
 ```
@@ -84,12 +57,16 @@ The pager controls only page boundaries and continue/quit behavior. Item renderi
 
 Paging is client-side only. The CLI still receives the SDK result and only controls interactive paging flow. When output is piped or redirected, the interactive pager is disabled and the CLI writes a JSON array so commands remain scriptable:
 
+<!-- idsec-example: skip reason="output is piped to jq; shell pipes cannot be validated with --dry-run" -->
 ```shell linenums="0"
 idsec policy cloud-access list-policies --profile-name myprofile --page-size 10 | jq '.'
 ```
 
+In agent mode (`--agent`) or silent mode (`--silent`), `--page-size` never pauses and the output is always a single JSON array, even when stdout is a terminal.
+
 Search is not built into the interactive pager. For searching or filtering, pipe the command output to tools such as `less`, `grep`, or `jq`:
 
+<!-- idsec-example: skip reason="output is piped to less; shell pipes cannot be validated with --dry-run" -->
 ```shell linenums="0"
 idsec policy cloud-access list-policies --profile-name myprofile | less
 ```
@@ -98,6 +75,7 @@ idsec policy cloud-access list-policies --profile-name myprofile | less
 
 Use `--query` to apply a [jq](https://jqlang.org) expression to the JSON output of any exec command, without requiring `jq` to be installed — the query runs in-process using [gojq](https://github.com/itchyny/gojq).
 
+<!-- idsec-example: skip reason="--query transforms dry-run JSON output; validator expects raw operation JSON" -->
 ```shell linenums="0"
 # Print just the safe name from a get-safe result
 idsec exec pcloud safes get --safe-id MySafe --query '.safeName'
@@ -119,6 +97,7 @@ When a command produces no result value (for example an action that returns noth
 
 Never interpolate a shell value into the query string — a name like `x") | .credentials, ("` would rewrite the expression (jq-program injection). Instead bind it to a jq variable and reference it as `$name`:
 
+<!-- idsec-example: skip reason="--query transforms dry-run JSON output; validator expects raw operation JSON" -->
 ```shell linenums="0"
 # Safe: the name is data, not program
 idsec exec cmgr pools list --query '.[] | select(.name == $n) | .pool_id' --arg n="$POOL_NAME"
@@ -133,6 +112,7 @@ Both flags are repeatable and take a single `name=value` token (the value is spl
 
 By default a string result is printed quoted, so the output stays valid JSON and can be piped onward. Add the common `--raw` flag to print a top-level string result unquoted, like `jq -r` — useful when capturing a single scalar into a shell variable (`--raw` also disables colored output, which keeps the captured value clean):
 
+<!-- idsec-example: skip reason="--query transforms dry-run JSON output; validator expects raw operation JSON" -->
 ```shell linenums="0"
 # Quoted (default): "pool-123"
 idsec exec cmgr pools get-by-name --name mypool --query '.pool_id'
@@ -190,6 +170,7 @@ Secret arguments (passwords, private keys, access keys, tokens, etc.) are always
 
 `--query` applies to the plan as well, so an expression can be rehearsed against a plan before the command is run for real, and a single plan field can be pulled out for a script or an assertion:
 
+<!-- idsec-example: skip reason="--query applied to --dry-run output transforms the JSON; validator expects raw operation JSON" -->
 ```shell linenums="0"
 # Which pool would this actually target?
 idsec sia access install-connector --dry-run --connector-pool-id pool-123 \
@@ -212,10 +193,12 @@ Available Commands:
   cmgr        (aliases: connectormanager, cm)
   identity    (aliases: idaptive, id)
   pcloud      (aliases: privilegecloud, pc)
+  policy      (aliases: accesspolicies, acp)
+  sca         (aliases: accesssca, asca)
   sechub      (aliases: secretshub, sh)
   sia         (aliases: dpa)
   sm          (aliases: sessionmonitoring)
-  policy      (aliases: accesspolicies, acp)
+  access
 
 Flags:
       --allow-output                Allow stdout / stderr even when silent and not interactive

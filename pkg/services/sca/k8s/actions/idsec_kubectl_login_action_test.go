@@ -2,6 +2,7 @@ package actions
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -852,5 +853,209 @@ func TestLoadISPAuthTokenForKubectlLogin_NoSessionReturnsImmediately(t *testing.
 	}
 	if elapsed > 2*time.Second {
 		t.Fatalf("expected immediate failure without session, took %s (likely attempted interactive/silent refresh)", elapsed)
+	}
+}
+
+func TestMatchEvalOrActiveSession(t *testing.T) {
+	const (
+		profileName = "test-profile"
+		csp         = "AWS"
+		roleID      = "arn:aws:iam::123456789012:role/sca-eks-role"
+		fqdn        = "https://cluster.gr7.us-east-1.eks.amazonaws.com"
+		userUUID    = "91ff5db2-24c9-4a2b-b414-ec416dfbd43f"
+		sessionID   = "sid-active-1"
+	)
+
+	newReq := func(ns, sid string) *kubectlLoginRequest {
+		return buildKubectlLoginRequest(csp, roleID, fqdn, "", ns, "", kubectlLoginSession{
+			profileName: profileName,
+			userUUID:    userUUID,
+			sessionID:   sid,
+		})
+	}
+	fqdnPtr := func(s string) *string { return &s }
+
+	cases := []struct {
+		name       string
+		namespace  string
+		reqSID     string
+		results    []k8smodels.IdsecSCAK8sEvaluateResult
+		seedCache  func(t *testing.T)
+		wantErrMsg string
+		wantMethod string
+		wantRootCA string
+		wantWarn   string
+		// wantContinued means the cached session was used in place of a missing evaluate match.
+		wantContinued bool
+		wantPurged    bool
+	}{
+		{
+			name: "eligible_match_uses_evaluate_result",
+			results: []k8smodels.IdsecSCAK8sEvaluateResult{{
+				Target:           k8smodels.IdsecSCAk8sListClustersTarget{FQDN: fqdnPtr(fqdn)},
+				Role:             k8smodels.IdsecSCAk8sListClustersRole{ID: roleID},
+				ConnectionMethod: "Direct",
+				CertificateData:  "  eval-ca-data  ",
+			}},
+			wantMethod: "direct",
+			wantRootCA: "eval-ca-data",
+		},
+		{
+			name: "zero_targets_with_valid_cached_session_continues",
+			seedCache: func(t *testing.T) {
+				exp := time.Now().UTC().Add(18 * time.Minute).Format(time.RFC3339)
+				if err := SaveElevateCreds(
+					profileName, csp, roleID, fqdn, userUUID, "", sessionID,
+					&k8smodels.IdsecSCAK8sElevateResult{SessionID: "sess-1", SessionExpTime: exp, RoleID: roleID},
+					elevateEvalContext{ConnectionMethod: "direct", CertificateData: "cached-ca-data"},
+				); err != nil {
+					t.Fatalf("SaveElevateCreds: %v", err)
+				}
+			},
+			wantMethod:    "direct",
+			wantRootCA:    "cached-ca-data",
+			wantWarn:      "not eligible for a new session; continuing current session until",
+			wantContinued: true,
+		},
+		{
+			name:      "non_matching_target_with_valid_cached_session_continues",
+			namespace: "ns-1",
+			results: []k8smodels.IdsecSCAK8sEvaluateResult{{
+				Target: k8smodels.IdsecSCAk8sListClustersTarget{FQDN: fqdnPtr(fqdn)},
+				Role:   k8smodels.IdsecSCAk8sListClustersRole{ID: "different-role"},
+			}},
+			seedCache: func(t *testing.T) {
+				exp := time.Now().UTC().Add(25 * time.Minute).Format(time.RFC3339)
+				if err := SaveElevateCreds(
+					profileName, csp, roleID, fqdn, userUUID, "ns-1", sessionID,
+					&k8smodels.IdsecSCAK8sElevateResult{SessionID: "sess-ns-1", SessionExpTime: exp, RoleID: roleID},
+					elevateEvalContext{ConnectionMethod: "proxy", CertificateData: "proxy-ca"},
+				); err != nil {
+					t.Fatalf("SaveElevateCreds: %v", err)
+				}
+			},
+			wantMethod:    "proxy",
+			wantRootCA:    "proxy-ca",
+			wantContinued: true,
+		},
+		{
+			name:       "zero_targets_without_cached_session_fails",
+			wantErrMsg: "Cluster not found in eligibility evaluation.",
+		},
+		{
+			name:      "non_matching_target_without_cached_session_fails",
+			namespace: "team-ns",
+			results: []k8smodels.IdsecSCAK8sEvaluateResult{{
+				Target: k8smodels.IdsecSCAk8sListClustersTarget{FQDN: fqdnPtr(fqdn)},
+				Role:   k8smodels.IdsecSCAk8sListClustersRole{ID: "different-role"},
+			}},
+			wantErrMsg: fmt.Sprintf("user is not eligible for target (no evaluate result matched fqdn=%q roleId=%q namespace=%q)", fqdn, roleID, "team-ns"),
+		},
+		{
+			name: "expired_cached_session_fails_and_is_purged",
+			seedCache: func(t *testing.T) {
+				pastExp := time.Now().UTC().Add(-2 * time.Minute).Format(time.RFC3339)
+				if err := SaveElevateCreds(
+					profileName, csp, roleID, fqdn, userUUID, "", sessionID,
+					&k8smodels.IdsecSCAK8sElevateResult{SessionID: "sess-expired", SessionExpTime: pastExp, RoleID: roleID},
+					elevateEvalContext{ConnectionMethod: "direct", CertificateData: "ca"},
+				); err != nil {
+					t.Fatalf("SaveElevateCreds: %v", err)
+				}
+			},
+			wantErrMsg: "Cluster not found in eligibility evaluation.",
+			wantPurged: true,
+		},
+		{
+			name: "legacy_cached_session_without_connection_method_fails",
+			seedCache: func(t *testing.T) {
+				exp := time.Now().UTC().Add(20 * time.Minute).Format(time.RFC3339)
+				if err := SaveElevateCreds(
+					profileName, csp, roleID, fqdn, userUUID, "", sessionID,
+					&k8smodels.IdsecSCAK8sElevateResult{SessionID: "sess-legacy", SessionExpTime: exp, RoleID: roleID},
+				); err != nil {
+					t.Fatalf("SaveElevateCreds: %v", err)
+				}
+			},
+			wantErrMsg: "Cluster not found in eligibility evaluation.",
+		},
+		{
+			name: "cached_session_for_other_isp_session_fails",
+			seedCache: func(t *testing.T) {
+				exp := time.Now().UTC().Add(20 * time.Minute).Format(time.RFC3339)
+				if err := SaveElevateCreds(
+					profileName, csp, roleID, fqdn, userUUID, "", "sid-other",
+					&k8smodels.IdsecSCAK8sElevateResult{SessionID: "sess-other", SessionExpTime: exp, RoleID: roleID},
+					elevateEvalContext{ConnectionMethod: "direct", CertificateData: "ca"},
+				); err != nil {
+					t.Fatalf("SaveElevateCreds: %v", err)
+				}
+			},
+			wantErrMsg: "Cluster not found in eligibility evaluation.",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			primary := newMemoryKeyring()
+			withAllCacheKeyrings(t, primary, newMemoryKeyring())
+			if tc.seedCache != nil {
+				tc.seedCache(t)
+			}
+			sid := tc.reqSID
+			if sid == "" {
+				sid = sessionID
+			}
+			req := newReq(tc.namespace, sid)
+			var errMsg string
+			stderr := captureKubectlLoginStderr(t, func() {
+				errMsg = matchEvalOrActiveSession(req, tc.results)
+			})
+			if errMsg != tc.wantErrMsg {
+				t.Fatalf("errMsg = %q, want %q", errMsg, tc.wantErrMsg)
+			}
+			if req.connectionMethod != tc.wantMethod {
+				t.Errorf("connectionMethod = %q, want %q", req.connectionMethod, tc.wantMethod)
+			}
+			if req.cluster.RootCA != tc.wantRootCA {
+				t.Errorf("RootCA = %q, want %q", req.cluster.RootCA, tc.wantRootCA)
+			}
+			if tc.wantWarn != "" && !strings.Contains(string(stderr), tc.wantWarn) {
+				t.Errorf("stderr = %q, want substring %q", stderr, tc.wantWarn)
+			}
+			if tc.wantContinued != (req.activeSessionNotEligibleMsg != "") {
+				t.Errorf("activeSessionNotEligibleMsg = %q, want set=%v", req.activeSessionNotEligibleMsg, tc.wantContinued)
+			}
+			if tc.wantPurged {
+				key := buildSCAK8sCacheKey(profileName, csp, roleID, fqdn, userUUID, tc.namespace, sid)
+				if v, _ := primary.GetPassword(elevateCredsServiceName, key); v != "" {
+					t.Errorf("expired elevate cache entry was not purged")
+				}
+			}
+		})
+	}
+}
+
+func TestActiveSessionRenewalRefused(t *testing.T) {
+	cases := []struct {
+		name        string
+		notEligible string
+		results     []k8smodels.IdsecSCAK8sElevateResult
+		want        bool
+	}{
+		{name: "eligible_flow_ignores_missing_session", results: []k8smodels.IdsecSCAK8sElevateResult{{}}, want: false},
+		{name: "continuing_session_renewed", notEligible: "not eligible",
+			results: []k8smodels.IdsecSCAK8sElevateResult{{SessionID: "sess-1"}}, want: false},
+		{name: "continuing_session_ineligible_result_without_session", notEligible: "not eligible",
+			results: []k8smodels.IdsecSCAK8sElevateResult{{TargetID: "123456789012"}}, want: true},
+		{name: "continuing_session_no_results", notEligible: "not eligible", want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &kubectlLoginRequest{activeSessionNotEligibleMsg: tc.notEligible}
+			if got := activeSessionRenewalRefused(req, tc.results); got != tc.want {
+				t.Errorf("activeSessionRenewalRefused = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

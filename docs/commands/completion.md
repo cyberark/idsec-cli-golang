@@ -11,7 +11,7 @@ Once installed, pressing `Tab` after `idsec` will suggest commands, subcommands,
 > **Note:** The `completion` command is provided automatically by the CLI framework and requires no additional setup beyond the one-time shell configuration below.
 
 ## Running
-```shell linenums="0"
+```text
 idsec completion [shell]
 ```
 

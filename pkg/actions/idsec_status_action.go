@@ -202,7 +202,7 @@ func (a *IdsecStatusAction) runStatusAction(cmd *cobra.Command, _ []string) erro
 			return applyGojqQuery(missing, query, rawOutput, queryVars...)
 		}
 		if quiet {
-			return &ExitCodeError{Code: exitStatusProfileMissing}
+			return quietExit(exitStatusProfileMissing)
 		}
 		if asJSON {
 			data, _ := json.MarshalIndent(missing, "", "  ")
@@ -295,7 +295,7 @@ func (a *IdsecStatusAction) runStatusAction(cmd *cobra.Command, _ []string) erro
 		if code == 0 {
 			return nil
 		}
-		return &ExitCodeError{Code: code}
+		return quietExit(code)
 	}
 
 	if asJSON {

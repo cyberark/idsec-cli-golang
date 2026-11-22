@@ -276,6 +276,7 @@ idsec sca k8s list-targets
 
 ### Generate kubeconfig for Amazon Elastic Kubernetes Service (EKS) only
 
+<!-- idsec-example: skip reason="generate-kubeconfig bypasses --dry-run, requires an authenticated session" -->
 ```shell linenums="0"
 idsec sca k8s generate-kubeconfig --csp aws
 ```
@@ -321,6 +322,7 @@ users:
 
 ### Generate kubeconfig for Azure Kubernetes Service only
 
+<!-- idsec-example: skip reason="generate-kubeconfig bypasses --dry-run, requires an authenticated session" -->
 ```shell linenums="0"
 idsec sca k8s generate-kubeconfig --csp azure
 ```
@@ -370,6 +372,7 @@ users:
 
 Use `--kubeconfig-location` to set a custom output destination. Supply a full file path when targeting a single cloud provider, or a directory path when generating configs for all cloud providers (files are saved as `<csp>.yaml`):
 
+<!-- idsec-example: skip reason="generate-kubeconfig bypasses --dry-run, requires an authenticated session" -->
 ```shell linenums="0"
 # Single cloud provider — write to an explicit file path
 idsec sca k8s generate-kubeconfig --csp azure --kubeconfig-location /tmp/my-aks.yaml
@@ -382,6 +385,7 @@ idsec sca k8s generate-kubeconfig --kubeconfig-location /tmp/kubeconfigs/
 
 With no flags (or with `--all`), kubeconfigs are generated for all supported cloud providers in parallel. A failure for one cloud provider does not block the others:
 
+<!-- idsec-example: skip reason="generate-kubeconfig bypasses --dry-run, requires an authenticated session" -->
 ```shell linenums="0"
 idsec sca k8s generate-kubeconfig
 ```
@@ -459,6 +463,7 @@ kubectl describe deployment my-app
 
 Kubeconfig files do not contain credentials — they only reference the exec plugin. To refresh the list of clusters and roles (for example, after your eligibility changes), re-run `generate-kubeconfig`:
 
+<!-- idsec-example: skip reason="generate-kubeconfig bypasses --dry-run, requires an authenticated session" -->
 ```shell linenums="0"
 idsec sca k8s generate-kubeconfig
 ```
@@ -467,6 +472,7 @@ This overwrites the existing files and picks up any new clusters or role changes
 
 If the idsec session has expired, authenticate first:
 
+<!-- idsec-example: skip reason="generate-kubeconfig bypasses --dry-run, requires an authenticated session" -->
 ```shell linenums="0"
 idsec login
 idsec sca k8s generate-kubeconfig

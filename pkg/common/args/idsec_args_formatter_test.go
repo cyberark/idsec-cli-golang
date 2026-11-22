@@ -2,12 +2,16 @@ package args
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
 	"testing"
 
+	survey "github.com/Iilun/survey/v2"
 	"github.com/fatih/color"
+	"github.com/spf13/cobra"
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 )
 
@@ -359,3 +363,244 @@ func TestStderrColor(t *testing.T) {
 		})
 	}
 }
+
+func TestGetArg_NonInteractive(t *testing.T) {
+	tests := []struct {
+		name               string
+		flagVal            string
+		existingVal        string
+		prioritizeExisting bool
+		emptyAllowed       bool
+		wantVal            string
+		wantErr            bool
+		wantMissing        bool
+	}{
+		{name: "flag_value_returned", flagVal: "myval", wantVal: "myval"},
+		{name: "existing_val_prioritized", existingVal: "existing", prioritizeExisting: true, wantVal: "existing"},
+		{name: "empty_required_returns_missing", wantErr: true, wantMissing: true},
+		{name: "empty_allowed_returns_empty", emptyAllowed: true, wantVal: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restore := setConfigState(false, true)
+			defer restore()
+			orig := askOne
+			t.Cleanup(func() { askOne = orig })
+			askOne = func(_ survey.Prompt, _ interface{}, _ ...survey.AskOpt) error {
+				t.Fatal("askOne must not be called in non-interactive mode")
+				return nil
+			}
+
+			cmd := &cobra.Command{}
+			cmd.Flags().String("mykey", "", "")
+			if tt.flagVal != "" {
+				_ = cmd.Flags().Set("mykey", tt.flagVal)
+			}
+			got, err := GetArg(cmd, "mykey", "Enter value", tt.existingVal, false, tt.prioritizeExisting, tt.emptyAllowed)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr = %v", err, tt.wantErr)
+			}
+			if tt.wantMissing && !errors.Is(err, ErrMissingRequiredInput) {
+				t.Fatalf("expected ErrMissingRequiredInput, got %v", err)
+			}
+			if tt.wantMissing {
+				var m *MissingRequiredInputError
+				if !errors.As(err, &m) {
+					t.Fatalf("expected MissingRequiredInputError, got %T", err)
+				}
+				if m.Flag != "mykey" {
+					t.Fatalf("Flag = %q, want %q", m.Flag, "mykey")
+				}
+				want := "flag --mykey is required but was not provided"
+				if err.Error() != want {
+					t.Fatalf("Error() = %q, want %q", err.Error(), want)
+				}
+			}
+			if !tt.wantErr && got != tt.wantVal {
+				t.Fatalf("got %q, want %q", got, tt.wantVal)
+			}
+		})
+	}
+}
+
+func TestGetBoolArg_NonInteractive(t *testing.T) {
+	tests := []struct {
+		name     string
+		flagVal  bool
+		existing *bool
+		prio     bool
+		want     bool
+	}{
+		{name: "flag_true", flagVal: true, want: true},
+		{name: "flag_false_default", flagVal: false, want: false},
+		{name: "existing_prioritized", flagVal: false, existing: boolPtr(true), prio: true, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restore := setConfigState(false, true)
+			defer restore()
+			orig := askOne
+			t.Cleanup(func() { askOne = orig })
+			askOne = func(_ survey.Prompt, _ interface{}, _ ...survey.AskOpt) error {
+				t.Fatal("askOne must not be called in non-interactive mode")
+				return nil
+			}
+			cmd := &cobra.Command{}
+			cmd.Flags().Bool("mybool", false, "")
+			if tt.flagVal {
+				_ = cmd.Flags().Set("mybool", "true")
+			}
+			got, err := GetBoolArg(cmd, "mybool", "Choose", tt.existing, tt.prio)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetSwitchArg_NonInteractive(t *testing.T) {
+	tests := []struct {
+		name        string
+		flagVal     string
+		possible    []string
+		wantVal     string
+		wantErr     bool
+		wantMissing bool
+	}{
+		{name: "valid_flag", flagVal: "b", possible: []string{"a", "b", "c"}, wantVal: "b"},
+		{name: "empty_flag_returns_missing", possible: []string{"a", "b"}, wantErr: true, wantMissing: true},
+		{name: "invalid_value_not_missing", flagVal: "z", possible: []string{"a", "b"}, wantErr: true, wantMissing: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restore := setConfigState(false, true)
+			defer restore()
+			orig := askOne
+			t.Cleanup(func() { askOne = orig })
+			askOne = func(_ survey.Prompt, _ interface{}, _ ...survey.AskOpt) error {
+				t.Fatal("askOne must not be called in non-interactive mode")
+				return nil
+			}
+			cmd := &cobra.Command{}
+			cmd.Flags().String("sw", "", "")
+			if tt.flagVal != "" {
+				_ = cmd.Flags().Set("sw", tt.flagVal)
+			}
+			got, err := GetSwitchArg(cmd, "sw", "Pick one", tt.possible, "", false)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr = %v", err, tt.wantErr)
+			}
+			if tt.wantMissing && !errors.Is(err, ErrMissingRequiredInput) {
+				t.Fatalf("expected ErrMissingRequiredInput, got %v", err)
+			}
+			if !tt.wantMissing && tt.wantErr && errors.Is(err, ErrMissingRequiredInput) {
+				t.Fatalf("expected non-missing error, got ErrMissingRequiredInput")
+			}
+			if !tt.wantErr && got != tt.wantVal {
+				t.Fatalf("got %q, want %q", got, tt.wantVal)
+			}
+		})
+	}
+}
+
+func TestGetCheckboxArgs_NonInteractive(t *testing.T) {
+	tests := []struct {
+		name     string
+		vals     []string
+		possible []string
+		wantOut  []string
+		wantErr  bool
+	}{
+		{name: "valid_values", vals: []string{"a", "b"}, possible: []string{"a", "b", "c"}, wantOut: []string{"a", "b"}},
+		{name: "duplicates_removed", vals: []string{"a", "a"}, possible: []string{"a", "b"}, wantOut: []string{"a"}},
+		{name: "empty_stripped", vals: []string{"", "b"}, possible: []string{"a", "b"}, wantOut: []string{"b"}},
+		{name: "no_values_empty_slice", vals: []string{}, possible: []string{"a", "b"}, wantOut: []string{}},
+		{name: "invalid_value_error", vals: []string{"z"}, possible: []string{"a", "b"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restore := setConfigState(false, true)
+			defer restore()
+			orig := askOne
+			t.Cleanup(func() { askOne = orig })
+			askOne = func(_ survey.Prompt, _ interface{}, _ ...survey.AskOpt) error {
+				t.Fatal("askOne must not be called in non-interactive mode")
+				return nil
+			}
+			// Build cmd with flags for each val
+			cmd := &cobra.Command{}
+			keys := []string{}
+			for i, v := range tt.vals {
+				key := fmt.Sprintf("k%d", i)
+				keys = append(keys, key)
+				cmd.Flags().String(key, "", "")
+				if v != "" {
+					_ = cmd.Flags().Set(key, v)
+				}
+			}
+			got, err := GetCheckboxArgs(cmd, keys, "Pick", tt.possible, nil, false)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr = %v", err, tt.wantErr)
+			}
+			if !tt.wantErr {
+				if len(got) != len(tt.wantOut) {
+					t.Fatalf("got %v, want %v", got, tt.wantOut)
+				}
+				for i := range got {
+					if got[i] != tt.wantOut[i] {
+						t.Fatalf("got[%d] = %q, want %q", i, got[i], tt.wantOut[i])
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestGetConfirmation_NonInteractive(t *testing.T) {
+	t.Run("yes_flag_returns_true_no_prompt", func(t *testing.T) {
+		restore := setConfigState(false, true)
+		defer restore()
+		orig := askOne
+		t.Cleanup(func() { askOne = orig })
+		askOne = func(_ survey.Prompt, _ interface{}, _ ...survey.AskOpt) error {
+			t.Fatal("askOne must not be called when --yes is set")
+			return nil
+		}
+		cmd := &cobra.Command{}
+		cmd.Flags().Bool("yes", false, "")
+		_ = cmd.Flags().Set("yes", "true")
+		ok, err := GetConfirmation(cmd, "yes", "Confirm?")
+		if err != nil || !ok {
+			t.Fatalf("got ok=%v err=%v, want ok=true err=nil", ok, err)
+		}
+	})
+
+	t.Run("no_yes_non_interactive_returns_missing_input", func(t *testing.T) {
+		restore := setConfigState(false, true)
+		defer restore()
+		orig := askOne
+		t.Cleanup(func() { askOne = orig })
+		askOne = func(_ survey.Prompt, _ interface{}, _ ...survey.AskOpt) error {
+			t.Fatal("askOne must not be called in non-interactive mode")
+			return nil
+		}
+		cmd := &cobra.Command{}
+		cmd.Flags().Bool("yes", false, "")
+		ok, err := GetConfirmation(cmd, "yes", "Confirm?")
+		if ok {
+			t.Fatal("expected ok=false")
+		}
+		if !errors.Is(err, ErrMissingRequiredInput) {
+			t.Fatalf("expected ErrMissingRequiredInput, got %v", err)
+		}
+		var m *MissingRequiredInputError
+		if !errors.As(err, &m) || m.Flag != "yes" {
+			t.Fatalf("expected Flag=yes, got %v", m)
+		}
+	})
+}
+
+func boolPtr(b bool) *bool { return &b }

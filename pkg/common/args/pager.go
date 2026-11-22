@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/mattn/go-isatty"
+	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 	"golang.org/x/term"
 )
 
@@ -20,6 +21,19 @@ var IsStdoutTTY = func() bool {
 // It is a var so tests can override it.
 var IsStderrTTY = func() bool {
 	return isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())
+}
+
+// IsStdinTTY reports whether stdin is connected to an interactive terminal.
+// It is a var so tests can override it.
+var IsStdinTTY = func() bool {
+	return isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd())
+}
+
+// ShouldPage reports whether --page-size output should pause between pages:
+// only when paging was requested, stdout is a terminal, and the CLI is
+// interactive (not --agent or --silent).
+func ShouldPage(pageSize int) bool {
+	return pageSize > 0 && IsStdoutTTY() && config.IsInteractive()
 }
 
 // PromptContinue waits for a single keypress from the controlling terminal and
@@ -53,6 +67,9 @@ func PromptContinue() bool {
 //   - At each boundary (renderedCount % pageSize == 0), prompt for continuation
 func ShouldContinueForNextItem(renderedCount, pageSize int) bool {
 	if pageSize <= 0 || renderedCount == 0 || renderedCount%pageSize != 0 {
+		return true
+	}
+	if !config.IsInteractive() {
 		return true
 	}
 	return PromptContinue()

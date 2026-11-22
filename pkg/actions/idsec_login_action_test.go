@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/cyberark/idsec-cli-golang/pkg/actions/testutils"
+	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
@@ -521,6 +522,49 @@ func TestIdsecLoginAction_loadProfileWithConfigureFlow_ExistingProfile(t *testin
 	}
 	if configureTriggered {
 		t.Error("Expected configure flow NOT to be triggered when profile already exists")
+	}
+}
+
+// A missing and an unreadable profile print the same text when not
+// interactive, but only the unreadable one is a *profileUnreadableError.
+func TestIdsecLoginAction_loadProfileWithConfigureFlow_NonInteractive(t *testing.T) {
+	wasInteractive := config.IsInteractive()
+	config.DisableInteractive()
+	t.Cleanup(func() {
+		if wasInteractive {
+			config.EnableInteractive()
+		}
+	})
+	cause := errors.New("unexpected end of JSON input")
+	for _, tc := range []struct {
+		name           string
+		loadErr        error
+		wantUnreadable bool
+	}{
+		{name: "missing"},
+		{name: "unreadable", loadErr: cause, wantUnreadable: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockLoader := testutils.NewMockProfileLoader()
+			mockLoader.LoadProfileFunc = func(string) (*models.IdsecProfile, error) { return nil, tc.loadErr }
+			action := NewIdsecLoginAction(mockLoader.AsProfileLoader())
+
+			profile, err := action.loadProfileWithConfigureFlow("p", &cobra.Command{})
+
+			if profile != nil || err == nil {
+				t.Fatalf("got (%v, %v), want (nil, error)", profile, err)
+			}
+			if err.Error() != noProfileNonInteractiveMessage {
+				t.Errorf("err = %q, want %q", err.Error(), noProfileNonInteractiveMessage)
+			}
+			var unreadable *profileUnreadableError
+			if got := errors.As(err, &unreadable); got != tc.wantUnreadable {
+				t.Errorf("errors.As(*profileUnreadableError) = %v, want %v", got, tc.wantUnreadable)
+			}
+			if tc.wantUnreadable && !errors.Is(err, cause) {
+				t.Errorf("err does not wrap the load error")
+			}
+		})
 	}
 }
 

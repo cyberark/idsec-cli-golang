@@ -108,6 +108,7 @@ Accepted values: `client`, `target`, `connector`, `domain-controller` (`dc` is a
 
 ### Remote client machine instead of local
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check --clients '[
   {
@@ -135,6 +136,7 @@ idsec sia doctor check --local-connector
 
 ### Full sweep — all four modes with credentials
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON arguments cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check \
   --clients '[

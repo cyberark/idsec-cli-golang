@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	api "github.com/cyberark/idsec-sdk-golang/pkg"
 	sdkcommon "github.com/cyberark/idsec-sdk-golang/pkg/common"
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
@@ -26,6 +27,17 @@ const (
 	TagKeyCLIVersion = "clv"
 	// TagKeyCLIResource is the FAS tag key for CLI resource path context.
 	TagKeyCLIResource = "clr"
+	// TagKeyCLIAgent is the FAS tag key for the invocation's agent source.
+	// It is present on every report. Its value is a slug from the agentmode
+	// detector registry when agent mode is enabled and an agent was detected,
+	// "unknown" when agent mode is enabled but no agent was detected, and
+	// "human" when agent mode is not enabled; never raw environment content.
+	TagKeyCLIAgent = "cla"
+	// AgentUnknownSlug is the cla value when agent mode is enabled but no
+	// specific agent was detected via the detector registry.
+	AgentUnknownSlug = "unknown"
+	// AgentHumanSlug is the cla value when agent mode is not enabled.
+	AgentHumanSlug = "human"
 )
 
 // ReportOptions holds optional parameters for FAS reporting.
@@ -43,6 +55,8 @@ type ReportOptions struct {
 // ReportOperationDefer returns a function to be used with defer.
 // It reports execution metrics when the calling function returns.
 // extraTags are merged into the FAS report tags (e.g. cls, clo, clr, clv).
+// The cla tag is always added by the reporter (agent slug, "unknown" or "human")
+// and cannot be overridden.
 func ReportOperationDefer(ctx context.Context, idsecAPI *api.IdsecAPI, logger *sdkcommon.IdsecLogger, status *string, message *string, extraTags map[string]string) func() {
 	start := time.Now()
 	return func() {
@@ -93,13 +107,23 @@ func ReportAsync(ctx context.Context, idsecAPI *api.IdsecAPI, logger *sdkcommon.
 
 func buildTags(opts *ReportOptions) map[string]string {
 	tags := make(map[string]string)
-	if opts == nil {
-		return tags
-	}
-	for k, v := range opts.ExtraTags {
-		if k != "" && v != "" {
-			tags[k] = v
+	if opts != nil {
+		for k, v := range opts.ExtraTags {
+			if k != "" && v != "" {
+				tags[k] = v
+			}
 		}
+	}
+	// cla is owned by the reporter and is always set: a caller-supplied value is
+	// overwritten so the tag only ever carries a registry slug or a sentinel.
+	if agentmode.IsEnabled() {
+		if slug := agentmode.DetectedAgent(); slug != "" {
+			tags[TagKeyCLIAgent] = slug
+		} else {
+			tags[TagKeyCLIAgent] = AgentUnknownSlug
+		}
+	} else {
+		tags[TagKeyCLIAgent] = AgentHumanSlug
 	}
 	return tags
 }

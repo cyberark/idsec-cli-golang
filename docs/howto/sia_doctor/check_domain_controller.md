@@ -94,6 +94,7 @@ idsec sia doctor check-domain-controller
 
 ### One or more explicit DCs by hostname
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check-domain-controller --domain-controllers '[
   {"hostname": "dc01.corp.local"},
@@ -103,6 +104,7 @@ idsec sia doctor check-domain-controller --domain-controllers '[
 
 ### DC with WinRM credentials (enables private-address resolution)
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check-domain-controller --domain-controllers '[
   {
@@ -119,6 +121,7 @@ The doctor connects over WinRM, resolves the DC's private IPs and FQDN, and then
 
 ### Multiple DCs
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check-domain-controller --domain-controllers '[
   {

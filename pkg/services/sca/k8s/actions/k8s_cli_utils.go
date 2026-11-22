@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/cyberark/idsec-cli-golang/pkg/common/args"
+	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 	k8smodels "github.com/cyberark/idsec-sdk-golang/pkg/services/sca/k8s/models"
 )
 
@@ -18,6 +20,23 @@ const emptyKubeconfigContent = "apiVersion: v1\nkind: Config\nclusters: []\ncont
 
 func normalizeCSP(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+// normalizeConnectionMethod canonicalizes the evaluate connectionMethod for comparison and caching.
+func normalizeConnectionMethod(method string) string {
+	return strings.ToLower(strings.TrimSpace(method))
+}
+
+// notEligibleMessage returns the exit message for an evaluate response with no matching target.
+func notEligibleMessage(results []k8smodels.IdsecSCAK8sEvaluateResult, fqdn, roleID, namespace string) string {
+	switch {
+	case len(results) == 0:
+		return "Cluster not found in eligibility evaluation."
+	case strings.TrimSpace(namespace) != "":
+		return fmt.Sprintf("user is not eligible for target (no evaluate result matched fqdn=%q roleId=%q namespace=%q)", fqdn, roleID, namespace)
+	default:
+		return fmt.Sprintf("user is not eligible for target (no evaluate result matched fqdn=%q roleId=%q)", fqdn, roleID)
+	}
 }
 
 func isValidCSP(csp string) bool {
@@ -215,4 +234,74 @@ func writeKubeconfigs(result map[string]string, kubeconfigLocation string) (summ
 		os.Exit(1)
 	}
 	return summary, successCount, failureCount
+}
+
+// ── CLI version mismatch (HTTP 426) ──────────────────────────────────────────
+
+type versionMismatchServerResponse struct {
+	Code       string `json:"code"`
+	MinVersion string `json:"minVersion"` // server sends "minVersion" (not "required")
+}
+
+// VersionMismatchHint replaces errMsg with a short version mismatch message when it carries a 426
+// CLI_VERSION_UNSUPPORTED body, and returns errMsg unchanged otherwise.
+func VersionMismatchHint(errMsg string) string {
+	if minVersion, ok := parseVersionMismatchBody(errMsg); ok {
+		return formatExactVersionMismatch(config.IdsecVersion(), minVersion)
+	}
+	return errMsg
+}
+
+func parseVersionMismatchBody(errMsg string) (minVersion string, ok bool) {
+	const bodyMarker = "Response body: "
+	idx := strings.Index(errMsg, bodyMarker)
+	if idx == -1 {
+		return "", false
+	}
+	rawBody := strings.TrimSpace(errMsg[idx+len(bodyMarker):])
+	if rawBody == "" {
+		return "", false
+	}
+
+	var resp versionMismatchServerResponse
+	if err := json.Unmarshal([]byte(rawBody), &resp); err != nil {
+		return "", false
+	}
+	if strings.ToLower(resp.Code) != "cli_version_unsupported" {
+		return "", false
+	}
+	return resp.MinVersion, true
+}
+
+// versionMismatchHeader starts every formatted version mismatch message.
+const versionMismatchHeader = "Error: idsec CLI version mismatch."
+
+func formatExactVersionMismatch(currentVersion, required string) string {
+	requiredLine := required
+	if requiredLine == "" {
+		requiredLine = "unknown (please upgrade to the latest version)"
+	} else {
+		requiredLine = ">= " + requiredLine
+	}
+	return fmt.Sprintf(versionMismatchHeader+`
+  Current version : %s
+  Required version: %s`,
+		currentVersion, requiredLine)
+}
+
+// findVersionMismatch scans per-CSP results (as returned by the parallel path, where
+// failures are stored as values rather than returned as errors) and reports the first
+// CLI version mismatch (HTTP 426). The mismatch is global, so callers should report it once.
+func findVersionMismatch(result map[string]string) (message string, found bool) {
+	keys := make([]string, 0, len(result))
+	for k := range result {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if minVersion, ok := parseVersionMismatchBody(result[k]); ok {
+			return formatExactVersionMismatch(config.IdsecVersion(), minVersion), true
+		}
+	}
+	return "", false
 }

@@ -94,6 +94,7 @@ Accepted protocol values: `ssh`, `rdp`, `mysql`, `mariadb`, `postgres`, `mssql`,
 
 ### Check from a remote Linux client (SSH key)
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check-client --clients '[
   {
@@ -107,6 +108,7 @@ idsec sia doctor check-client --clients '[
 
 ### Check from multiple remote clients simultaneously
 
+<!-- idsec-example: skip reason="multi-line single-quoted JSON argument cannot be validated by the line-by-line tokenizer" -->
 ```shell linenums="0"
 idsec sia doctor check-client --clients '[
   {

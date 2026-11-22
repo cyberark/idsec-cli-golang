@@ -27,9 +27,11 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 
 	"github.com/cyberark/idsec-cli-golang/pkg/actions"
+	"github.com/cyberark/idsec-cli-golang/pkg/agentmode"
 	cliconfig "github.com/cyberark/idsec-cli-golang/pkg/config"
 	_ "github.com/cyberark/idsec-cli-golang/pkg/registry"
 	k8sactions "github.com/cyberark/idsec-cli-golang/pkg/services/sca/k8s/actions"
@@ -64,6 +66,9 @@ func main() {
 
 	configPath := cliconfig.ResolveConfigFilePath(cliconfig.ExtractConfigFlag())
 	cliconfig.LoadConfigFile(configPath)
+	// Before registerActions: registration can panic, and that report must
+	// already know whether agent mode is on.
+	agentmode.ResolveFromArgs(os.Args[1:])
 
 	config.SetIdsecToolInUse(config.IdsecToolCLI)
 	profilesLoader := profiles.DefaultProfilesLoader()
@@ -97,6 +102,7 @@ func createRootCommand() *cobra.Command {
 	rootCmd.SilenceUsage = true
 	// Silence errors so Cobra doesn't print them before our error handler can reroute
 	rootCmd.SilenceErrors = true
+	rootCmd.SetFlagErrorFunc(actions.FlagError)
 	return rootCmd
 }
 
@@ -334,9 +340,7 @@ func setupDefaultRouting(rootCmd *cobra.Command) {
 			// If NOT a known subcommand, route to exec
 			// (If it was a known subcommand, Cobra would have matched it and we wouldn't be here)
 			if err := routeToExec(cmd); err != nil {
-				exitIfExitCodeError(err)
-				_, _ = fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
+				exitWithError(cmd, err, false)
 			}
 		}
 	}
@@ -394,8 +398,10 @@ func commandAcceptsFlagValue(cmd *cobra.Command, flagName string) bool {
 }
 
 // findUnknownCommandInArgs walks argv tokens and returns the first unmatched
-// positional token plus the command path where matching failed.
-func findUnknownCommandInArgs(rootCmd *cobra.Command, argv []string) (string, string) {
+// positional token (or "") plus the last matched command. afterUnknownFlag
+// reports that the token directly follows a flag the matched command doesn't
+// define, so it may be that flag's value rather than a mistyped command.
+func findUnknownCommandInArgs(rootCmd *cobra.Command, argv []string) (token string, last *cobra.Command, afterUnknownFlag bool) {
 	current := rootCmd
 	for i := 0; i < len(argv); i++ {
 		token := argv[i]
@@ -405,6 +411,7 @@ func findUnknownCommandInArgs(rootCmd *cobra.Command, argv []string) (string, st
 
 		if strings.HasPrefix(token, "-") {
 			flagName, hasInlineValue := parseFlagToken(token)
+			afterUnknownFlag = flagName != "" && !hasInlineValue && !commandDefinesFlag(current, flagName)
 			if flagName != "" && !hasInlineValue && commandAcceptsFlagValue(current, flagName) && i+1 < len(argv) {
 				i++
 			}
@@ -413,8 +420,9 @@ func findUnknownCommandInArgs(rootCmd *cobra.Command, argv []string) (string, st
 
 		next := findSubcommand(current, token)
 		if next == nil {
-			return token, current.CommandPath()
+			return token, current, afterUnknownFlag
 		}
+		afterUnknownFlag = false
 		current = next
 		// Leaf commands (no subcommands) handle all remaining tokens themselves
 		// as flags and positional args. Stop traversal here to avoid
@@ -424,17 +432,24 @@ func findUnknownCommandInArgs(rootCmd *cobra.Command, argv []string) (string, st
 			break
 		}
 	}
-	return "", ""
+	return "", current, false
+}
+
+// commandDefinesFlag reports whether cmd defines flagName, locally or inherited.
+func commandDefinesFlag(cmd *cobra.Command, flagName string) bool {
+	return cmd.Flags().Lookup(flagName) != nil || cmd.InheritedFlags().Lookup(flagName) != nil
 }
 
 func validateCommandPathBeforeExecution(rootCmd *cobra.Command) error {
-	if len(os.Args) <= 1 {
-		return nil
+	var argv []string
+	if len(os.Args) > 1 {
+		argv = os.Args[1:]
 	}
-
-	argv := os.Args[1:]
 	firstArg := firstPositionalArg(argv)
 	if firstArg == "" {
+		if agentmode.IsEnabled() && !hasHelpFlag(argv) && !hasUndefinedFlag(rootCmd, argv) {
+			return actions.IncompleteCommandFailure(rootCmd)
+		}
 		return nil
 	}
 
@@ -452,33 +467,114 @@ func validateCommandPathBeforeExecution(rootCmd *cobra.Command) error {
 		validationArgs = append([]string{"exec"}, argv...)
 	}
 
-	unknownToken, failedPath := findUnknownCommandInArgs(rootCmd, validationArgs)
-	if unknownToken == "" || failedPath == "" {
-		return nil
+	unknownToken, last, mayBeFlagValue := findUnknownCommandInArgs(rootCmd, validationArgs)
+	if unknownToken != "" {
+		return actions.UnknownCommandFailure(unknownToken, last, mayBeFlagValue)
 	}
-	return fmt.Errorf("unknown command %q for %q", unknownToken, failedPath)
+	// Human mode keeps Cobra's help-and-exit-0 for group commands.
+	if agentmode.IsEnabled() && last.HasSubCommands() && !last.Runnable() && !hasHelpFlag(argv) &&
+		!hasUndefinedFlag(last, validationArgs) {
+		return actions.IncompleteCommandFailure(last)
+	}
+	return nil
 }
 
-// exitIfExitCodeError exits with the carried code when err is an
-// *actions.ExitCodeError. The action already reported its failure to the user;
-// only a specific non-zero exit code is required, so nothing further is printed.
-func exitIfExitCodeError(err error) {
-	var exitErr *actions.ExitCodeError
-	if errors.As(err, &exitErr) {
-		os.Exit(exitErr.Code)
+// hasUndefinedFlag reports whether argv holds a flag that cmd doesn't define,
+// so that Cobra's flag error is reported instead of an incomplete command.
+// --agent and --no-agent are resolved from argv before Cobra runs.
+func hasUndefinedFlag(cmd *cobra.Command, argv []string) bool {
+	for i := 0; i < len(argv); i++ {
+		token := argv[i]
+		if token == "--" {
+			return false
+		}
+		if !strings.HasPrefix(token, "-") || token == "-" {
+			continue
+		}
+		name, hasInlineValue := parseFlagToken(token)
+		if name == "agent" || name == "no-agent" {
+			continue
+		}
+		flag := lookupDefinedFlag(cmd, token, name)
+		if flag == nil {
+			return true
+		}
+		inlineValue := hasInlineValue || (!strings.HasPrefix(token, "--") && len(name) > 1)
+		if !inlineValue && flag.NoOptDefVal == "" {
+			i++
+		}
 	}
+	return false
+}
+
+// lookupDefinedFlag finds the flag token names among cmd's local, own
+// persistent and inherited flags. Before Execute, Cobra hasn't merged a
+// command's own persistent flags into Flags(). For a single-dash token only
+// its first letter names a (shorthand) flag.
+func lookupDefinedFlag(cmd *cobra.Command, token, name string) *pflag.Flag {
+	if name == "" {
+		return nil
+	}
+	for _, fs := range []*pflag.FlagSet{cmd.Flags(), cmd.PersistentFlags(), cmd.InheritedFlags()} {
+		var flag *pflag.Flag
+		if strings.HasPrefix(token, "--") {
+			flag = fs.Lookup(name)
+		} else {
+			flag = fs.ShorthandLookup(name[:1])
+		}
+		if flag != nil {
+			return flag
+		}
+	}
+	return nil
+}
+
+var osExit = os.Exit
+
+// exitWithError reports err exactly once and terminates the process.
+// showHelp preserves today's root-help dump for human mode at the final site only.
+func exitWithError(rootCmd *cobra.Command, err error, showHelp bool) {
+	osExit(reportError(rootCmd, err, showHelp, os.Stdout, os.Stderr))
+}
+
+// reportError writes err's report and returns the process exit code. An
+// *actions.ExitCodeError was already reported by the action that returned it.
+func reportError(rootCmd *cobra.Command, err error, showHelp bool, stdout, stderr io.Writer) int {
+	code := 1
+	var exitErr *actions.ExitCodeError
+	reported := errors.As(err, &exitErr)
+	if reported {
+		code = exitErr.Code
+		if exitErr.Quiet {
+			return code
+		}
+	}
+	if agentmode.IsEnabled() {
+		if !reported {
+			_, _ = fmt.Fprintln(stderr, err)
+		}
+		actions.WriteErrorEnvelope(stdout, err)
+		return code
+	}
+	if reported {
+		return code
+	}
+	if showHelp {
+		reportCommandError(rootCmd, err, stderr)
+	} else {
+		_, _ = fmt.Fprintln(stderr, err)
+	}
+	return code
 }
 
 // handleCommandExecution executes the root command and handles errors, including routing unknown commands to exec.
 func handleCommandExecution(rootCmd *cobra.Command) {
 	if validationErr := validateCommandPathBeforeExecution(rootCmd); validationErr != nil {
-		_, _ = fmt.Fprintln(os.Stderr, validationErr)
-		os.Exit(1)
+		exitWithError(rootCmd, validationErr, false)
+		return
 	}
 
 	if err := rootCmd.Execute(); err != nil {
-		exitIfExitCodeError(err)
-
 		errStr := err.Error()
 
 		// Check if this is an "unknown command" or "unknown flag" error that should be routed to exec
@@ -494,16 +590,13 @@ func handleCommandExecution(rootCmd *cobra.Command) {
 
 				// Re-execute with exec prepended
 				if retryErr := rootCmd.Execute(); retryErr != nil {
-					exitIfExitCodeError(retryErr)
-					_, _ = fmt.Fprintln(os.Stderr, retryErr)
-					os.Exit(1)
+					exitWithError(rootCmd, retryErr, false)
 				}
 				return
 			}
 		}
 
-		reportCommandError(rootCmd, err, os.Stderr)
-		os.Exit(1)
+		exitWithError(rootCmd, err, true)
 	}
 }
 

@@ -2,6 +2,8 @@ package args
 
 import (
 	"testing"
+
+	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 )
 
 func TestPromptContinue(t *testing.T) {
@@ -29,6 +31,52 @@ func TestPromptContinue(t *testing.T) {
 
 			if got := PromptContinue(); got != tt.expected {
 				t.Errorf("PromptContinue() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestShouldPage(t *testing.T) {
+	// NOT t.Parallel() — mutates IsStdoutTTY and process-global config state.
+	tests := []struct {
+		name        string
+		pageSize    int
+		tty         bool
+		interactive bool
+		expected    bool
+	}{
+		{name: "success_pages_on_interactive_tty", pageSize: 2, tty: true, interactive: true, expected: true},
+		{name: "success_page_size_zero_never_pages", pageSize: 0, tty: true, interactive: true, expected: false},
+		{name: "success_negative_page_size_never_pages", pageSize: -1, tty: true, interactive: true, expected: false},
+		{name: "success_non_tty_does_not_page", pageSize: 2, tty: false, interactive: true, expected: false},
+		{name: "success_non_interactive_tty_does_not_page", pageSize: 2, tty: true, interactive: false, expected: false},
+		{name: "success_non_interactive_non_tty_does_not_page", pageSize: 2, tty: false, interactive: false, expected: false},
+		{name: "success_page_size_zero_non_tty_non_interactive", pageSize: 0, tty: false, interactive: false, expected: false},
+	}
+
+	origTTY := IsStdoutTTY
+	prevInteractive := config.IsInteractive()
+	t.Cleanup(func() {
+		IsStdoutTTY = origTTY
+		if prevInteractive {
+			config.EnableInteractive()
+		} else {
+			config.DisableInteractive()
+		}
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			IsStdoutTTY = func() bool { return tt.tty }
+			if tt.interactive {
+				config.EnableInteractive()
+			} else {
+				config.DisableInteractive()
+			}
+
+			if got := ShouldPage(tt.pageSize); got != tt.expected {
+				t.Errorf("ShouldPage(%d) with tty=%v interactive=%v = %v, want %v",
+					tt.pageSize, tt.tty, tt.interactive, got, tt.expected)
 			}
 		})
 	}
@@ -63,3 +111,20 @@ var errReadStub = stubError("read failed")
 type stubError string
 
 func (e stubError) Error() string { return string(e) }
+
+func TestShouldContinueForNextItem_NonInteractive(t *testing.T) {
+	// NOT t.Parallel() — mutates process-global config state and readSingleKey.
+	config.DisableInteractive()
+	defer config.EnableInteractive()
+
+	orig := readSingleKey
+	t.Cleanup(func() { readSingleKey = orig })
+	readSingleKey = func() (byte, error) {
+		t.Fatal("readSingleKey must not be called in non-interactive mode")
+		return 0, nil
+	}
+
+	if !ShouldContinueForNextItem(3, 3) {
+		t.Fatal("expected true at page boundary in non-interactive mode")
+	}
+}
